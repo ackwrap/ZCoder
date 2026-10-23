@@ -97,6 +97,21 @@ jobs:
         working-directory: ZCode
         run: pnpm install --frozen-lockfile
 
+      - name: Stamp release version
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "release tag must be v<semver>, got: $TAG" >&2
+            exit 1
+          fi
+          # 只改检出目录里的版本，交付物仍是补丁；安装包名与 About 都取这个值。
+          node -e 'const fs=require("node:fs");const p="ZCode/package.json";const j=JSON.parse(fs.readFileSync(p,"utf8"));j.version=process.argv[1];fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$version"
+          node -e 'console.log("app version:",require("./ZCode/package.json").version)'
+
       - name: Build and package
         shell: bash
         working-directory: ZCode
