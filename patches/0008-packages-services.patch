@@ -32,19 +32,19 @@ index f23e43d6f88f8df3079f9dabce8a82493cc1f7ea..5356640039c288cac0915723253391bd
    /** 当前 Environment Registry 发布的唯一模型选择 View。 */
 diff --git a/packages/services/src/codex-provider/CONTRACT.md b/packages/services/src/codex-provider/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..1bcf3f663356ebb4fcf7b91f1c04dab25f33bc52
+index 0000000000000000000000000000000000000000..47c2b411bac0fbf4eac6918e58733e3a5127dfce
 --- /dev/null
 +++ b/packages/services/src/codex-provider/CONTRACT.md
 @@ -0,0 +1,9 @@
 +# codex-provider
 +
-+Host 唯一拥有 ChatGPT token-sharing 登录尝试、注册身份、加密凭据和刷新。
-+同时拥有显式 Codex device 登录尝试、轮询与模式隔离；两种登录共享生命周期 owner，不隐式回退。user_code 只投影给主动登录的 UI，不包含 device_auth_id / code_verifier / tokens。
++Host 唯一拥有 Codex 浏览器及显式 device 登录尝试、加密凭据和刷新；授权参数、PKCE、交换与刷新采用 opencode v2.1.4 的 openai.ts 固定客户端流程，不再动态注册 Token Sharing client。
++两种登录共享生命周期 owner 和 Codex token endpoint，method 区分 UI 来源，不隐式回退。user_code 只投影给主动登录的 UI，不包含 device_auth_id / code_verifier / tokens。
 +UI 只消费 contract 的无秘密状态；Agent 通过既有 runtime-header RPC 获取单次请求材料。
 +`assertProvider` 在读取凭据前校验当前 provider 与固定 OpenAI Responses endpoint；`withLock` 与 CredentialService 由装配层注入。
-+状态、client ID、nonce、ID token 与 sharing scope 必须验证；取消、超时、Host dispose、不同 revision 的迟到结果不能提交。
-+协议与场景见 `docs/provider-codex.md`，不使用 legacy Codex 或其他应用的凭据作为隐式回退。
-+设备码明确选择、固定后端和单次鉴权 codexMode 的例外见 `docs/provider-codex-device.md`。
++保留 state、固定 Codex client、JWKS 签名/issuer/audience/exp/sub 和账号校验；不从未验证 access token 推断身份。取消、超时、Host dispose、不同 revision 的迟到结果不能提交，端口重试期间也必须可取消并释放 listener。
++协议与场景见 `docs/provider-codex.md`，不读取其他应用凭据；旧无账号 Token Sharing 记录保留但不能解析为 Codex 身份。
++设备码明确选择、固定后端和单次鉴权 codexMode 见 `docs/provider-codex-device.md`；浏览器与设备码均返回相同 Codex 后端身份。
 diff --git a/packages/services/src/codex-provider/contract.example.ts b/packages/services/src/codex-provider/contract.example.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..d2524d221cb558a0a9043d7b3daa9a438e3264ac
@@ -128,22 +128,22 @@ index 0000000000000000000000000000000000000000..40cc8a36e4c1ad743e8f4089f4aebed5
 +}
 diff --git a/packages/services/src/codex-provider/device.ts b/packages/services/src/codex-provider/device.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00b57d7930
+index 0000000000000000000000000000000000000000..5a1355aef3177306eee1154b7d87bba12c0fd856
 --- /dev/null
 +++ b/packages/services/src/codex-provider/device.ts
-@@ -0,0 +1,176 @@
-+// Device protocol reference: OpenCode c93aaae provider/openai.ts (MIT), explicit legacy method.
+@@ -0,0 +1,140 @@
++// Device protocol reference: OpenCode v2.1.4 provider/openai.ts (MIT), explicit legacy method.
 +import { z } from "zod";
-+export const DEVICE_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-+export const DEVICE_VERIFICATION_URL = "https://auth.openai.com/codex/device";
-+const ISSUER = "https://auth.openai.com";
-+const tokenSchema = z.object({
-+  access_token: z.string().min(1),
-+  refresh_token: z.string().min(1),
-+  id_token: z.string().optional(),
-+  expires_in: z.number().positive().optional(),
-+  scope: z.string().optional(),
-+});
++import {
++  CODEX_ISSUER,
++  CODEX_CLIENT_ID,
++  CODEX_HTTP_TIMEOUT_MS,
++  codexHeaders,
++  readCodexJson,
++  exchangeCodexCode,
++} from "./protocol.js";
++export const DEVICE_VERIFICATION_URL = `${CODEX_ISSUER}/codex/device`;
++const MAX_TIMER_MS = 2_147_483_647;
 +const deviceSchema = z.object({
 +  device_auth_id: z.string().min(1).max(4096),
 +  user_code: z.string().regex(/^[A-Za-z0-9-]{4,64}$/),
@@ -158,35 +158,16 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +      clearTimeout(timer);
 +      reject(signal.reason);
 +    };
-+    const timer = setTimeout(() => {
-+      signal.removeEventListener("abort", abort);
-+      resolve();
-+    }, ms);
++    const timer = setTimeout(
++      () => {
++        signal.removeEventListener("abort", abort);
++        if (ms > MAX_TIMER_MS) resolve(wait(ms - MAX_TIMER_MS, signal));
++        else resolve();
++      },
++      Math.min(ms, MAX_TIMER_MS),
++    );
 +    signal.addEventListener("abort", abort, { once: true });
 +  });
-+}
-+async function boundedJson(response: Response): Promise<unknown> {
-+  if (!response.body) throw new Error("codex-device-response-invalid");
-+  const reader = response.body.getReader();
-+  const chunks: Uint8Array[] = [];
-+  let length = 0;
-+  try {
-+    while (true) {
-+      const { done, value } = await reader.read();
-+      if (done) break;
-+      length += value.length;
-+      if (length > 64 * 1024) throw new Error("codex-device-response-invalid");
-+      chunks.push(value);
-+    }
-+    const body = Buffer.concat(chunks);
-+    try {
-+      return JSON.parse(body.toString("utf8"));
-+    } catch {
-+      throw new Error("codex-device-response-invalid");
-+    }
-+  } finally {
-+    void reader.cancel().catch(() => {});
-+  }
 +}
 +async function post(
 +  fetcher: Fetch,
@@ -194,15 +175,14 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +  body: object | URLSearchParams,
 +  signal: AbortSignal,
 +): Promise<Response> {
-+  return fetcher(`${ISSUER}${path}`, {
++  signal.throwIfAborted();
++  return fetcher(`${CODEX_ISSUER}${path}`, {
 +    method: "POST",
 +    redirect: "error",
-+    signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
-+    headers: {
-+      "Content-Type":
-+        body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json",
-+      "User-Agent": "ZCode",
-+    },
++    signal: AbortSignal.any([signal, AbortSignal.timeout(CODEX_HTTP_TIMEOUT_MS)]),
++    headers: codexHeaders(
++      body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json",
++    ),
 +    body: body instanceof URLSearchParams ? body.toString() : JSON.stringify(body),
 +  });
 +}
@@ -210,7 +190,7 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +  const response = await post(
 +    fetcher,
 +    "/api/accounts/deviceauth/usercode",
-+    { client_id: DEVICE_CLIENT_ID },
++    { client_id: CODEX_CLIENT_ID },
 +    signal,
 +  );
 +  if (!response.ok) {
@@ -219,11 +199,13 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +      response.status === 404 ? "codex-device-unavailable" : "codex-device-request-failed",
 +    );
 +  }
-+  const parsed = deviceSchema.safeParse(await boundedJson(response));
++  const parsed = deviceSchema.safeParse(await readCodexJson(response));
 +  if (!parsed.success) throw new Error("codex-device-response-invalid");
++  const intervalMs = Math.max(Number.parseInt(String(parsed.data.interval)) || 5, 1) * 1000 + 3000;
++  if (!Number.isFinite(intervalMs)) throw new Error("codex-device-response-invalid");
 +  return {
 +    ...parsed.data,
-+    intervalMs: Math.max(1, Math.min(60, Number(parsed.data.interval) || 5)) * 1000 + 3000,
++    intervalMs,
 +    expiresMs: Math.min(900, parsed.data.expires_in ?? 900) * 1000,
 +  };
 +}
@@ -244,16 +226,13 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +    if (response.ok) {
 +      const parsed = z
 +        .object({ authorization_code: z.string().min(1), code_verifier: z.string().min(1) })
-+        .safeParse(await boundedJson(response));
++        .safeParse(await readCodexJson(response));
 +      if (!parsed.success) throw new Error("codex-device-response-invalid");
-+      return requestDeviceTokens(
++      return exchangeCodexCode(
 +        fetcher,
-+        new URLSearchParams({
-+          grant_type: "authorization_code",
-+          code: parsed.data.authorization_code,
-+          code_verifier: parsed.data.code_verifier,
-+          redirect_uri: `${ISSUER}/deviceauth/callback`,
-+        }),
++        parsed.data.authorization_code,
++        `${CODEX_ISSUER}/deviceauth/callback`,
++        { verifier: parsed.data.code_verifier },
 +        signal,
 +      );
 +    }
@@ -264,7 +243,7 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +        : Number(retryHeader);
 +    let error: unknown;
 +    try {
-+      const value = await boundedJson(response);
++      const value = await readCodexJson(response);
 +      const raw = value && typeof value === "object" && "error" in value ? value.error : undefined;
 +      error =
 +        typeof raw === "string"
@@ -281,8 +260,8 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +      throw new Error("codex-device-expired");
 +    if (error === "slow_down" || response.status === 429)
 +      interval = Math.max(
-+        Math.min(60_000, interval + 5000),
-+        Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(900_000, retryAfter * 1000) : 0,
++        interval + 5000,
++        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 0,
 +      );
 +    else if (
 +      error !== "authorization_pending" &&
@@ -292,21 +271,6 @@ index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00
 +      throw new Error("codex-device-poll-failed");
 +    await wait(interval, signal);
 +  }
-+}
-+export async function requestDeviceTokens(
-+  fetcher: Fetch,
-+  body: URLSearchParams,
-+  signal: AbortSignal,
-+) {
-+  body.set("client_id", DEVICE_CLIENT_ID);
-+  const response = await post(fetcher, "/oauth/token", body, signal);
-+  if (!response.ok) {
-+    void response.body?.cancel().catch(() => {});
-+    throw new Error("codex-device-token-failed");
-+  }
-+  const parsed = tokenSchema.safeParse(await boundedJson(response));
-+  if (!parsed.success) throw new Error("codex-device-response-invalid");
-+  return parsed.data;
 +}
 diff --git a/packages/services/src/codex-provider/index.ts b/packages/services/src/codex-provider/index.ts
 new file mode 100644
@@ -334,43 +298,44 @@ index 0000000000000000000000000000000000000000..0c16756689f1b3d6930c1fb456a3ec5c
 +} as const;
 diff --git a/packages/services/src/codex-provider/oauth.ts b/packages/services/src/codex-provider/oauth.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d1d05e561
+index 0000000000000000000000000000000000000000..0d966c367fd59ba45089fd6efd04cbe87dd1c38f
 --- /dev/null
 +++ b/packages/services/src/codex-provider/oauth.ts
-@@ -0,0 +1,593 @@
-+// Protocol reference: anomalyco/opencode c93aaae, provider/chatgpt.ts (MIT).
-+// ZCode owns its client registration and credentials; it never impersonates OpenCode.
+@@ -0,0 +1,542 @@
++// Protocol reference: anomalyco/opencode v2.1.4, provider/openai.ts (MIT).
++// Wire helpers follow OpenCode; verified identity and credential lifecycle remain owned by ZCode.
 +import { createHash, randomBytes, randomUUID } from "node:crypto";
 +import { createServer, type Server, type ServerResponse } from "node:http";
++import { setTimeout as delay } from "node:timers/promises";
 +import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 +import { z } from "zod";
++import { DEVICE_VERIFICATION_URL, requestDeviceCode, pollDeviceTokens } from "./device.js";
 +import {
-+  DEVICE_CLIENT_ID,
-+  DEVICE_VERIFICATION_URL,
-+  requestDeviceCode,
-+  pollDeviceTokens,
-+  requestDeviceTokens,
-+} from "./device.js";
++  CODEX_ISSUER,
++  CODEX_CLIENT_ID,
++  CODEX_ORIGINATOR,
++  CODEX_USER_AGENT,
++  CODEX_CALLBACK_HOST,
++  CODEX_CALLBACK_PORTS,
++  CODEX_HTTP_TIMEOUT_MS,
++  generatePKCE,
++  authorizeURL,
++  exchangeCodexCode,
++  refreshCodexTokens,
++  accountIDFromVerifiedClaims,
++  type CodexTokens,
++} from "./protocol.js";
 +import type {
 +  CodexConnectionStatus,
 +  CodexRequestAuthResolver,
 +  ICodexProviderService,
 +} from "./contract.js";
 +
-+const ISSUER = "https://auth.openai.com";
-+const RESOURCE = "https://api.openai.com/v1";
-+const SHARING_SCOPE = "chatgpt.tokens.use.direct";
 +const FLOW_TIMEOUT_MS = 10 * 60_000;
-+const HTTP_TIMEOUT_MS = 20_000;
 +const REFRESH_MARGIN_MS = 60_000;
++const CALLBACK_BIND_ATTEMPTS = 10;
++const CALLBACK_BIND_RETRY_DELAY_MS = 200;
 +const providerIdSchema = z.string().trim().min(1).max(200);
-+const tokenSchema = z.object({
-+  access_token: z.string().min(1),
-+  refresh_token: z.string().min(1),
-+  id_token: z.string().optional(),
-+  expires_in: z.number().positive().optional(),
-+  scope: z.string().optional(),
-+});
 +const storedSchema = z
 +  .object({
 +    hostID: z.string().min(1),
@@ -382,14 +347,13 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +        refresh: z.string().min(1),
 +        expires: z.number().finite(),
 +        scopes: z.array(z.string()),
-+        method: z.literal("device").optional(),
++        method: z.enum(["browser", "device"]).optional(),
 +        accountID: z.string().min(1).optional(),
 +      })
 +      .optional(),
 +  })
 +  .strict();
 +type Stored = z.infer<typeof storedSchema>;
-+type Tokens = z.infer<typeof tokenSchema>;
 +interface Flow {
 +  id: string;
 +  state: "waiting" | "connected" | "cancelled" | "failed";
@@ -458,45 +422,31 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +      stop(flow);
 +    }
 +  };
-+  const request = async (body: URLSearchParams, signal?: AbortSignal): Promise<Tokens> => {
-+    const timeout = AbortSignal.timeout(HTTP_TIMEOUT_MS);
-+    const response = await options.fetch(`${ISSUER}/api/accounts/oauth/token`, {
-+      method: "POST",
-+      redirect: "error",
-+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "ZCode" },
-+      body: body.toString(),
-+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-+    });
-+    if (!response.ok) throw new Error(`codex-token-http-${response.status}`);
-+    const parsed = tokenSchema.safeParse(await response.json());
-+    if (!parsed.success) throw new Error("codex-token-invalid");
-+    return parsed.data;
-+  };
-+  const jwks = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`), {
-+    timeoutDuration: HTTP_TIMEOUT_MS,
-+    [customFetch]: (url, init) => options.fetch(url, init),
++  const jwks = createRemoteJWKSet(new URL(`${CODEX_ISSUER}/.well-known/jwks.json`), {
++    timeoutDuration: CODEX_HTTP_TIMEOUT_MS,
++    [customFetch]: (url, init) => {
++      const headers = new Headers(init?.headers);
++      headers.set("User-Agent", CODEX_USER_AGENT);
++      return options.fetch(url, { ...init, headers, redirect: "error" });
++    },
 +  });
-+  const material = (tokens: Tokens, scopes?: string[]): NonNullable<Stored["tokens"]> => ({
++  const material = (tokens: CodexTokens, scopes?: string[]): NonNullable<Stored["tokens"]> => ({
 +    access: tokens.access_token,
 +    refresh: tokens.refresh_token,
 +    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
 +    scopes: tokens.scope?.split(" ").filter(Boolean) ?? scopes ?? [],
 +  });
-+  const deviceAccount = async (token: string | undefined): Promise<string> => {
++  const accountFromIDToken = async (token: string | undefined): Promise<string> => {
 +    if (!token) throw new Error("codex-id-token-invalid");
 +    try {
 +      const { payload } = await jwtVerify(token, jwks, {
-+        issuer: ISSUER,
-+        audience: DEVICE_CLIENT_ID,
++        issuer: CODEX_ISSUER,
++        audience: CODEX_CLIENT_ID,
 +        algorithms: ["RS256"],
 +        requiredClaims: ["exp", "sub"],
 +      });
-+      const auth = z
-+        .object({ chatgpt_account_id: z.string().trim().min(1).max(300) })
-+        .safeParse(payload["https://api.openai.com/auth"] ?? payload);
-+      if (!auth.success || typeof payload.sub !== "string" || !payload.sub.trim())
-+        throw new Error();
-+      return auth.data.chatgpt_account_id;
++      if (typeof payload.sub !== "string" || !payload.sub.trim()) throw new Error();
++      return accountIDFromVerifiedClaims(payload);
 +    } catch {
 +      throw new Error("codex-id-token-invalid");
 +    }
@@ -510,11 +460,7 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +      const record = await load(id);
 +      const flow = flows.get(id);
 +      return {
-+        connected: Boolean(
-+          record?.tokens?.method === "device"
-+            ? record.tokens.accountID
-+            : record?.clientID && record.tokens?.scopes.includes(SHARING_SCOPE),
-+        ),
++        connected: Boolean(record?.tokens?.accountID),
 +        ...(record?.tokens
 +          ? {
 +              method:
@@ -552,9 +498,8 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +        };
 +        await save(id, record);
 +        const state = randomBytes(32).toString("base64url");
-+        const nonce = randomBytes(32).toString("base64url");
-+        const verifier = randomBytes(32).toString("base64url");
-+        const challenge = createHash("sha256").update(verifier).digest("base64url");
++        const pkce = await generatePKCE();
++        assertLive();
 +        let redirect = "";
 +        const flow: Flow = {
 +          id: record.revision,
@@ -562,7 +507,7 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +          completing: false,
 +          abort: new AbortController(),
 +          server: createServer((req, res) => {
-+            const url = new URL(req.url ?? "/", "http://127.0.0.1");
++            const url = new URL(req.url ?? "/", `http://${CODEX_CALLBACK_HOST}`);
 +            if (req.method !== "GET" || url.pathname !== "/auth/callback") {
 +              res.writeHead(404).end();
 +              return;
@@ -581,41 +526,19 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +              try {
 +                if (url.searchParams.has("error")) throw new Error("codex-authorization-denied");
 +                const code = url.searchParams.get("code");
-+                const returnedID = url.searchParams.get("client_id");
-+                if (record.clientID && returnedID && record.clientID !== returnedID)
-+                  throw new Error("codex-client-mismatch");
-+                const clientID = record.clientID ?? returnedID;
-+                if (!code || !clientID) throw new Error("codex-callback-incomplete");
-+                const tokens = await request(
-+                  new URLSearchParams({
-+                    grant_type: "authorization_code",
-+                    client_id: clientID,
-+                    code,
-+                    code_verifier: verifier,
-+                    redirect_uri: redirect,
-+                    resource: RESOURCE,
-+                  }),
++                if (!code) throw new Error("codex-callback-incomplete");
++                // Codex 浏览器登录：官方 Codex client + PKCE，换完 token 后直接走
++                // chatgpt.com/backend-api/codex；这里不要求 token-sharing scope。
++                const tokens = await exchangeCodexCode(
++                  options.fetch,
++                  code,
++                  redirect,
++                  pkce,
 +                  flow.abort.signal,
 +                );
-+                if (!tokens.scope?.split(" ").includes(SHARING_SCOPE))
-+                  throw new Error("codex-token-sharing-required");
++                if (flow.abort.signal.aborted) throw new Error("codex-login-cancelled");
 +                if (!tokens.id_token) throw new Error("codex-id-token-invalid");
-+                try {
-+                  const { payload } = await jwtVerify(tokens.id_token, jwks, {
-+                    issuer: ISSUER,
-+                    audience: clientID,
-+                    algorithms: ["RS256"],
-+                    requiredClaims: ["exp", "nonce", "sub"],
-+                  });
-+                  if (
-+                    typeof payload.sub !== "string" ||
-+                    !payload.sub.trim() ||
-+                    payload.nonce !== nonce
-+                  )
-+                    throw new Error();
-+                } catch {
-+                  throw new Error("codex-id-token-invalid");
-+                }
++                const accountID = await accountFromIDToken(tokens.id_token);
 +                await locked(id, async () => {
 +                  assertLive();
 +                  const current = await load(id);
@@ -636,7 +559,7 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +                    // CredentialService 在其文件锁内复核代次；外层锁同时排除跨 Host 刷新。
 +                    await save(
 +                      id,
-+                      { ...current, clientID, tokens: material(tokens) },
++                      { ...current, tokens: { ...material(tokens), method: "browser", accountID } },
 +                      assertAttempt,
 +                    );
 +                    assertAttempt();
@@ -665,24 +588,26 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +            })();
 +          }),
 +        };
-+        await new Promise<void>((resolve, reject) => {
-+          flow.server!.once("error", reject);
-+          flow.server!.listen(0, "127.0.0.1", () => {
-+            flow.server!.off("error", reject);
-+            resolve();
-+          });
-+        });
-+        if (disposed) {
-+          stop(flow);
-+          throw new Error("codex-host-closed");
-+        }
-+        const address = flow.server!.address();
-+        if (!address || typeof address === "string") {
-+          stop(flow);
-+          throw new Error("codex-loopback-unavailable");
-+        }
-+        redirect = `http://127.0.0.1:${address.port}/auth/callback`;
++        // 先登记 owner，端口绑定/重试期间的取消或 Host dispose 也必须能释放本次 listener。
 +        flows.set(id, flow);
++        let port: number;
++        try {
++          port = await listenLoopback(flow.server!, flow.abort.signal);
++          assertLive();
++          if (flow.state !== "waiting" || flows.get(id) !== flow)
++            throw new Error("codex-login-cancelled");
++        } catch {
++          const message = disposed
++            ? "codex-host-closed"
++            : flow.abort.signal.aborted
++              ? "codex-login-cancelled"
++              : "codex-loopback-unavailable";
++          flow.state = flow.abort.signal.aborted ? "cancelled" : "failed";
++          flow.error = message;
++          stop(flow);
++          throw new Error(message);
++        }
++        redirect = `http://${CODEX_CALLBACK_HOST}:${port}/auth/callback`;
 +        flow.timer = setTimeout(() => {
 +          if (flow.state === "waiting") {
 +            flow.state = "failed";
@@ -691,20 +616,9 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +          }
 +        }, FLOW_TIMEOUT_MS);
 +        flow.timer.unref();
-+        const params = new URLSearchParams({
-+          client_id: record.clientID ?? "dynamic_agent_client",
-+          ...(record.clientID ? {} : { agent_name_hint: "ZCode" }),
-+          ext_agent_host_id: record.hostID,
-+          response_type: "code",
-+          redirect_uri: redirect,
-+          scope: `openid profile email offline_access resource.invoke ${SHARING_SCOPE}`,
-+          resource: RESOURCE,
-+          state,
-+          nonce,
-+          code_challenge_method: "S256",
-+          code_challenge: challenge,
-+        });
-+        return { flowId: flow.id, authorizeUrl: `${ISSUER}/api/accounts/authorize?${params}` };
++        // 与 opencode openai.ts 的 Codex 浏览器登录保持一致：官方 Codex client、
++        // 固定 loopback 端口、简化授权流程，登录后走 Codex 后端而不是 token sharing。
++        return { flowId: flow.id, authorizeUrl: authorizeURL(redirect, pkce, state) };
 +      });
 +    },
 +    async startDevice(rawId) {
@@ -778,7 +692,7 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +          try {
 +            const tokens = await pollDeviceTokens(options.fetch, device, flow.abort.signal);
 +            assertAttempt();
-+            const accountID = await deviceAccount(tokens.id_token);
++            const accountID = await accountFromIDToken(tokens.id_token);
 +            await locked(id, async () => {
 +              assertAttempt();
 +              await options.assertProvider(id);
@@ -845,64 +759,30 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +      return locked(id, async (): ReturnType<CodexRequestAuthResolver["resolve"]> => {
 +        assertLive();
 +        const record = await load(id);
-+        if (
-+          !record?.tokens ||
-+          (record.tokens.method === "device"
-+            ? !record.tokens.accountID
-+            : !record.clientID || !record.tokens.scopes.includes(SHARING_SCOPE))
-+        )
-+          throw new Error("codex-login-required");
-+        if (record.tokens.method === "device") {
-+          if (record.tokens.expires <= Date.now() + REFRESH_MARGIN_MS) {
-+            const tokens = await requestDeviceTokens(
-+              options.fetch,
-+              new URLSearchParams({
-+                grant_type: "refresh_token",
-+                refresh_token: record.tokens.refresh,
-+              }),
-+              AbortSignal.timeout(HTTP_TIMEOUT_MS),
-+            );
-+            const accountID = tokens.id_token
-+              ? await deviceAccount(tokens.id_token)
-+              : record.tokens.accountID!;
-+            if (accountID !== record.tokens.accountID)
-+              throw new Error("codex-device-account-mismatch");
-+            assertLive();
-+            await options.assertProvider(id);
-+            record.tokens = { ...material(tokens), method: "device", accountID };
-+            await save(id, record);
-+          }
-+          return {
-+            apiKey: record.tokens.access,
-+            codexMode: "device" as const,
-+            headers: {
-+              "chatgpt-account-id": record.tokens.accountID!,
-+              originator: "zcode",
-+              "session-id": sessionId,
-+              "thread-id": sessionId,
-+              "x-client-request-id": sessionId,
-+            },
-+          };
-+        }
-+        if (record.tokens.expires <= Date.now() + REFRESH_MARGIN_MS) {
-+          const tokens = await request(
-+            new URLSearchParams({
-+              grant_type: "refresh_token",
-+              client_id: record.clientID!,
-+              refresh_token: record.tokens.refresh,
-+              resource: RESOURCE,
-+            }),
-+          );
++        let tokens = record?.tokens;
++        if (!record || !tokens?.accountID) throw new Error("codex-login-required");
++        const method = tokens.method ?? "browser";
++        const accountID = tokens.accountID;
++        if (tokens.expires <= Date.now() + REFRESH_MARGIN_MS) {
++          const refreshed = await refreshCodexTokens(options.fetch, tokens.refresh);
++          const refreshedAccount = refreshed.id_token
++            ? await accountFromIDToken(refreshed.id_token)
++            : accountID;
++          if (refreshedAccount !== accountID) throw new Error(`codex-${method}-account-mismatch`);
 +          assertLive();
 +          await options.assertProvider(id);
-+          record.tokens = material(tokens, record.tokens.scopes);
-+          if (!record.tokens.scopes.includes(SHARING_SCOPE))
-+            throw new Error("codex-token-sharing-required");
-+          await save(id, record);
++          tokens = { ...material(refreshed, tokens.scopes), method, accountID };
++          await save(id, { ...record, tokens });
 +        }
++        // 浏览器 Codex 登录同样使用 Codex 后端：请求头、账号 ID 与 device 分支一致。
 +        return {
-+          apiKey: record.tokens.access,
++          apiKey: tokens.access,
++          codexMode: "device" as const,
 +          headers: {
++            "chatgpt-account-id": accountID,
++            originator: CODEX_ORIGINATOR,
++            "User-Agent": CODEX_USER_AGENT,
++            "x-codex-beta-features": "remote_compaction_v2",
 +            "session-id": sessionId,
 +            "thread-id": sessionId,
 +            "x-client-request-id": sessionId,
@@ -919,6 +799,39 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +  };
 +}
 +
++async function listenLoopback(server: Server, signal: AbortSignal): Promise<number> {
++  for (const port of CODEX_CALLBACK_PORTS) {
++    for (let attempt = 0; attempt < CALLBACK_BIND_ATTEMPTS; attempt++) {
++      signal.throwIfAborted();
++      try {
++        await new Promise<void>((resolve, reject) => {
++          const onError = (error: Error) => {
++            server.off("listening", onListening);
++            reject(error);
++          };
++          const onListening = () => {
++            server.off("error", onError);
++            if (signal.aborted) {
++              server.close();
++              reject(signal.reason);
++            } else resolve();
++          };
++          server.once("error", onError);
++          server.once("listening", onListening);
++          server.listen(port, CODEX_CALLBACK_HOST);
++        });
++        return port;
++      } catch (error) {
++        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
++        // 只重试自己拥有的绑定，不向未知端口发送上游的 /cancel 请求。
++        if (attempt + 1 < CALLBACK_BIND_ATTEMPTS)
++          await delay(CALLBACK_BIND_RETRY_DELAY_MS, undefined, { signal });
++      }
++    }
++  }
++  throw new Error("codex-loopback-unavailable");
++}
++
 +function respond(response: ServerResponse, success: boolean) {
 +  response
 +    .writeHead(success ? 200 : 400, {
@@ -930,6 +843,166 @@ index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d
 +    .end(
 +      `<!doctype html><title>ZCode Codex</title><p>${success ? "Authorization complete. Return to ZCode." : "Authorization failed. Return to ZCode and try again."}</p>`,
 +    );
++}
+diff --git a/packages/services/src/codex-provider/protocol.ts b/packages/services/src/codex-provider/protocol.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f657965ca9aa3b0fd65c648f053de4ecf171354
+--- /dev/null
++++ b/packages/services/src/codex-provider/protocol.ts
+@@ -0,0 +1,154 @@
++// OAuth wire helpers adapted from anomalyco/opencode v2.1.4,
++// packages/core/src/plugin/provider/openai.ts (MIT; see docs/third-party/opencode-codex-MIT.txt).
++// ZCode retains its existing bounded IO, JWT verification and credential lifecycle protections.
++import { z } from "zod";
++
++export const CODEX_ISSUER = "https://auth.openai.com";
++export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
++export const CODEX_SCOPES = "openid profile email offline_access";
++export const CODEX_ORIGINATOR = "opencode";
++export const CODEX_CALLBACK_HOST = "localhost";
++export const CODEX_CALLBACK_PORTS = [1455, 1457] as const;
++// 本机 opencode v2.1.4 内嵌的实际 UA，不使用 App.make() 的 unknown 缺省占位值。
++export const CODEX_USER_AGENT = "opencode/latest/2.1.4/cli";
++export const CODEX_HTTP_TIMEOUT_MS = 20_000;
++const MAX_JSON_BYTES = 64 * 1024;
++const PKCE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
++const tokenSchema = z.object({
++  access_token: z.string().min(1),
++  refresh_token: z.string().min(1),
++  id_token: z.string().min(1).optional(),
++  expires_in: z.number().positive().optional(),
++  scope: z.string().optional(),
++});
++export type CodexTokens = z.infer<typeof tokenSchema>;
++
++export async function generatePKCE() {
++  const verifier = Array.from(
++    crypto.getRandomValues(new Uint8Array(43)),
++    (byte) => PKCE_CHARS[byte % PKCE_CHARS.length],
++  ).join("");
++  const challenge = Buffer.from(
++    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
++  ).toString("base64url");
++  return { verifier, challenge };
++}
++
++export function authorizeURL(redirect: string, pkce: { challenge: string }, state: string) {
++  return `${CODEX_ISSUER}/oauth/authorize?${new URLSearchParams({
++    response_type: "code",
++    client_id: CODEX_CLIENT_ID,
++    redirect_uri: redirect,
++    scope: CODEX_SCOPES,
++    code_challenge: pkce.challenge,
++    code_challenge_method: "S256",
++    id_token_add_organizations: "true",
++    codex_cli_simplified_flow: "true",
++    state,
++    originator: CODEX_ORIGINATOR,
++  })}`;
++}
++
++export function codexHeaders(contentType: string) {
++  return { "Content-Type": contentType, "User-Agent": CODEX_USER_AGENT };
++}
++
++export async function readCodexJson(response: Response): Promise<unknown> {
++  if (!response.body) throw new Error("codex-device-response-invalid");
++  const reader = response.body.getReader();
++  const chunks: Uint8Array[] = [];
++  let length = 0;
++  try {
++    while (true) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      length += value.length;
++      if (length > MAX_JSON_BYTES) throw new Error("codex-device-response-invalid");
++      chunks.push(value);
++    }
++    try {
++      return JSON.parse(Buffer.concat(chunks).toString("utf8"));
++    } catch {
++      throw new Error("codex-device-response-invalid");
++    }
++  } finally {
++    void reader.cancel().catch(() => {});
++  }
++}
++
++async function requestTokens(
++  fetcher: typeof globalThis.fetch,
++  body: URLSearchParams,
++  signal?: AbortSignal,
++): Promise<CodexTokens> {
++  signal?.throwIfAborted();
++  const response = await fetcher(`${CODEX_ISSUER}/oauth/token`, {
++    method: "POST",
++    redirect: "error",
++    headers: codexHeaders("application/x-www-form-urlencoded"),
++    body: body.toString(),
++    signal: signal
++      ? AbortSignal.any([signal, AbortSignal.timeout(CODEX_HTTP_TIMEOUT_MS)])
++      : AbortSignal.timeout(CODEX_HTTP_TIMEOUT_MS),
++  });
++  if (!response.ok) {
++    void response.body?.cancel().catch(() => {});
++    throw new Error(`codex-token-http-${response.status}`);
++  }
++  const parsed = tokenSchema.safeParse(await readCodexJson(response));
++  if (!parsed.success) throw new Error("codex-token-invalid");
++  return parsed.data;
++}
++
++export function exchangeCodexCode(
++  fetcher: typeof globalThis.fetch,
++  code: string,
++  redirect: string,
++  pkce: { verifier: string },
++  signal: AbortSignal,
++) {
++  return requestTokens(
++    fetcher,
++    new URLSearchParams({
++      grant_type: "authorization_code",
++      code,
++      redirect_uri: redirect,
++      client_id: CODEX_CLIENT_ID,
++      code_verifier: pkce.verifier,
++    }),
++    signal,
++  );
++}
++
++export function refreshCodexTokens(
++  fetcher: typeof globalThis.fetch,
++  refreshToken: string,
++  signal?: AbortSignal,
++) {
++  return requestTokens(
++    fetcher,
++    new URLSearchParams({
++      grant_type: "refresh_token",
++      refresh_token: refreshToken,
++      client_id: CODEX_CLIENT_ID,
++    }),
++    signal,
++  );
++}
++
++const accountID = z.string().trim().min(1).max(300);
++const claimsSchema = z.object({
++  chatgpt_account_id: accountID.optional(),
++  "https://api.openai.com/auth": z.object({ chatgpt_account_id: accountID.optional() }).optional(),
++  organizations: z.array(z.object({ id: accountID })).optional(),
++});
++/** 取值顺序沿用上游；输入必须由调用方先做 JWT 签名/issuer/audience/exp/sub 校验。 */
++export function accountIDFromVerifiedClaims(payload: unknown) {
++  const claims = claimsSchema.parse(payload);
++  const value =
++    claims.chatgpt_account_id ??
++    claims["https://api.openai.com/auth"]?.chatgpt_account_id ??
++    claims.organizations?.[0]?.id;
++  if (!value) throw new Error("codex-id-token-invalid");
++  return value;
 +}
 diff --git a/packages/services/src/index.ts b/packages/services/src/index.ts
 index eb7940a7466b27797eac79abf6f441d6941017bc..7297b6cde82264104621ed6a119b72e08827f6ee 100644
@@ -1791,10 +1864,10 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fe
                  : {}),
 diff --git a/packages/services/test/codexDeviceLogin.test.ts b/packages/services/test/codexDeviceLogin.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf746896cc3
+index 0000000000000000000000000000000000000000..384bf0495f179dd5b113197fecb09d2c9d488b22
 --- /dev/null
 +++ b/packages/services/test/codexDeviceLogin.test.ts
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,264 @@
 +import { afterEach, describe, expect, it, vi } from "vitest";
 +import { createHash } from "node:crypto";
 +import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -1815,6 +1888,7 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +  let denied = false;
 +  let wrongAudience = false;
 +  let expires = 900;
++  let interval = "1";
 +  let slow = false;
 +  let exchangeGate: Promise<void> | undefined;
 +  const owner = createCodexProviderService({
@@ -1837,6 +1911,7 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    fetch: async (input, init) => {
 +      const url = new URL(String(input));
 +      expect(url.origin).toBe("https://auth.openai.com");
++      expect(new Headers(init?.headers).get("User-Agent")).toBe("opencode/latest/2.1.4/cli");
 +      if (url.pathname.endsWith("jwks.json"))
 +        return Response.json({ keys: [{ ...jwk, kid: "device-test", alg: "RS256" }] });
 +      expect(init?.redirect).toBe("error");
@@ -1845,7 +1920,7 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +        return Response.json({
 +          device_auth_id: "private-device-id",
 +          user_code: "ABCD-EFGH",
-+          interval: "1",
++          interval,
 +          expires_in: expires,
 +        });
 +      if (url.pathname.endsWith("/deviceauth/token")) {
@@ -1901,6 +1976,9 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    expires: (v: number) => {
 +      expires = v;
 +    },
++    interval: (v: string) => {
++      interval = v;
++    },
 +    gate: (v: Promise<void>) => {
 +      exchangeGate = v;
 +    },
@@ -1915,12 +1993,13 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +      JSON.stringify({
 +        hostID: "fixture-host",
 +        revision: "previous",
-+        clientID: "fixture-browser-client",
 +        tokens: {
 +          access: "fixture-browser-token",
 +          refresh: "fixture-browser-refresh",
 +          expires: Date.now() + 3600000,
-+          scopes: ["chatgpt.tokens.use.direct"],
++          scopes: ["openid", "profile", "email", "offline_access"],
++          method: "browser",
++          accountID: "fixture-account",
 +        },
 +      }),
 +    );
@@ -1932,10 +2011,10 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    expect(await f.owner.resolve("device-fixture", "session-fixture")).toMatchObject({
 +      apiKey: "fixture-browser-token",
 +    });
-+    expect((await f.owner.resolve("device-fixture", "session-fixture")).codexMode).toBeUndefined();
-+    expect(JSON.parse(f.values.get(key)!).clientID).toBe("fixture-browser-client");
++    expect((await f.owner.resolve("device-fixture", "session-fixture")).codexMode).toBe("device");
++    expect(JSON.parse(f.values.get(key)!).tokens.method).toBe("browser");
 +  });
-+  it("uses the device flow, signed account identity, and a separate refresh endpoint", async () => {
++  it("uses opencode's device flow, signed account identity, and shared Codex token endpoint", async () => {
 +    const f = await fixture();
 +    const started = await f.owner.startDevice("device-fixture");
 +    expect(started).toMatchObject({
@@ -1953,7 +2032,11 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    expect(await f.owner.resolve("device-fixture", "session-fixture")).toMatchObject({
 +      apiKey: "fixture-device-token",
 +      codexMode: "device",
-+      headers: { "chatgpt-account-id": "fixture-account", originator: "zcode" },
++      headers: {
++        "chatgpt-account-id": "fixture-account",
++        originator: "opencode",
++        "User-Agent": "opencode/latest/2.1.4/cli",
++      },
 +    });
 +    const exchange = new URLSearchParams(f.calls.find((c) => c.path === "/oauth/token")!.body);
 +    expect(exchange.get("redirect_uri")).toBe("https://auth.openai.com/deviceauth/callback");
@@ -1965,6 +2048,10 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    }
 +    await f.owner.resolve("device-fixture", "session-fixture");
 +    expect(new URLSearchParams(f.calls.at(-1)!.body).get("grant_type")).toBe("refresh_token");
++    expect(f.calls.at(-1)!.path).toBe("/oauth/token");
++    expect(new URLSearchParams(f.calls.at(-1)!.body).get("client_id")).toBe(
++      "app_EMoamEEZ73f0CkXaXp7hrann",
++    );
 +    expect(JSON.stringify(status)).not.toContain("fixture-device-token");
 +  });
 +  it("respects pending intervals and hides the user code on cancellation", async () => {
@@ -1981,6 +2068,18 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +    expect((await f.owner.status("device-fixture")).flow).toMatchObject({ state: "cancelled" });
 +    expect((await f.owner.status("device-fixture")).flow?.device).toBeUndefined();
 +    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++  });
++  it("does not shorten a server polling interval greater than one minute", async () => {
++    const f = await fixture();
++    f.pending(true);
++    f.interval("120");
++    vi.useFakeTimers();
++    const started = await f.owner.startDevice("device-fixture");
++    await vi.advanceTimersByTimeAsync(122999);
++    expect(f.calls.filter((call) => call.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++    await vi.advanceTimersByTimeAsync(1);
++    expect(f.calls.filter((call) => call.path.endsWith("/deviceauth/token"))).toHaveLength(2);
++    await f.owner.cancel("device-fixture", started.flowId);
 +  });
 +  it.each(["denied", "wrong-audience"])("rejects %s without saving tokens", async (mode) => {
 +    const f = await fixture();
@@ -2035,13 +2134,18 @@ index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf7
 +});
 diff --git a/packages/services/test/codexOAuth.test.ts b/packages/services/test/codexOAuth.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09346154d4
+index 0000000000000000000000000000000000000000..f56d6b2174a07a143cf705c31d2ffdadc8e1671c
 --- /dev/null
 +++ b/packages/services/test/codexOAuth.test.ts
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,439 @@
 +import { afterEach, describe, expect, it, vi } from "vitest";
++import { createHash } from "node:crypto";
++import { createServer, type Server } from "node:http";
 +import { exportJWK, generateKeyPair, SignJWT } from "jose";
 +import { createCodexProviderService } from "../src/codex-provider/index.js";
++
++const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
++const CODEX_SCOPES = "openid profile email offline_access";
 +
 +const services: Array<ReturnType<typeof createCodexProviderService>> = [];
 +afterEach(() => {
@@ -2053,13 +2157,16 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +  const pair = await generateKeyPair("RS256");
 +  const jwk = await exportJWK(pair.publicKey);
 +  const calls: URLSearchParams[] = [];
-+  let nonce = "";
-+  let scope = "chatgpt.tokens.use.direct";
-+  let clientID = "issued-test-client";
++  let audience = CODEX_CLIENT_ID;
++  let claims: Record<string, unknown> = {
++    "https://api.openai.com/auth": { chatgpt_account_id: "test-account" },
++  };
++  let signingKey = pair.privateKey;
++  let omitID = false;
 +  let gate: Promise<void> | undefined;
 +  const onConnected = vi.fn();
 +  const beforeIdentityChange = vi.fn(async () => {});
-+  const service = createCodexProviderService({
++  const options: Parameters<typeof createCodexProviderService>[0] = {
 +    onConnected,
 +    beforeIdentityChange,
 +    canLogin,
@@ -2077,26 +2184,37 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    },
 +    withLock: async (_id, run) => run(),
 +    fetch: async (url, init) => {
++      expect(new Headers(init?.headers).get("User-Agent")).toBe("opencode/latest/2.1.4/cli");
++      expect(init?.redirect).toBe("error");
 +      if (String(url).endsWith("jwks.json"))
 +        return Response.json({ keys: [{ ...jwk, kid: "test", alg: "RS256" }] });
++      expect(String(url)).toBe("https://auth.openai.com/oauth/token");
++      expect(init?.method).toBe("POST");
++      expect(new Headers(init?.headers).get("Content-Type")).toBe(
++        "application/x-www-form-urlencoded",
++      );
 +      const body = new URLSearchParams(String(init?.body));
 +      calls.push(body);
 +      await gate;
-+      const id = await new SignJWT({ nonce, sub: "test-subject" })
++      const id = await new SignJWT({
++        sub: "test-subject",
++        ...claims,
++      })
 +        .setProtectedHeader({ alg: "RS256", kid: "test" })
 +        .setIssuer("https://auth.openai.com")
-+        .setAudience(clientID)
++        .setAudience(audience)
 +        .setExpirationTime("1h")
-+        .sign(pair.privateKey);
++        .sign(signingKey);
 +      return Response.json({
 +        access_token: "test-access",
 +        refresh_token: "test-refresh",
-+        id_token: id,
++        ...(omitID ? {} : { id_token: id }),
 +        expires_in: 3600,
-+        scope,
++        scope: CODEX_SCOPES,
 +      });
 +    },
-+  });
++  };
++  const service = createCodexProviderService(options);
 +  services.push(service);
 +  return {
 +    service,
@@ -2106,15 +2224,25 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    beforeIdentityChange,
 +    async start() {
 +      const result = await service.start("test-codex");
-+      const url = new URL(result.authorizeUrl);
-+      nonce = url.searchParams.get("nonce")!;
-+      return { ...result, url };
-+    },
-+    setScope(value: string) {
-+      scope = value;
++      return { ...result, url: new URL(result.authorizeUrl) };
 +    },
 +    setAudience(value: string) {
-+      clientID = value;
++      audience = value;
++    },
++    setClaims(value: Record<string, unknown>) {
++      claims = value;
++    },
++    omitIDToken() {
++      omitID = true;
++    },
++    async useWrongSignature() {
++      signingKey = (await generateKeyPair("RS256")).privateKey;
++    },
++    reopen() {
++      service.dispose();
++      const reopened = createCodexProviderService(options);
++      services.push(reopened);
++      return reopened;
 +    },
 +    holdTokens(value: Promise<void>) {
 +      gate = value;
@@ -2124,7 +2252,6 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +      callback.search = new URLSearchParams({
 +        state: url.searchParams.get("state")!,
 +        code: "test-code",
-+        client_id: "issued-test-client",
 +        ...params,
 +      }).toString();
 +      return fetch(callback);
@@ -2132,26 +2259,161 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +  };
 +}
 +
-+describe("Codex token-sharing OAuth", () => {
++describe("Codex request User-Agent", () => {
++  it.each(["browser", "device"] as const)(
++    "uses opencode's UA for %s model requests",
++    async (method) => {
++      const f = await fixture();
++      const key = `codex:${createHash("sha256").update("test-codex").digest("hex")}`;
++      f.values.set(
++        key,
++        JSON.stringify({
++          hostID: "test-host",
++          revision: "test-revision",
++          tokens: {
++            access: "test-access",
++            refresh: "test-refresh",
++            expires: Date.now() + 3600000,
++            scopes: CODEX_SCOPES.split(" "),
++            ...(method === "device" ? { method } : {}),
++            accountID: "test-account",
++          },
++        }),
++      );
++      const auth = await f.service.resolve("test-codex", "session-test");
++      expect(new Headers(auth.headers).get("User-Agent")).toBe("opencode/latest/2.1.4/cli");
++    },
++  );
++});
++
++describe("Codex browser OAuth", () => {
++  it.each([
++    {
++      chatgpt_account_id: "root-account",
++      "https://api.openai.com/auth": { chatgpt_account_id: "nested-account" },
++      organizations: [{ id: "org-account" }],
++    },
++    {
++      "https://api.openai.com/auth": { chatgpt_account_id: "nested-account" },
++      organizations: [{ id: "org-account" }],
++    },
++    { organizations: [{ id: "org-account" }] },
++  ])("uses opencode's account claim precedence from a verified ID token", async (claims) => {
++    const f = await fixture();
++    f.setClaims(claims);
++    await f.callback((await f.start()).url);
++    const expected =
++      claims.chatgpt_account_id ??
++      claims["https://api.openai.com/auth"]?.chatgpt_account_id ??
++      "org-account";
++    expect((await f.service.resolve("test-codex", "s")).headers["chatgpt-account-id"]).toBe(
++      expected,
++    );
++  });
++
++  it("reads a saved browser connection after reopening the Host owner", async () => {
++    const f = await fixture();
++    await f.callback((await f.start()).url);
++    const reopened = f.reopen();
++    expect(await reopened.status("test-codex")).toMatchObject({
++      connected: true,
++      method: "browser",
++    });
++    expect(await reopened.resolve("test-codex", "s")).toMatchObject({
++      apiKey: "test-access",
++      codexMode: "device",
++    });
++  });
++
++  it("retains the verified account when refresh omits the ID token", async () => {
++    const f = await fixture();
++    await f.callback((await f.start()).url);
++    for (const [key, value] of f.values) {
++      const record = JSON.parse(value);
++      record.tokens.expires = 0;
++      f.values.set(key, JSON.stringify(record));
++    }
++    f.omitIDToken();
++    expect((await f.service.resolve("test-codex", "s")).headers["chatgpt-account-id"]).toBe(
++      "test-account",
++    );
++    expect((await f.service.status("test-codex")).method).toBe("browser");
++    expect(f.calls[1]!.get("client_id")).toBe(CODEX_CLIENT_ID);
++    expect(f.calls[1]!.has("resource")).toBe(false);
++  });
++
++  it("rejects a signed account switch during refresh without replacing credentials", async () => {
++    const f = await fixture();
++    await f.callback((await f.start()).url);
++    for (const [key, value] of f.values) {
++      const record = JSON.parse(value);
++      record.tokens.expires = 0;
++      f.values.set(key, JSON.stringify(record));
++    }
++    const before = [...f.values];
++    f.setClaims({ chatgpt_account_id: "another-account" });
++    await expect(f.service.resolve("test-codex", "s")).rejects.toThrow(
++      "codex-browser-account-mismatch",
++    );
++    expect([...f.values]).toEqual(before);
++  });
++
++  it("does not accept unsigned or wrongly signed account claims", async () => {
++    const f = await fixture();
++    await f.useWrongSignature();
++    expect((await f.callback((await f.start()).url)).status).toBe(400);
++    expect((await f.service.status("test-codex")).connected).toBe(false);
++    expect(f.onConnected).not.toHaveBeenCalled();
++  });
++
++  it("keeps legacy token-sharing credentials but requires explicit Codex sign-in", async () => {
++    const f = await fixture();
++    f.values.set(
++      `codex:${createHash("sha256").update("test-codex").digest("hex")}`,
++      JSON.stringify({
++        hostID: "old-host",
++        revision: "old-revision",
++        clientID: "old-dynamic-client",
++        tokens: {
++          access: "old-access",
++          refresh: "old-refresh",
++          expires: 0,
++          scopes: ["chatgpt.tokens.use.direct"],
++        },
++      }),
++    );
++    const before = [...f.values];
++    expect((await f.service.status("test-codex")).connected).toBe(false);
++    await expect(f.service.resolve("test-codex", "s")).rejects.toThrow("codex-login-required");
++    expect(f.calls).toHaveLength(0);
++    expect([...f.values]).toEqual(before);
++  });
++
 +  it("does not start loopback authorization on non-local Hosts", async () => {
 +    const f = await fixture(false);
 +    await expect(f.start()).rejects.toThrow("codex-local-desktop-required");
 +    expect(f.values.size).toBe(0);
 +  });
-+  it("registers a ZCode client with PKCE, state, nonce and the exact resource", async () => {
++
++  it("uses the official Codex client, PKCE and the simplified authorization flow", async () => {
 +    const f = await fixture();
 +    const { url } = await f.start();
-+    expect(url.origin + url.pathname).toBe("https://auth.openai.com/api/accounts/authorize");
-+    expect(url.searchParams.get("client_id")).toBe("dynamic_agent_client");
-+    expect(url.searchParams.get("agent_name_hint")).toBe("ZCode");
-+    expect(url.searchParams.get("resource")).toBe("https://api.openai.com/v1");
++    expect(url.origin + url.pathname).toBe("https://auth.openai.com/oauth/authorize");
++    expect(url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
++    expect(url.searchParams.get("scope")).toBe(CODEX_SCOPES);
 +    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
 +    expect(url.searchParams.get("code_challenge")).toHaveLength(43);
-+    expect(url.searchParams.get("state")).not.toBe(url.searchParams.get("nonce"));
-+    expect(new URL(url.searchParams.get("redirect_uri")!).hostname).toBe("127.0.0.1");
++    expect(url.searchParams.get("codex_cli_simplified_flow")).toBe("true");
++    expect(url.searchParams.get("id_token_add_organizations")).toBe("true");
++    expect(url.searchParams.get("originator")).toBe("opencode");
++    expect(url.searchParams.has("resource")).toBe(false);
++    expect(url.searchParams.has("nonce")).toBe(false);
++    const redirect = new URL(url.searchParams.get("redirect_uri")!);
++    expect(redirect.hostname).toBe("localhost");
++    expect(["1455", "1457"]).toContain(redirect.port);
 +  });
 +
-+  it("verifies the ID token before storing tokens and reuses the issued client", async () => {
++  it("stores the account ID and resolves Codex-backend headers", async () => {
 +    const f = await fixture();
 +    const { url } = await f.start();
 +    expect((await f.callback(url)).status).toBe(200);
@@ -2160,15 +2422,27 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    expect(f.onConnected).toHaveBeenCalledWith("test-codex");
 +    expect(f.beforeIdentityChange).toHaveBeenCalledWith("test-codex");
 +    expect(f.calls[0]!.get("code_verifier")).toBeTruthy();
-+    expect(f.calls[0]!.get("resource")).toBe("https://api.openai.com/v1");
++    expect(f.calls[0]!.get("code_verifier")).toMatch(/^[A-Za-z0-9._~-]{43}$/);
++    expect(createHash("sha256").update(f.calls[0]!.get("code_verifier")!).digest("base64url")).toBe(
++      url.searchParams.get("code_challenge"),
++    );
++    expect(f.calls[0]!.get("client_id")).toBe(CODEX_CLIENT_ID);
++    expect(f.calls[0]!.has("resource")).toBe(false);
 +    expect(await f.service.resolve("test-codex", "session-test")).toMatchObject({
 +      apiKey: "test-access",
-+      headers: { "session-id": "session-test", "thread-id": "session-test" },
++      codexMode: "device",
++      headers: {
++        "chatgpt-account-id": "test-account",
++        originator: "opencode",
++        "User-Agent": "opencode/latest/2.1.4/cli",
++        "x-codex-beta-features": "remote_compaction_v2",
++        "session-id": "session-test",
++        "thread-id": "session-test",
++      },
 +    });
 +    expect(JSON.stringify(await f.service.status("test-codex"))).not.toContain("test-access");
 +    const next = await f.start();
-+    expect(next.url.searchParams.get("client_id")).toBe("issued-test-client");
-+    expect(next.url.searchParams.has("agent_name_hint")).toBe(false);
++    expect(next.url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
 +  });
 +
 +  it("does not exchange a code or accept an error with the wrong state", async () => {
@@ -2180,21 +2454,17 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    expect((await f.callback(url)).status).toBe(200);
 +  });
 +
-+  it.each(["missing-scope", "invalid-audience"])(
-+    "rejects %s without saving tokens",
-+    async (failure) => {
-+      const f = await fixture();
-+      const { url } = await f.start();
-+      if (failure === "missing-scope") f.setScope("openid");
-+      else f.setAudience("different-client");
-+      expect((await f.callback(url)).status).toBe(400);
-+      expect((await f.service.status("test-codex")).connected).toBe(false);
-+      expect(f.onConnected).not.toHaveBeenCalled();
-+      expect([...f.values.values()].some((value) => value.includes("test-access"))).toBe(false);
-+    },
-+  );
++  it("rejects an ID token for another audience without saving tokens", async () => {
++    const f = await fixture();
++    const { url } = await f.start();
++    f.setAudience("different-client");
++    expect((await f.callback(url)).status).toBe(400);
++    expect((await f.service.status("test-codex")).connected).toBe(false);
++    expect(f.onConnected).not.toHaveBeenCalled();
++    expect([...f.values.values()].some((value) => value.includes("test-access"))).toBe(false);
++  });
 +
-+  it("cancels the listener and disconnects without losing client registration", async () => {
++  it("cancels the listener and disconnects without losing the Codex client", async () => {
 +    const f = await fixture();
 +    const first = await f.start();
 +    await f.service.cancel("test-codex", first.flowId);
@@ -2205,7 +2475,7 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    await expect(f.service.resolve("test-codex", "session-test")).rejects.toThrow(
 +      "codex-login-required",
 +    );
-+    expect((await f.start()).url.searchParams.get("client_id")).toBe("issued-test-client");
++    expect((await f.start()).url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
 +  });
 +
 +  it("refuses to resolve another provider", async () => {
@@ -2213,15 +2483,15 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    await expect(f.service.resolve("other-provider", "session-test")).rejects.toThrow("not-codex");
 +  });
 +
-+  it("forgets tokens and client identity before a deleted provider ID is reused", async () => {
++  it("forgets tokens and account identity before a deleted provider ID is reused", async () => {
 +    const f = await fixture();
 +    await f.callback((await f.start()).url);
 +    await f.service.forget("test-codex");
 +    expect(f.values.size).toBe(0);
-+    expect((await f.start()).url.searchParams.get("client_id")).toBe("dynamic_agent_client");
++    expect((await f.start()).url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
 +  });
 +
-+  it("serializes concurrent refreshes and includes the registered client and resource", async () => {
++  it("serializes concurrent refreshes through the Codex token endpoint", async () => {
 +    const f = await fixture();
 +    await f.callback((await f.start()).url);
 +    for (const [key, value] of f.values) {
@@ -2237,8 +2507,8 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    ]);
 +    expect(f.calls).toHaveLength(2);
 +    expect(f.calls[1]!.get("grant_type")).toBe("refresh_token");
-+    expect(f.calls[1]!.get("client_id")).toBe("issued-test-client");
-+    expect(f.calls[1]!.get("resource")).toBe("https://api.openai.com/v1");
++    expect(f.calls[1]!.get("client_id")).toBe(CODEX_CLIENT_ID);
++    expect(f.calls[1]!.has("resource")).toBe(false);
 +  });
 +
 +  it("cannot save a late token exchange after cancellation", async () => {
@@ -2257,6 +2527,54 @@ index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09
 +    expect((await response).status).toBe(400);
 +    expect((await f.service.status("test-codex")).connected).toBe(false);
 +    expect([...f.values.values()].some((value) => value.includes("test-access"))).toBe(false);
++  });
++});
++
++async function occupyCallbackPort(server: Server) {
++  await new Promise<void>((resolve, reject) => {
++    server.once("error", reject);
++    server.listen(1455, "localhost", () => {
++      server.off("error", reject);
++      resolve();
++    });
++  });
++}
++
++describe("Codex loopback ownership", () => {
++  it("falls back to 1457 without sending /cancel to an unrelated listener", async () => {
++    const requests: string[] = [];
++    const blocker = createServer((request, response) => {
++      requests.push(request.url ?? "");
++      response.end();
++    });
++    await occupyCallbackPort(blocker);
++    try {
++      const f = await fixture();
++      const started = await f.start();
++      expect(new URL(started.url.searchParams.get("redirect_uri")!).port).toBe("1457");
++      expect(requests).toEqual([]);
++      await f.service.cancel("test-codex", started.flowId);
++    } finally {
++      await new Promise<void>((resolve) => blocker.close(() => resolve()));
++    }
++  });
++
++  it("aborts binding retries when the Host owner is disposed", async () => {
++    const blocker = createServer();
++    await occupyCallbackPort(blocker);
++    try {
++      const f = await fixture();
++      const rejected = expect(f.start()).rejects.toThrow("codex-host-closed");
++      await vi.waitFor(async () =>
++        expect((await f.service.status("test-codex")).flow?.state).toBe("waiting"),
++      );
++      f.service.dispose();
++      await rejected;
++      expect(blocker.listening).toBe(true);
++      expect(f.calls).toHaveLength(0);
++    } finally {
++      await new Promise<void>((resolve) => blocker.close(() => resolve()));
++    }
 +  });
 +});
 diff --git a/packages/services/test/providerFacadeServices.test.ts b/packages/services/test/providerFacadeServices.test.ts

@@ -2212,13 +2212,14 @@ index 4fb99cc5e160eb01715508e352973eb9e0826fbc..4701294e56fd2532a0a0e3e501c86e18
            ) : null}
 diff --git a/packages/ui/src/codex-provider/CONTRACT.md b/packages/ui/src/codex-provider/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..f7a947d832586fb2ecfd13c280b76f4cd01c1643
+index 0000000000000000000000000000000000000000..e8b26692cdbd1277d8242d20f1e90800899dcf9e
 --- /dev/null
 +++ b/packages/ui/src/codex-provider/CONTRACT.md
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,9 @@
 +# codex-provider-ui
 +
 +浏览器和设备码是显式独立操作，共用 Host owner。设备码只能在用户主动发起的活动 flow 中展示，取消/失败/过期/切换后清除，不写入日志或本地持久化。验证页仅允许固定 OpenAI 官方 URL；不自动输入用户码或确认授权。
++浏览器授权 URL 仅允许 `https://auth.openai.com/oauth/authorize`，与 Host 当前 Codex 流程一致；旧 `/api/accounts/authorize` 和其他站点仍拒绝。合法地址必须交给平台打开，不能因残留旧路径白名单立即取消成功创建的 flow。
 +
 +Codex 连接卡片与 hook 是 Host 状态的展示投影，不读取凭据、不拼接 OAuth 参数、不兑换 token。
 +通过 `useServices` 读取 Codex 公共服务，通过 `usePlatform` 打开系统浏览器。
@@ -2423,10 +2424,10 @@ index 0000000000000000000000000000000000000000..983870643bfb71275070a81002782446
 +} as const;
 diff --git a/packages/ui/src/codex-provider/useCodexConnection.ts b/packages/ui/src/codex-provider/useCodexConnection.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..06dc0056714177353c63be3fbd82be94d936ade1
+index 0000000000000000000000000000000000000000..599ac53e3014bf4dda78b42fa9d3c6841c381025
 --- /dev/null
 +++ b/packages/ui/src/codex-provider/useCodexConnection.ts
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,146 @@
 +import { useCallback, useEffect, useRef, useState } from "react";
 +import { useServices } from "@/hooks/useServices.js";
 +import { usePlatform } from "@/hooks/usePlatform.js";
@@ -2483,9 +2484,10 @@ index 0000000000000000000000000000000000000000..06dc0056714177353c63be3fbd82be94
 +        return;
 +      }
 +      flow.current = result.flowId;
-+      // Host 只返回 OpenAI 的授权 URL，不接受任意站点或自定义回调。
++      // Host 已使用 Codex 的 /oauth/authorize；残留 Token Sharing 旧路径会在打开浏览器前立即取消登录。
++      // 保留精确 origin/path 白名单，不接受任意站点或恢复旧端点回退。
 +      const url = new URL(result.authorizeUrl);
-+      if (url.origin !== "https://auth.openai.com" || url.pathname !== "/api/accounts/authorize")
++      if (url.origin !== "https://auth.openai.com" || url.pathname !== "/oauth/authorize")
 +        throw new Error("invalid-authorization-url");
 +      platform.openExternal(result.authorizeUrl);
 +      await reload();
@@ -6711,10 +6713,10 @@ index 25e03132a2d2020be063c2bb283500604472548c..cde77255409867b4a5aeb576dd9f35a3
      );
 diff --git a/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx b/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04f6969f71
+index 0000000000000000000000000000000000000000..e791b399a7b45358f64dcb544e67dde699d827ec
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,89 @@
 +import { useState } from "react";
 +import { createRoot } from "react-dom/client";
 +import type { IPlatformService } from "@zcode/shared";
@@ -6730,6 +6732,7 @@ index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04
 +  params.get("theme") === "light" ? "light theme-zai-light" : "dark theme-zai-dark";
 +const states = new Map<string, CodexConnectionStatus>();
 +let starts = 0;
++let cancels = 0;
 +const device = {
 +  verificationUrl: "https://auth.openai.com/codex/device",
 +  userCode: "ABCD-EFGH",
@@ -6737,10 +6740,18 @@ index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04
 +};
 +const service: IServiceAccessor["codexProviderService"] = {
 +  status: async (id) => states.get(id) ?? { connected: false, loginAvailable: true },
-+  start: async () => ({
-+    flowId: "browser-fixture",
-+    authorizeUrl: "https://auth.openai.com/api/accounts/authorize?fixture=true",
-+  }),
++  start: async (id) => {
++    states.set(id, {
++      connected: false,
++      loginAvailable: true,
++      flow: { id: "browser-fixture", state: "waiting" },
++    });
++    return {
++      flowId: "browser-fixture",
++      authorizeUrl:
++        params.get("authorizeUrl") ?? "https://auth.openai.com/oauth/authorize?fixture=true",
++    };
++  },
 +  startDevice: async (id) => {
 +    starts++;
 +    document.getElementById("starts")!.textContent = String(starts);
@@ -6751,11 +6762,13 @@ index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04
 +    });
 +    return { flowId: "device-fixture", ...device };
 +  },
-+  cancel: async (id) => {
++  cancel: async (id, flowId) => {
++    cancels++;
++    document.getElementById("cancels")!.textContent = String(cancels);
 +    states.set(id, {
 +      connected: false,
 +      loginAvailable: true,
-+      flow: { id: "device-fixture", state: "cancelled" },
++      flow: { id: flowId, state: "cancelled" },
 +    });
 +  },
 +  disconnect: async (id) => {
@@ -6777,6 +6790,9 @@ index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04
 +      <output id="starts" data-testid="starts">
 +        0
 +      </output>
++      <output id="cancels" data-testid="cancels">
++        0
++      </output>
 +      <output id="opened" data-testid="opened" className="break-all" />
 +    </main>
 +  );
@@ -6792,10 +6808,10 @@ index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04
 +);
 diff --git a/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs b/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3057fe3e0a69edc08223010ba35b0b392a51f06b
+index 0000000000000000000000000000000000000000..75275b7a1db69375ca8b8c1f07fb4d9681640dbc
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,127 @@
 +import assert from "node:assert/strict";
 +import { before, after, test } from "node:test";
 +import { fileURLToPath } from "node:url";
@@ -6846,6 +6862,38 @@ index 0000000000000000000000000000000000000000..3057fe3e0a69edc08223010ba35b0b39
 +  await browser?.close();
 +  await server?.close();
 +});
++test("browser sign-in opens the current Codex endpoint without cancelling its flow", async () => {
++  const page = await browser.newPage();
++  try {
++    await page.goto(`${origin}fixture?locale=zh-CN`);
++    await page.getByTestId("codex-login").click();
++    await page.getByTestId("codex-cancel").waitFor();
++    assert.equal(
++      await page.getByTestId("opened").textContent(),
++      "https://auth.openai.com/oauth/authorize?fixture=true",
++    );
++    assert.equal(await page.getByTestId("cancels").textContent(), "0");
++    assert.equal(await page.locator('[data-testid="codex-connection"] [role="alert"]').count(), 0);
++  } finally {
++    await page.close();
++  }
++});
++for (const authorizeUrl of [
++  "https://auth.openai.com/api/accounts/authorize?fixture=true",
++  "https://example.invalid/oauth/authorize?fixture=true",
++]) {
++  test(`browser sign-in rejects ${new URL(authorizeUrl).origin + new URL(authorizeUrl).pathname}`, async () => {
++    const page = await browser.newPage();
++    try {
++      await page.goto(`${origin}fixture?${new URLSearchParams({ authorizeUrl })}`);
++      await page.getByTestId("codex-login").click();
++      await page.waitForFunction(() => document.getElementById("cancels")?.textContent === "1");
++      assert.equal(await page.getByTestId("opened").textContent(), "");
++    } finally {
++      await page.close();
++    }
++  });
++}
 +for (const width of [320, 1200])
 +  for (const locale of ["zh-CN", "en-US"])
 +    for (const theme of ["light", "dark"]) {

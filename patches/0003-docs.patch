@@ -127,7 +127,7 @@ index 140afb0e43ec375e6ef73cd25a372a974a71680e..c605a20dde092d52f7de430ce3112e1e
  本模型不改变 task realtime 所有权：
 diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..148563f7a74e2e30b24faaf7805385ddb143ea7c
+index 0000000000000000000000000000000000000000..807ce77ca02b85004435fcb65012e78b9006bb9f
 --- /dev/null
 +++ b/docs/provider-codex-device.md
 @@ -0,0 +1,49 @@
@@ -135,27 +135,27 @@ index 0000000000000000000000000000000000000000..148563f7a74e2e30b24faaf7805385dd
 +
 +## 产品规则
 +
-+- 在 Codex 详情保留“使用 ChatGPT 登录”（Token Sharing），新增显式“设备码登录（兼容）”；两者不是自动回退关系。
++- 在 Codex 详情保留“使用 ChatGPT 登录”（Codex 浏览器），并提供显式“设备码登录（兼容）”；两者不是自动回退关系，均使用 opencode 同一固定 Codex 客户端身份。
 +- 未连接时不再常驻显示“使用 ChatGPT 账号授权连接，无需填写 OpenAI API Key……”描述；两个登录按钮仍在原位，等待授权、设备码安全提醒、连接结果和错误信息保留。
 +- 用户主动点击后才向 OpenAI 申请设备码。界面展示固定官方验证网址、一次性用户码与过期时间，支持复制用户码、打开网页和取消；禁止自动提交设备码或代替用户确认授权。
 +- 提醒只使用本人刚在 ZCode 发起的设备码，不分享给他人。失败、拒绝、过期、取消后立即隐藏用户码；错误不暴露上游正文。
 +- 第一版沿用拥有本地 Host 的桌面授权范围，不扩大手机 Web / 远程 Host 的登录权限。
-+- 一个 Provider 同时只有一个登录尝试；切换方式会取消旧尝试。失败不覆盖原先已连接的凭据，成功才替换，不能把网页登录令牌发送给设备码后端或反过来。
++- 一个 Provider 同时只有一个登录尝试；切换方式会取消旧尝试。失败不覆盖原先已连接的 Codex 凭据，成功才替换；无账号的旧 Token Sharing 记录不能被当作 Codex 凭据使用。
 +
 +## 协议依据与边界
 +
-+参照 MIT 的 OpenCode `c93aaae37157d785f76a8e9a9243a6560e286468` 的
++参照 MIT 的 OpenCode `v2.1.4` 的
 +`packages/core/src/plugin/provider/openai.ts`：`Codex device code (legacy)`。
 +同时核对 OpenAI Codex 的设备码登录与 Responses / models 协议文档。
 +
-+- 使用其公开的 Codex OAuth client ID `app_EMoamEEZ73f0CkXaXp7hrann`（不是 Token Sharing 动态注册身份）；User-Agent / originator 标识 ZCode，不冒充 OpenCode。
++- 使用其公开的 Codex OAuth client ID `app_EMoamEEZ73f0CkXaXp7hrann`（不是 Token Sharing 动态注册身份）；所有授权请求使用本机核实的 `User-Agent: opencode/latest/2.1.4/cli`，Codex 模型身份使用 `originator: opencode`。
 +- `POST https://auth.openai.com/api/accounts/deviceauth/usercode` 申请码。
 +- `POST https://auth.openai.com/api/accounts/deviceauth/token` 轮询；等待 403/404，识别 pending/slow_down/拒绝/过期，不通过缩短间隔规避限流。每次网络 20 秒预算，默认间隔 5 秒加 3 秒余量；登录最多 15 分钟。
 +- 返回的 authorization_code / code_verifier 仅发至 `https://auth.openai.com/oauth/token`，redirect_uri 固定 `https://auth.openai.com/deviceauth/callback`；刷新同端点，不携带 Token Sharing resource。
 +- 通过 JWKS 校验 ID token 签名、issuer、audience、exp、sub，读取签名内的 ChatGPT account ID；设备码协议无 nonce，不伪造浏览器回调或 sharing scope。
 +- 凭据仍归原 CredentialService 加密保存；device_auth_id、授权码、verifier 不进入 Settings、RPC 状态、Provider 配置或日志。用户码只在对应活动尝试的 UI 投影中出现。
 +- 模型配置仍保持固定逻辑 OpenAI Responses 身份。Host 单次鉴权材料新增严格枚举 `codexMode=device`，仅 Codex access 可消费；Adapter 将这一明确身份映射到固定 `https://chatgpt.com/backend-api/codex/responses`，不接受任意 endpoint。
-+- 两种路由都经过既有网络代理、证书和请求安全边界，不经过 Coding Plan 网关、不跟随重定向。设备码请求使用真实账号头、store=false、stream=true，省略后端不接受的输出上限与采样参数；非流式调用从有界 SSE 的 response.completed 还原最终 JSON，保持原业务调用合同。
++- 两种方式均经过既有网络代理、证书和请求安全边界，不经过 Coding Plan 网关、不跟随重定向。模型请求直接复用官方 `@opencode/ai@2.1.4` 的 Responses/HTTP/SSE 实现；不再使用 ZCode 自写的 SSE 收包逻辑，非流式业务调用同样由上游生成器完成。
 +- 模型发现按当前凭据模式访问各自固定 models 端点。设备码目录附 ZCode client_version；只接纳 visibility=list，supported_in_api 不作为 Codex 后端的 API 可用性门槛。目录失败保留手动与既有模型，不用 legacy token 调用 Token Sharing 目录。
 +
 +## 所有者和时序
@@ -170,7 +170,7 @@ index 0000000000000000000000000000000000000000..148563f7a74e2e30b24faaf7805385dd
 +```
 +
 +- UI 只投影；卸载、取消、重新登录、删除与 Host dispose 中止轮询，迟到响应不能提交；原子写期间取消采用已有回滚语义。
-+- 浏览器动态 client ID 单独保留，不把固定 device client ID 填进动态注册字段；旧凭据缺少模式时仍按 Token Sharing 读取。
++- 浏览器和设备码统一使用固定 Codex client，method 只区分登录来源；旧记录的动态 client ID 不再发送。缺少 method 但有已验证账号的记录按浏览器 Codex 读取，无账号的旧 Token Sharing 记录保留但要求显式重新登录。
 +- 不自动启动真实授权或读取其他应用凭据；实际账号能否启用设备码、套餐权益和模型可用性需本人授权验收。
 +
 +## 验收
@@ -178,19 +178,19 @@ index 0000000000000000000000000000000000000000..148563f7a74e2e30b24faaf7805385dd
 +1. 两个登录入口并存；取码仅在点击后进行；用户码和网址可复制/打开；取消和过期立即清除展示。
 +2. 轮询间隔、pending、拒绝、过期、慢轮询、网络失败与 Host dispose 有自动化覆盖；并发登录、删除和迟到换证不可提交。
 +3. 成功、重启读取和刷新使用独立模式；错误账号或 ID token 不可保存；失败保留旧连接。
-+4. 请求与目录分别验证固定 route / 账号头 / zstd / store / 流式及非流式；Token Sharing 和普通 API Key 行为不变，令牌不进入套餐路由。
++4. 请求与目录分别验证固定 route / 账号头 / zstd / store / 流式及非流式；普通 API Key 行为不变，旧 Token Sharing 不作为隐式回退，令牌不进入套餐路由。
 +5. UI UT 与浏览器 E2E 覆盖两个入口、显示码、取消、重复切换不残留及中英文/深浅色/窄宽屏；桌面 E2E 验证两个入口并存，不发起真实设备授权。真实账号与 Windows/macOS 不以 mock 或 Linux 结果冒充通过。
 diff --git a/docs/provider-codex.md b/docs/provider-codex.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..1c7f14caeda521236dcd8e836b6eb5a023c2b874
+index 0000000000000000000000000000000000000000..675fe78c36df44de43f87fd81c0a21f494f22f36
 --- /dev/null
 +++ b/docs/provider-codex.md
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,65 @@
 +# Codex（ChatGPT 登录）供应商
 +
 +## 产品边界
 +
-+新增的设备码登录是显式兼容选项，协议、模式隔离和验收见 [设备码登录](provider-codex-device.md)；下文 Token Sharing 的固定端点规则仍适用于原浏览器登录。
++浏览器与设备码登录均采用 opencode v2.1.4 的固定 Codex 客户端流程，模型请求统一走 Codex 后端。设备码入口和轮询验收见 [设备码登录](provider-codex-device.md)。旧 Token Sharing 凭据必须由用户显式重新登录，不自动迁移令牌或回退 OpenAI API 路径。
 +
 +- 模型设置“添加供应商 / 其他”增加 Codex（ChatGPT 登录），与 OpenAI API Key 模板并存。
 +- 点击模板创建独立个人供应商；详情提供登录、取消、重新登录、断开连接、模型编辑和连接测试。
@@ -200,49 +200,56 @@ index 0000000000000000000000000000000000000000..1c7f14caeda521236dcd8e836b6eb5a0
 +
 +## 源码依据
 +
-+参照 anomalyco/opencode 提交 `c93aaae37157d785f76a8e9a9243a6560e286468`：
-+`packages/core/src/plugin/provider/chatgpt.ts`。该文件与旧 `openai.ts` 的固定客户端 Codex 流程不同，不能混用端点、客户端和 token。
++参照 anomalyco/opencode `v2.1.4` 的 `packages/core/src/plugin/provider/openai.ts`：浏览器 `chatgpt-browser` 与设备码 `chatgpt-headless`。直接采用其中的 PKCE、授权 URL、授权码交换和刷新请求参数，不使用 `chatgpt.ts` 的 Token Sharing 动态客户端流程。
 +
-+- 首次 `client_id=dynamic_agent_client`，`agent_name_hint=ZCode`；保存本机 host ID 与授权回调签发的 client ID。
-+- `https://auth.openai.com/api/accounts/authorize`，随机 loopback 端口，路径 `/auth/callback`，PKCE S256、state、nonce。
-+- scope 为 `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`，resource 为 `https://api.openai.com/v1`。
-+- 授权码和刷新请求仅发至 `https://auth.openai.com/api/accounts/oauth/token`，均携带 resource。
-+- 必须获得 token-sharing scope 和有效 ID token；JWKS 校验 RS256 签名、issuer、audience、exp、sub、nonce。首次缺失 client ID、重新授权返回不同 client ID 均失败。
++- 两种方式都使用 `client_id=app_EMoamEEZ73f0CkXaXp7hrann`。浏览器授权为 `https://auth.openai.com/oauth/authorize`；redirect URI 为 `http://localhost:1455/auth/callback`，占用时重试后使用 1457，不再使用随机端口。
++- PKCE 与上游相同：从 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~` 生成 43 字符 verifier，SHA-256 后 base64url 编码 challenge；另用独立 32 字节随机 state。
++- scope 为 `openid profile email offline_access`，`id_token_add_organizations=true`、`codex_cli_simplified_flow=true`、`originator=opencode`；不发送 resource、动态 client ID 或 Token Sharing nonce/scope。
++- 浏览器和设备码的授权码交换、刷新均只 POST `https://auth.openai.com/oauth/token`，表单参数按上游生成，`User-Agent: opencode/latest/2.1.4/cli`。设备码的申请与轮询 JSON 请求也使用同一 UA。
++- 保留已有 JWKS 的 RS256 签名、issuer、Codex client audience、exp、sub 校验，不照搬上游只 decode JWT 的弱校验。账号从已验证的 ID token 按上游顺序读取：顶层 `chatgpt_account_id`、`https://api.openai.com/auth.chatgpt_account_id`、首个 organization ID；不从未验证的 access token 推断账号。刷新未返回 ID token 时保留已验证账号，返回不同账号则失败。
++- Host 唯一拥有流程状态、加密凭据及刷新锁。只记录 `method=browser|device` 区分 UI；两者解析出相同的 Codex 请求身份，不再混用两套 token endpoint。兼容读取有账号身份的旧记录；无账号的 Token Sharing 记录保留但不能解析为 Codex 请求。
 +- 当前参照版本的远端模型发现被注释，第一版使用其白名单中本项目已支持的模型，不声称在线发现已启用。
 +- Codex 卡片由客户端本地能力提供，创建自包含个人配置（不依赖远端模板）；默认模型为 gpt-6-astra、gpt-5.6-sol、gpt-5.6-terra、gpt-5.6-luna。远端模板刷新不能移除此入口。
 +- 参考实现 MIT 许可见 `docs/third-party/opencode-codex-MIT.txt`。
++
++### 模型请求实现（OpenCode 2.1.4）
++
++- 固定直接依赖官方 `@opencode/ai@2.1.4`（MIT，与本机 OpenCode 版本一致），使用其 OpenAI Responses protocol、HTTP/SSE transport、zstd 编码及流解析器，不再用 `@ai-sdk/openai` 生成/解析 Codex 请求。
++- ZCode 只将现有运行时 LanguageModel 接口中的消息、工具、usage 和事件转换成上游类型；普通 API Key 等其他供应商不变。工具 strict 等 wire 默认值也遵循上游，不自行维护另一份 Responses 协议。
++- 默认 `store=false`，请求 encrypted reasoning，省略 Codex 不接受的 output limit；reasoning 档位继续读取现有 option map。HTTP/SSE 是上游支持的 transport，本轮不引入默认 WebSocket 连接或新的网络/授权通道。
++- 具体边界、所有者、失败/取消语义和验收见 `apps/zcode-cli/docs/design/v2/llm/codex-provider.md`。
 +
 +## 所有者和时序
 +
 +```text
 +设置卡片 → UI hook → Host Codex OAuth service（唯一登录/刷新 owner）
-+                       ├─ loopback listener → 浏览器授权 → state/client/ID-token 校验
-+                       ├─ encrypted CredentialService → 保存 token 与动态 clientID
++                       ├─ loopback listener → 浏览器授权 → state/固定 client/ID-token 校验
++                       ├─ encrypted CredentialService → 保存 token、method 与账号 ID
 +                       └─ Registry / Settings → 展示模型；绝不写入 token
 +
 +Agent 每次 attempt → 现有 runtime-headers RPC → Host 校验当前 Codex provider
 +                                             → 锁内读取/刷新 token
-+                                             → 仅本次请求 auth → Responses / zstd
++                                             → 仅本次请求 auth → opencode Responses / zstd / SSE
 +```
 +
 +- 每个 provider 只允许一个活动登录；flow ID 区分尝试。取消、超时、断连、Host dispose 后禁止迟到回调写入。
-+- 回调只监听 `127.0.0.1`，先校验 state 再处理 error；限制一次有效回调，不把 provider 错误文本注入 HTML。
++- 回调只监听 `localhost` loopback，先校验 state 再处理 error；限制一次有效回调，不把 provider 错误文本注入 HTML。端口占用时只等待/回退，不复制上游向未知 `/cancel` listener 发请求的行为，不能干扰本机其他应用的授权。
 +- token 加密存储，刷新在跨进程锁内完成，防止多窗口轮换同一 refresh token；保存前复核登录代次。刷新失败不循环重试，不记录 token、code、授权 URL 或完整响应。
 +- 供应商配置只保存 `codex-oauth` 类型，不能保存 access/refresh token。未登录和失效状态必须给出重新登录提示。
-+- 请求目标固定为 `https://api.openai.com/v1/responses`，禁止重定向携带 token；原有代理、证书和请求安全边界保留。
-+- 请求体在模型 option 映射后进行 zstd 压缩，设置 Content-Encoding，普通 API Key 供应商保持原行为。session/thread/request ID 来自会话，不伪造 OpenCode 客户端身份。
-+- 断开连接取消活动 flow 并清除 token；保留注册 client/host identity 供显式重新授权复用。删除 provider 后不能再解析 token。
++- 请求目标固定为 `https://chatgpt.com/backend-api/codex/responses`，仅 POST，禁止重定向携带 token；原有代理、证书和请求安全边界通过注入 fetch 保留。不能绕过这些边界使用依赖包默认 global fetch。
++- 请求体和流解析交给 opencode 官方包，option map 经上游 overlay 进入原生生成流程，output limit 按上游 Codex hook 省略。session/thread/request ID 来自会话。模型请求使用本机核实的 `User-Agent: opencode/latest/2.1.4/cli`、`originator: opencode` 及上游 Codex beta 头，浏览器和设备码凭据一致，不使用 `unknown` 占位值；Host 的浏览器 token 请求保留前轮已对齐的 UA。
++- 断开连接取消活动 flow 并清除 token；历史 client/host identity 只保留作旧记录兼容，不再用于注册或网络请求。删除 provider 后不能再解析 token。
 +- Provider Settings 的删除边界先调用 Host 凭据失效 hook，删除该实例的 token 和注册身份，再移除配置；不能只在 UI 清理。否则自动生成 ID 被新供应商复用时会继承旧登录。清理失败时停止删除并向调用方报错。
 +- RPC 仅登记 status/start/startDevice/cancel/disconnect 五个方法；request-auth 解析、实例凭据删除和 dispose 只交给 Host 装配层，不因 TypeScript 接口隐藏而假定运行时不可调用。
 +
 +## 验收
 +
 +1. 其他分组存在 Codex 卡片，原 OpenAI 卡片不变；Codex 详情无 API Key 输入，未登录显示“使用 ChatGPT 登录”。
-+2. 正确 PKCE/动态 client/state/nonce/JWKS/scope 后才显示已连接；缺失或不匹配时不保存 token。
++2. 正确 PKCE/固定 client/state/JWKS/账号后才显示已连接；两种方法都能保存、重启读取及串行刷新，缺失或不匹配时不保存 token。
 +3. 拒绝授权、错误 state、重复回调、网络失败、取消、超时和迟到回调可重试，listener 被释放。
 +4. 重启后可读取已连接状态；每个物理请求前检查有效期；并发刷新只轮换一次，退出登录不能被旧刷新复活。
 +5. 无凭据、非 Codex provider、任意自定义端点不能获取 ChatGPT token；代理和原请求安全行为不变。
-+6. Responses 流式文本、工具调用、思考档位与压缩请求有自动化覆盖；账号不具备 token sharing 资格时明确失败，不回退其他应用凭据。
++6. Responses 流式文本、工具调用、思考档位与压缩请求有自动化覆盖；不再要求 Token Sharing 资格，账号没有 Codex 访问权限时明确失败，不回退其他应用凭据。
 +7. 桌面 E2E 覆盖卡片、详情、取消与错误恢复；真实 OpenAI 登录及模型调用由用户授权后另验，不把 mock 测试当实测成功。
 diff --git a/docs/provider-model-discovery.md b/docs/provider-model-discovery.md
 new file mode 100644
@@ -408,13 +415,27 @@ index 0000000000000000000000000000000000000000..d96224eb818762120d1663c78645537e
 +覆盖单项关闭/恢复、其他会话隔离、重启恢复、并发修改、保存失败、损坏策略、Skill 别名、权限等待期间关闭、DeferredToolCall/MCP App、配置不写入、旧 runtime 不支持。UI 覆盖折叠、键盘开关、忙碌/错误/空列表、中英文、深浅主题、320px/1200px，保留原 Git/任务状态栏与上下文诊断。
 diff --git a/docs/third-party/opencode-codex-MIT.txt b/docs/third-party/opencode-codex-MIT.txt
 new file mode 100644
-index 0000000000000000000000000000000000000000..e983f8ef5b6b3990fb508771b16b3b7b2cd6a06b
+index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847507842a6
 --- /dev/null
 +++ b/docs/third-party/opencode-codex-MIT.txt
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,39 @@
 +Protocol implementation reference: anomalyco/opencode
-+Commit: c93aaae37157d785f76a8e9a9243a6560e286468
-+File: packages/core/src/plugin/provider/chatgpt.ts
++Release: v2.1.4
++Commit: 68bc26b7da1990ce10ffecfbc1e09eb13aa5d824
++File: packages/core/src/plugin/provider/openai.ts
++OAuth wire helpers adapted in packages/services/src/codex-provider/protocol.ts and device.ts;
++ZCode's bounded IO, JWT verification and credential lifecycle protections are retained.
++
++Model request implementation: official @opencode/ai npm package, pinned at 2.1.4.
++Source: https://github.com/anomalyco/opencode/tree/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/packages/ai
++Codex deployment reference: packages/core/src/plugin/provider/openai.ts (v2.1.4).
++Native Responses protocol, HTTP/SSE transport and parser are used without vendoring a modified copy.
++The @opencode/ai@2.1.4 and @opencode/schema@2.1.4 npm packages omit a complete LICENSE;
++third-party/npm-overrides.json supplies the release's original repository license.
++License source: https://raw.githubusercontent.com/anomalyco/opencode/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/LICENSE
++Byte-exact snapshot: third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt
++SHA-256: 625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b
++effect@4.0.1 retains its own bundled MIT LICENSE and original copyright notice.
 +
 +MIT License
 +

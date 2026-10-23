@@ -1,0 +1,72 @@
+diff --git a/third-party/copied-components.json b/third-party/copied-components.json
+index 06730df40562750bf1d1e0c9c81d8b9f06ab6e11..af97e405ebc15d9b3b96ff16a8b21f03875492dd 100644
+--- a/third-party/copied-components.json
++++ b/third-party/copied-components.json
+@@ -1,4 +1,19 @@
+ [
++  {
++    "id": "OpenCode Codex OAuth wire helpers",
++    "referenceRevision": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
++    "source": "https://raw.githubusercontent.com/anomalyco/opencode/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/LICENSE",
++    "file": "third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt",
++    "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
++    "importRevision": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
++    "provenance": "Adapted from packages/core/src/plugin/provider/openai.ts in the verified v2.1.4 release. Model protocol and transport code is consumed from the official npm package, not copied into ZCode.",
++    "roots": [
++      "packages/services/src/codex-provider/protocol.ts",
++      "packages/services/src/codex-provider/device.ts"
++    ],
++    "scope": "Upstream-derived Codex OAuth constants, PKCE, authorization URL, code exchange, refresh and device authorization wire/polling portions only. Bounded IO, signed JWT verification, encrypted credential storage, lifecycle ownership, cancellation and stale-result guards are ZCode adaptations and are not attributed to OpenCode.",
++    "license": "MIT"
++  },
+   {
+     "id": "shadcn",
+     "referenceRevision": "a87a63b2ca25143d26c8bd0903e4e9bc77b3f824",
+diff --git a/third-party/npm-overrides.json b/third-party/npm-overrides.json
+index e1a8dd18dc79230fe9937860d3fae3bcf206b9ff..004e21272e09a076706f7978d367c7958e85d92b 100644
+--- a/third-party/npm-overrides.json
++++ b/third-party/npm-overrides.json
+@@ -1,4 +1,16 @@
+ [
++  {
++    "package": "@opencode/ai@2.1.4",
++    "file": "third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt",
++    "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
++    "source": "https://raw.githubusercontent.com/anomalyco/opencode/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/LICENSE"
++  },
++  {
++    "package": "@opencode/schema@2.1.4",
++    "file": "third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt",
++    "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
++    "source": "https://raw.githubusercontent.com/anomalyco/opencode/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/LICENSE"
++  },
+   {
+     "package": "victory-vendor@37.3.6",
+     "file": "third-party/upstream/34dee5fd5e5cc756efb5ad4d64652bce719bdf5e900ca5d7538253e737930bc4.txt",
+diff --git a/third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt b/third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..6439474beed8e0271df9862eff97ffd70ec2464c
+--- /dev/null
++++ b/third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2025 opencode
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.

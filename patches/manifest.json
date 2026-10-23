@@ -5,14 +5,14 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "2e0e57b7d587a225efc0926aab810b5ba4beb308",
-  "tree": "c5ecf04121777a85627a27fcf7bda0b6e74f9836",
+  "sourceHead": "6cbb9d5f8f0237f81a3d8eaa07ac8f621eaebd39",
+  "tree": "b14d33e2963b842893d13ac7c989496a2544df35",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "87b274d1b43456d4a5ae9aadf9860088ba55bc3278a92662360a3b43472e4393",
+      "sha256": "4b65ae57d7ab75bc2eb36d10e3424c4566516cc32aa6eeb8144100e8addab98a",
       "paths": [
         ".oxlintrc.json",
         "architecture-policy.yaml",
@@ -22,17 +22,26 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "d5d248977a8968723548e5a497722216503deac047078670fc020fe6d276a217",
+      "sha256": "c1432a82a9a2e5b8e85bfa35fdc26a7f3e8ade2098b8d3dedbc0f6ba72a1ba3d",
       "paths": [
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
         "apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md",
         "apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md",
         "apps/zcode-cli/docs/design/v2/usage-observability.md",
+        "apps/zcode-cli/packages/adapters/package.json",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.test.ts",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.ts",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/events.ts",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts",
+        "apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts",
         "apps/zcode-cli/packages/adapters/src/model/model-execution.ts",
         "apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts",
         "apps/zcode-cli/packages/adapters/src/model/runner.ts",
         "apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts",
         "apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts",
+        "apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts",
         "apps/zcode-cli/packages/adapters/tests/model-execution.test.ts",
         "apps/zcode-cli/packages/adapters/tests/model.test.ts",
         "apps/zcode-cli/packages/adapters/tests/usage-query.test.ts",
@@ -75,7 +84,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "623760989979ff7f751227f065b45510e8a3baa5a0af27fadbee8e3a8ddf2670",
+      "sha256": "3fd492aaa60f2fdff4275653fec518c780e430e98ec4f5c8fede653e9df85a48",
       "paths": [
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
@@ -105,7 +114,7 @@
     {
       "file": "0005-packages-desktop.patch",
       "directory": "packages/desktop",
-      "sha256": "9b1b2cf41bd735dd9a58c405dbcc21d41f87a7f3d11373c982e5002d2f4e2823",
+      "sha256": "93c63f102c34320dd6e77b4785251b75127b67638d306e6b3966aa6d5385892e",
       "paths": [
         "packages/desktop/src/renderer/src/remoteWorkspaceSessionServices.ts",
         "packages/desktop/test/e2e/coding-plan-team-usage.test.ts",
@@ -163,7 +172,7 @@
     {
       "file": "0008-packages-services.patch",
       "directory": "packages/services",
-      "sha256": "3bfc728beef9eb25d9d219fc770bddd3a2b2d30195bb4c477aa45454a643e3d9",
+      "sha256": "95269f84e2de671f210def6f29a2b6ae3210a923dbe9999b0f550592728d1c8e",
       "paths": [
         "packages/services/package.json",
         "packages/services/src/accessor.ts",
@@ -175,6 +184,7 @@
         "packages/services/src/codex-provider/index.ts",
         "packages/services/src/codex-provider/module.ts",
         "packages/services/src/codex-provider/oauth.ts",
+        "packages/services/src/codex-provider/protocol.ts",
         "packages/services/src/index.ts",
         "packages/services/src/model-provider/accountProviderRequestAuthService.ts",
         "packages/services/src/model-provider/providerFacadeServices.ts",
@@ -212,7 +222,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "d180590e0a5251376081ca57ecc6dbd0ac5592974bbab5e9668ffb514ec99df3",
+      "sha256": "d23c476d45990c294d80b9ed93f324fb06e5aa0a32403b8d1170497fa88b0a43",
       "paths": [
         "packages/ui/src/GitBranchSwitcher.tsx",
         "packages/ui/src/McpStatusDialog.tsx",
@@ -331,6 +341,16 @@
         "packages/ui/test/v4ConversationTurnGroup.test.ts",
         "packages/ui/test/v4ExploreRunSummary.test.ts",
         "packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts"
+      ]
+    },
+    {
+      "file": "0011-third-party.patch",
+      "directory": "third-party",
+      "sha256": "b7ef6de5244ee31a8c4d9a9858f4f96ff14d2fd386d3ec16f8d91ea79c591afc",
+      "paths": [
+        "third-party/copied-components.json",
+        "third-party/npm-overrides.json",
+        "third-party/upstream/625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b.txt"
       ]
     }
   ]

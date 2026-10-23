@@ -1,9 +1,9 @@
 diff --git a/apps/zcode-cli/docs/design/v2/llm/codex-provider.md b/apps/zcode-cli/docs/design/v2/llm/codex-provider.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a4040f3f107cceec73ba49da34f3d709df3419fd
+index 0000000000000000000000000000000000000000..82a921314320cc27318035c1330a49581651b8c8
 --- /dev/null
 +++ b/apps/zcode-cli/docs/design/v2/llm/codex-provider.md
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,31 @@
 +# Codex OAuth 请求适配
 +
 +产品、授权、存储与验收合同见根目录 `docs/provider-codex.md`。
@@ -11,8 +11,30 @@ index 0000000000000000000000000000000000000000..a4040f3f107cceec73ba49da34f3d709
 +`codex-oauth` 是独立 Provider access 类型，不属于 zhipu-account，不参与 ZCode 套餐签名、Project Token 或其重试规则。
 +CLI 不保存 refresh token；每次物理 attempt 经现有 runtime-header Port 向 Host 取当前 access token。
 +动态鉴权必须 fail-closed，不能回退环境变量或静态 API Key。
-+只有固定 OpenAI Responses endpoint 接受此鉴权；HTTP 不跟随跨站重定向，JSON 在 option map 后以 Node zstd 异步压缩。
-+沿用代理、证书、取消、请求安全与流式读取，不引入代理服务器或 WebSocket。
++
++## 模型请求实现
++
++- Codex 固定复用本机 OpenCode 同版本的官方 MIT 包 `@opencode/ai@2.1.4`，由其 OpenAI Responses protocol 生成请求体、压缩请求、解析 SSE 和校验终止事件。禁止再通过 `@ai-sdk/openai` 生成或解析 Codex 请求，也不复制维护第二套 Responses parser。
++- ZCode 运行时仍使用现有 LanguageModel 调用接口；适配层只转换消息、工具、usage 和事件类型，不负责实现远端协议。普通 API Key、Anthropic 等供应商保持原链路。
++- 使用 opencode 提供的 HTTP/SSE transport，不引入 WebSocket。请求只允许 `POST https://chatgpt.com/backend-api/codex/responses`，禁止重定向；现有代理、证书、取消、请求安全层必须经注入 transport 复用，不能由依赖包另开网络出口。
++- 默认 `store=false`、`include=["reasoning.encrypted_content"]`、zstd；使用本机核实的 `User-Agent: opencode/latest/2.1.4/cli`、`originator: opencode`、`x-codex-beta-features: remote_compaction_v2`，账号及会话身份仍来自 Host，不能伪造。请求 output limit 按 opencode Codex hook 省略；reasoning option map 继续生效，不允许覆盖 model/input/stream 或安全端点。
++- 文本、图片、工具调用与结果、加密 reasoning 元数据经类型转换后交给原协议处理。无法表达的输入显式失败，不静默丢消息或改为文本。
++- 每次物理请求独立创建上游 runtime，正常完成、失败、取消或提前关闭流均释放；失败保持上游状态码、错误信息和 retryability，不在适配层重试或吞掉中途失败。
++
++```text
++现有 runtime LanguageModel 调用
++  → Codex 接口转换（本次 token / option / 会话身份）
++  → @opencode/ai Responses body + HTTP/SSE transport
++  → 已有请求安全 / 代理 / 证书 fetch → 固定 Codex 后端
++  → @opencode/ai parser → 运行时事件转换 → 原会话 owner
++```
++
++## 验收
++
++1. 实际执行文本与工具请求时不调用 `createOpenAI`；同一输入的原生请求体与官方 route 的结果一致。
++2. 验证端点、方法、解压后的 body、UA/账号/会话头、reasoning 档位、output-limit 省略及普通供应商不变。
++3. 覆盖 UTF-8/跨块 SSE、reasoning、工具分片/完成、usage、非流式调用、工具历史与加密 reasoning 回放。
++4. 覆盖 400/429、SSE 中途 error、缺少终止事件、取消/提前关闭、恶意端点和缺失凭据；网络 mock 不当作真实 OpenAI 调用成功。
 diff --git a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md b/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
 index 678710b8f24441ea4c47f0cfde0272ae1ede5a29..191d9fe1492571f987530ee62f1cdc94fed6cbad 100644
 --- a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
@@ -95,18 +117,615 @@ index 9ba22c575e1d43c45a419f05ecd8103c3347dee4..076c4eeadd8b6e103c62ad576cbbbc81
  ## `/usage` Query Shape
  
  Daily model usage:
+diff --git a/apps/zcode-cli/packages/adapters/package.json b/apps/zcode-cli/packages/adapters/package.json
+index 6d4a95582e034d5fcd9f167755f526636139c8af..e141d862bbf69e847276a61232c620a117356339 100644
+--- a/apps/zcode-cli/packages/adapters/package.json
++++ b/apps/zcode-cli/packages/adapters/package.json
+@@ -105,6 +105,7 @@
+     "@ai-sdk/openai": "^3.0.58",
+     "@ai-sdk/openai-compatible": "^2.0.58",
+     "@modelcontextprotocol/client": "2.0.0",
++    "@opencode/ai": "2.1.4",
+     "@zcode/contracts": "workspace:*",
+     "@zcode/dynamic-workflow": "workspace:*",
+     "@zcode/model-option-map": "workspace:*",
+@@ -113,6 +114,7 @@
+     "@zcode/zcode-cua": "workspace:*",
+     "ai": "6.0.193",
+     "cheerio": "^1.0.0",
++    "effect": "4.0.1",
+     "iconv-lite": "0.7.2",
+     "jimp": "^1.6.1",
+     "koffi": "2.15.6",
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md b/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..29503542e83688ee6080eb6cc3dd43ede334c53d
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md
+@@ -0,0 +1,13 @@
++# Codex opencode transport
++
++仅属于 CLI model adapter。公开入口为 `module.ts` 的 `createCodexResponsesModel` 和 `contract.ts` 的配置/运行时类型。
++
++- 使用官方 MIT `@opencode/ai@2.1.4` 的 Responses protocol、HTTP/SSE transport、压缩与 parser；不调用 `@ai-sdk/openai`，不维护独立的远端协议副本。
++- LanguageModel v3 只是对接当前调用方的结构接口；消息/事件转换不承担会话状态、工具执行、权限或重试。
++- 账号 token/header 只属于本次 attempt，模块不存盘、不刷新凭据、不回退环境变量。
++- 所有请求必须通过注入 fetch，且仅可 POST 固定 Codex Responses URL，redirect=error；Host token、账号头必需，opencode UA/originator 固定。代理、证书、请求安全仍由原装配层负责。
++- 每次调用持有一个 opencode runtime，消费完毕、失败、取消和提前关闭时释放；缺失终止事件不能视为成功。上游失败映射为原运行时可识别的错误，不自行重试。
++- 模型 options 以 opencode 支持的 overlay/选项传递，禁止覆盖 model/input/stream/continuation；Codex output limit 按上游 hook 省略。
++- 上游 wire JSON 经其 schema 校验。无法映射的输入显式拒绝；工具、加密 reasoning、usage 元数据不可静默丢失。
++
++规格与验收：`apps/zcode-cli/docs/design/v2/llm/codex-provider.md`。网络测试不代表真实账号登录或调用成功。
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3696584583304945b7d6f0886a2d0717c55bfc22
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts
+@@ -0,0 +1,7 @@
++import { createCodexResponsesModel } from "./module.js";
++import type { CodexRuntimeModel } from "./contract.js";
++
++/** 只构造模型，不执行请求；真正 fetch 由拥有代理/证书策略的装配层提供。 */
++export function codexModelExample(fetch: typeof globalThis.fetch): CodexRuntimeModel {
++  return createCodexResponsesModel({ modelId: "gpt-6.1-sol", fetch });
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.test.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae1aaab17624872ad65642acf83f83eecd4a307f
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.test.ts
+@@ -0,0 +1,13 @@
++import { describe, expect, it, vi } from "vitest";
++import { createCodexResponsesModel } from "./module.js";
++
++describe("Codex transport contract", () => {
++  it("constructs without IO and fails closed without Host credentials", async () => {
++    const fetch = vi.fn();
++    const model = createCodexResponsesModel({ modelId: "gpt-6.1-sol", fetch });
++    expect(model.provider).toBe("opencode.codex");
++    expect(fetch).not.toHaveBeenCalled();
++    await expect(model.doGenerate({ prompt: [] })).rejects.toThrow("codex-login-required");
++    expect(fetch).not.toHaveBeenCalled();
++  });
++});
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e2f5dfaaa3b47e95a27d3555ccfae3c846a67523
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.ts
+@@ -0,0 +1,23 @@
++import type { LanguageModel } from "ai";
++
++export type CodexRuntimeModel = Extract<LanguageModel, { specificationVersion: "v3" }>;
++export type CodexCallOptions = Parameters<CodexRuntimeModel["doStream"]>[0];
++export type CodexGenerateResult = Awaited<ReturnType<CodexRuntimeModel["doGenerate"]>>;
++export type CodexStreamPart =
++  Awaited<ReturnType<CodexRuntimeModel["doStream"]>>["stream"] extends ReadableStream<infer Part>
++    ? Part
++    : never;
++
++export interface CodexModelOptions {
++  readonly modelId: string;
++  readonly apiKey?: string;
++  readonly headers?: Readonly<Record<string, string>>;
++  readonly fetch: typeof globalThis.fetch;
++  readonly optionBody?: Readonly<Record<string, unknown>>;
++  readonly captureBody?: (body: Record<string, unknown>) => void;
++}
++
++export const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
++export const CODEX_RESPONSES_URL = `${CODEX_BASE_URL}/responses`;
++// 从本机 opencode v2.1.4 的可执行文件 --user-agent 参数核实，不能使用 unknown 占位值。
++export const CODEX_USER_AGENT = "opencode/latest/2.1.4/cli";
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/events.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/events.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..00df528a9f061f4f66f691d73181eb326efd219d
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/events.ts
+@@ -0,0 +1,172 @@
++import type {
++  LLMEvent,
++  LLMResponse,
++  Usage,
++  ProviderMetadata,
++  FinishReasonDetails,
++} from "@opencode/ai";
++import type { CodexGenerateResult, CodexStreamPart } from "./contract.js";
++
++// 原 parser 的 metadata 来源是经 schema 解码的 wire JSON，转换结构类型时保持原键不变。
++function metadata(value: ProviderMetadata | undefined): CodexGenerateResult["providerMetadata"] {
++  return value as CodexGenerateResult["providerMetadata"];
++}
++function finishReason(reason: FinishReasonDetails): CodexGenerateResult["finishReason"] {
++  const normalized = reason.normalized;
++  return {
++    unified: normalized === "unknown" ? "other" : normalized,
++    raw: reason.raw ?? normalized,
++  };
++}
++function usage(value: Usage | undefined): CodexGenerateResult["usage"] {
++  return {
++    inputTokens: {
++      total: value?.inputTokens,
++      noCache: value?.nonCachedInputTokens,
++      cacheRead: value?.cacheReadInputTokens,
++      cacheWrite: value?.cacheWriteInputTokens,
++    },
++    outputTokens: {
++      total: value?.outputTokens,
++      reasoning: value?.reasoningTokens,
++      text: value?.outputTokens === undefined ? undefined : value.visibleOutputTokens,
++    },
++    raw: value?.providerMetadata?.openai as CodexGenerateResult["usage"]["raw"],
++  };
++}
++
++export function codexResult(response: LLMResponse): CodexGenerateResult {
++  const terminal = response.events.findLast((event) => event.type === "finish");
++  const responseId = terminal?.providerMetadata?.openai?.responseId;
++  return {
++    warnings: [],
++    usage: usage(response.usage),
++    finishReason: finishReason(response.finishReason),
++    providerMetadata: metadata(terminal?.providerMetadata),
++    response: typeof responseId === "string" ? { id: responseId } : undefined,
++    content: response.message.content.map((part): CodexGenerateResult["content"][number] => {
++      switch (part.type) {
++        case "text":
++        case "reasoning":
++          return {
++            type: part.type,
++            text: part.text,
++            providerMetadata: metadata(part.providerMetadata),
++          };
++        case "tool-call":
++          return {
++            type: "tool-call",
++            toolCallId: part.id,
++            toolName: part.name,
++            input: JSON.stringify(part.input),
++            providerExecuted: part.providerExecuted,
++            providerMetadata: metadata(part.providerMetadata),
++          };
++        default:
++          throw new Error(`codex-unsupported-generated-content: ${part.type}`);
++      }
++    }),
++  };
++}
++
++/** 这里只改变事件字段名，不解析 SSE/原生 JSON；分片合并与工具校验由 opencode 持有。 */
++export async function* codexEvents(
++  events: AsyncIterable<LLMEvent>,
++): AsyncGenerator<CodexStreamPart> {
++  const text = new Map<string, string>();
++  let finished = false;
++  yield { type: "stream-start", warnings: [] };
++  for await (const event of events) {
++    switch (event.type) {
++      case "text-start":
++      case "reasoning-start":
++        text.set(event.id, "");
++        yield {
++          type: event.type,
++          id: event.id,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "text-delta":
++      case "reasoning-delta":
++        text.set(event.id, (text.get(event.id) ?? "") + event.text);
++        yield {
++          type: event.type,
++          id: event.id,
++          delta: event.text,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "text-end":
++      case "reasoning-end": {
++        const previous = text.get(event.id) ?? "";
++        if (event.text !== undefined && event.text !== previous) {
++          if (!event.text.startsWith(previous))
++            throw new Error("codex-authoritative-text-mismatch");
++          yield {
++            type: event.type === "text-end" ? "text-delta" : "reasoning-delta",
++            id: event.id,
++            delta: event.text.slice(previous.length),
++          };
++        }
++        yield {
++          type: event.type,
++          id: event.id,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        text.delete(event.id);
++        break;
++      }
++      case "tool-input-start":
++        yield {
++          type: event.type,
++          id: event.id,
++          toolName: event.name,
++          providerExecuted: event.providerExecuted,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "tool-input-delta":
++        yield { type: event.type, id: event.id, delta: event.text };
++        break;
++      case "tool-input-end":
++        yield {
++          type: event.type,
++          id: event.id,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "tool-call":
++        yield {
++          type: event.type,
++          toolCallId: event.id,
++          toolName: event.name,
++          input: JSON.stringify(event.input),
++          providerExecuted: event.providerExecuted,
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "tool-input-error":
++        throw new Error(`codex-invalid-tool-input: ${event.name}`);
++      case "provider-error":
++        throw new Error(event.message, { cause: event.classification });
++      case "finish":
++        finished = true;
++        if (typeof event.providerMetadata?.openai?.responseId === "string")
++          yield { type: "response-metadata", id: event.providerMetadata.openai.responseId };
++        yield {
++          type: "finish",
++          finishReason: finishReason(event.reason),
++          usage: usage(event.usage),
++          providerMetadata: metadata(event.providerMetadata),
++        };
++        break;
++      case "step-start":
++      case "step-finish":
++        break;
++      default:
++        throw new Error(`codex-unsupported-generated-event: ${event.type}`);
++    }
++  }
++  if (!finished) throw new Error("codex-response-incomplete");
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d9168b5cb66fdbfd43010f657151a31398eac57
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts
+@@ -0,0 +1,113 @@
++import { Media, Message, type ContentPart, type ToolResultValue } from "@opencode/ai";
++import type { CodexCallOptions } from "./contract.js";
++
++type RuntimeMessage = CodexCallOptions["prompt"][number];
++type RuntimePart = Exclude<RuntimeMessage, { role: "system" }>["content"][number];
++type RuntimeOutput = Extract<RuntimePart, { type: "tool-result" }>["output"];
++
++function toolOutput(output: RuntimeOutput): ToolResultValue {
++  switch (output.type) {
++    case "json":
++    case "text":
++      return output;
++    case "error-json":
++    case "error-text":
++      return { type: "error", value: output.value };
++    case "execution-denied":
++      return { type: "error", value: output.reason ?? "Tool execution denied" };
++    case "content":
++      return {
++        type: "content",
++        value: output.value.map((part) => {
++          switch (part.type) {
++            case "text":
++              return { type: "text", text: part.text };
++            case "image-data":
++              return {
++                type: "file",
++                uri: `data:${part.mediaType};base64,${part.data}`,
++                mime: part.mediaType,
++              };
++            case "image-url":
++              return { type: "file", uri: part.url, mime: "image/*" };
++            case "file-data":
++              return {
++                type: "file",
++                uri: `data:${part.mediaType};base64,${part.data}`,
++                mime: part.mediaType,
++              };
++            default:
++              throw new Error(`codex-unsupported-tool-content: ${part.type}`);
++          }
++        }),
++      };
++  }
++}
++
++function content(part: RuntimePart): ContentPart {
++  const providerMetadata = part.providerOptions;
++  switch (part.type) {
++    case "text":
++      return { type: "text", text: part.text, providerMetadata };
++    case "reasoning":
++      return { type: "reasoning", text: part.text, providerMetadata };
++    case "file":
++      return {
++        type: "media",
++        filename: part.filename,
++        providerMetadata,
++        media:
++          part.data instanceof URL
++            ? Media.url(part.data.href, { mediaType: part.mediaType })
++            : typeof part.data === "string"
++              ? Media.base64(part.data, part.mediaType)
++              : Media.bytes(part.data, part.mediaType),
++      };
++    case "tool-call":
++      return {
++        type: "tool-call",
++        id: part.toolCallId,
++        name: part.toolName,
++        input: part.input,
++        providerExecuted: part.providerExecuted,
++        providerMetadata,
++      };
++    case "tool-result":
++      return {
++        type: "tool-result",
++        id: part.toolCallId,
++        name: part.toolName,
++        result: toolOutput(part.output),
++        providerMetadata,
++      };
++    default:
++      throw new Error(`codex-unsupported-message-content: ${part.type}`);
++  }
++}
++
++/** 只翻译运行时结构；instructions/工具/reasoning 的 wire 形态由 opencode 原协议生成。 */
++export function codexMessages(prompt: CodexCallOptions["prompt"]) {
++  const system: string[] = [];
++  const messages: Message[] = [];
++  for (const message of prompt) {
++    if (message.role === "system" && messages.length === 0) {
++      system.push(message.content);
++      continue;
++    }
++    messages.push(
++      Message.make({
++        role: message.role,
++        providerMetadata: message.providerOptions,
++        content: message.role === "system" ? message.content : message.content.map(content),
++      }),
++    );
++  }
++  return { system: system.join("\n\n"), messages };
++}
++
++export function codexTools(options: CodexCallOptions) {
++  return options.tools?.map((tool) => {
++    if (tool.type !== "function") throw new Error(`codex-unsupported-provider-tool: ${tool.id}`);
++    return { name: tool.name, description: tool.description ?? "", inputSchema: tool.inputSchema };
++  });
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..566f66e4aa29d5a5b001d87ef4d8d52b385b4494
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts
+@@ -0,0 +1,193 @@
++import { promisify } from "node:util";
++import { zstdDecompress } from "node:zlib";
++import { APICallError } from "ai";
++import { AIError, Auth, isRetryable, LLM, type LanguageModel } from "@opencode/ai";
++import { AI } from "@opencode/ai/promise";
++import { OpenAIResponses } from "@opencode/ai/protocols/openai-responses";
++import { RequestExecutor } from "@opencode/ai/route/executor";
++import { Route } from "@opencode/ai/route/client";
++import { Endpoint } from "@opencode/ai/route/endpoint";
++import { Layer } from "effect";
++import { FetchHttpClient } from "effect/http";
++import {
++  CODEX_BASE_URL,
++  CODEX_RESPONSES_URL,
++  CODEX_USER_AGENT,
++  type CodexCallOptions,
++  type CodexModelOptions,
++  type CodexRuntimeModel,
++} from "./contract.js";
++import { codexMessages, codexTools } from "./messages.js";
++import { codexEvents, codexResult } from "./events.js";
++
++const decompress = promisify(zstdDecompress);
++const PROTECTED_BODY_FIELDS = ["model", "input", "stream", "previous_response_id", "conversation"];
++const OUTPUT_LIMIT_FIELDS = ["max_output_tokens", "max_tokens"];
++const CODEX_ROUTE = Route.make({
++  id: OpenAIResponses.route.id,
++  provider: OpenAIResponses.route.provider,
++  providerMetadataKey: OpenAIResponses.route.providerMetadataKey,
++  protocol: OpenAIResponses.protocol,
++  endpoint: Endpoint.path(OpenAIResponses.PATH, { baseURL: CODEX_BASE_URL }),
++  transport: OpenAIResponses.httpTransport,
++  defaults: OpenAIResponses.route.defaults,
++});
++
++function requestError(error: unknown): unknown {
++  if (!(error instanceof AIError)) return error;
++  const reason = error.reason;
++  return new APICallError({
++    message: error.message,
++    url: reason.http?.url ?? CODEX_RESPONSES_URL,
++    requestBodyValues: undefined,
++    statusCode: reason.http?.status,
++    responseHeaders: reason.http?.headers,
++    responseBody: "body" in reason ? reason.body : undefined,
++    isRetryable: isRetryable(error),
++    cause: error,
++  });
++}
++
++function bodyOverlay(config: CodexModelOptions, options: CodexCallOptions) {
++  const body = { ...config.optionBody };
++  for (const key of PROTECTED_BODY_FIELDS)
++    if (key in body) throw new Error(`codex-protected-option-field: ${key}`);
++  // opencode OpenAIPlugin 的 context/compaction hook 删除 maxTokens；同样不发 option map 的 output limit。
++  for (const key of OUTPUT_LIMIT_FIELDS) delete body[key];
++  if (options.responseFormat?.type === "json") {
++    const format = options.responseFormat;
++    body.text = {
++      ...(typeof body.text === "object" && body.text !== null ? body.text : {}),
++      format: format.schema
++        ? {
++            type: "json_schema",
++            name: format.name ?? "response",
++            schema: format.schema,
++            strict: true,
++            ...(format.description ? { description: format.description } : {}),
++          }
++        : { type: "json_object" },
++    };
++  }
++  return { ...body, store: false };
++}
++
++function nativeRequest(
++  config: CodexModelOptions,
++  options: CodexCallOptions,
++): ReturnType<typeof LLM.request> {
++  if (!config.apiKey || !new Headers(config.headers).get("chatgpt-account-id"))
++    throw new Error("codex-login-required");
++  const headers = new Headers();
++  for (const [name, value] of Object.entries(options.headers ?? {}))
++    if (value !== undefined) headers.set(name, value);
++  for (const [name, value] of Object.entries(config.headers ?? {})) headers.set(name, value);
++  headers.set("User-Agent", CODEX_USER_AGENT);
++  headers.set("originator", "opencode");
++  headers.set("x-codex-beta-features", "remote_compaction_v2");
++  const model: LanguageModel = CODEX_ROUTE.with({
++    auth: Auth.value(config.apiKey).bearer(),
++    http: { encoding: "zstd" },
++  }).model({ id: config.modelId });
++  const choice = options.toolChoice;
++  return LLM.request({
++    model,
++    ...codexMessages(options.prompt),
++    tools: codexTools(options),
++    toolChoice: choice?.type === "tool" ? { type: "tool", name: choice.toolName } : choice,
++    generation: {
++      temperature: options.temperature,
++      topP: options.topP,
++      presencePenalty: options.presencePenalty,
++      frequencyPenalty: options.frequencyPenalty,
++    },
++    providerOptions: {
++      ...options.providerOptions?.openai,
++      store: false,
++      include: ["reasoning.encrypted_content"],
++    },
++    http: { headers: Object.fromEntries(headers), body: bodyOverlay(config, options) },
++  });
++}
++
++function client(config: CodexModelOptions) {
++  const fetch: typeof globalThis.fetch = async (input, init) => {
++    const request = new Request(input, init);
++    if (request.url !== CODEX_RESPONSES_URL || request.method !== "POST")
++      throw new Error("codex-endpoint-not-allowed");
++    request.signal.throwIfAborted();
++    if (config.captureBody) {
++      const bytes = Buffer.from(await request.clone().arrayBuffer());
++      const decoded =
++        request.headers.get("Content-Encoding") === "zstd" ? await decompress(bytes) : bytes;
++      config.captureBody(JSON.parse(decoded.toString("utf8")));
++    }
++    // 依赖包的 FetchHttpClient 必须复用原请求安全/代理 fetch，不能回退 global fetch 或跟随重定向。
++    request.signal.throwIfAborted();
++    return config.fetch(input, { ...init, redirect: "error" });
++  };
++  const http = FetchHttpClient.layer.pipe(
++    Layer.provide(
++      Layer.mergeAll(
++        Layer.succeed(FetchHttpClient.Fetch, fetch),
++        Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" }),
++      ),
++    ),
++  );
++  return AI.make({ layer: RequestExecutor.layer.pipe(Layer.provide(http)) });
++}
++
++export function createCodexResponsesModel(config: CodexModelOptions): CodexRuntimeModel {
++  return {
++    specificationVersion: "v3",
++    provider: "opencode.codex",
++    modelId: config.modelId,
++    supportedUrls: { "image/*": [/^https?:\/\//] },
++    async doGenerate(options) {
++      const request = nativeRequest(config, options);
++      const ai = client(config);
++      try {
++        return codexResult(await ai.llm.generate(request, { signal: options.abortSignal }));
++      } catch (error) {
++        throw requestError(error);
++      } finally {
++        await ai.dispose();
++      }
++    },
++    async doStream(options) {
++      const request = nativeRequest(config, options);
++      const abort = new AbortController();
++      const signal = options.abortSignal
++        ? AbortSignal.any([abort.signal, options.abortSignal])
++        : abort.signal;
++      async function* run() {
++        const ai = client(config);
++        try {
++          yield* codexEvents(ai.llm.stream(request, { signal }));
++        } catch (error) {
++          throw requestError(error);
++        } finally {
++          await ai.dispose();
++        }
++      }
++      const iterator = run();
++      return {
++        stream: new ReadableStream({
++          async pull(controller) {
++            try {
++              const next = await iterator.next();
++              if (next.done) controller.close();
++              else controller.enqueue(next.value);
++            } catch (error) {
++              controller.error(error);
++            }
++          },
++          async cancel(reason) {
++            abort.abort(reason);
++            await iterator.return();
++          },
++        }),
++      };
++    },
++  };
++}
 diff --git a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
-index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..4aa0a11b342bf9c527d3bff4b1b49d36ec2a676a 100644
+index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..fe7ed791dc54da7d81530977569223dfcf5a90b6 100644
 --- a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
 +++ b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
-@@ -1,4 +1,6 @@
- import { withoutRequestVerificationHeaders } from "@zcode/shared";
-+import { zstdCompress } from "node:zlib";
-+import { promisify } from "node:util";
- /* eslint-disable max-lines -- AI SDK 模型执行装配集中维护 provider factory、鉴权和网络错误适配，拆分会让状态同步更脆弱。 */
- // ============================================================
- // Vercel AI SDK model execution
-@@ -41,6 +43,7 @@ export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
+@@ -26,6 +26,7 @@ import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
+ import { createModelRequestSecurityState } from "./request-security-edition/index.js";
+ import type { ModelRequestSecurityState, ModelRequestSecurityPort } from "./request-security.js";
+ import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
++import { createCodexResponsesModel } from "./codex-transport/module.js";
+ import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
+ import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
+ import { createProviderEndpointRoutingFetch } from "./provider-endpoint-routing-fetch.js";
+@@ -41,6 +42,7 @@ export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
  export type EnvRecord = Record<string, string | undefined>;
  
  interface AiSdkProviderConfig {
@@ -114,20 +733,41 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..4aa0a11b342bf9c527d3bff4b1b49d36
    access: RegistryProviderConfig["access"];
    kind: AiSdkProviderKind;
    apiKey?: string;
-@@ -296,7 +299,11 @@ export class AiSdkModelExecution {
-     const requestTransport = this.requestSecurity.protectTransport({
-       providerId,
-       providerConfig,
--      transport: providerTransport,
-+      // ChatGPT 身份不能发送给套餐路由网关；仍保留代理、证书和外层请求安全处理。
-+      transport:
-+        providerConfig.access.type === "codex-oauth"
-+          ? createCodexResponsesFetch(networkTransport, providerConfig.codexMode)
-+          : providerTransport,
-     });
-     const fetch = createProviderBusinessErrorFetch({
-       fetch: requestTransport,
-@@ -385,7 +392,8 @@ function toAiSdkProviderConfig(
+@@ -285,6 +287,33 @@ export class AiSdkModelExecution {
+     // SDK 会合并 factory 默认 header；必须在这里去掉静态来源，才能保证缺失时真正省略。
+     const headers = withoutModelQuerySourceHeader(providerConfig.headers);
+     const networkTransport = this.resolveProviderTransport(providerId);
++    if (providerConfig.access.type === "codex-oauth") {
++      if (
++        providerConfig.kind !== "openai" ||
++        providerConfig.baseURL !== "https://api.openai.com/v1"
++      )
++        throw new Error("codex-endpoint-not-allowed");
++      // Codex 直接复用 opencode 的 Responses 生成器/transport/parser，不能再走 createOpenAI。
++      // 只保留当前运行时接口与现有网络安全装配，ChatGPT token 不进入套餐路由网关。
++      const fetch = this.requestSecurity.protectTransport({
++        providerId,
++        providerConfig,
++        transport: networkTransport,
++      });
++      const optionBody =
++        optionMaps && optionValues ? optionMaps.apply({}, optionValues) : undefined;
++      return (modelId) =>
++        createCodexResponsesModel({
++          modelId,
++          apiKey,
++          headers,
++          fetch,
++          optionBody,
++          captureBody: (body) => {
++            rawRequestBodyCapture.body = body as NonNullable<RawRequestBodyCapture["body"]>;
++          },
++        });
++    }
+     // ID 属于当前 attempt，不能放入按 Provider 缓存的 transport，避免切换账号后串用。
+     const providerTransport = this.endpointRoutingPort
+       ? createProviderEndpointRoutingFetch({
+@@ -385,7 +414,8 @@ function toAiSdkProviderConfig(
    config: RegistryProviderConfig,
  ): AiSdkProviderConfig {
    const common = {
@@ -137,7 +777,7 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..4aa0a11b342bf9c527d3bff4b1b49d36
        ? { apiKey: config.access.apiKey }
        : {}),
      baseURL: config.api.baseUrl,
-@@ -409,14 +417,17 @@ function applyModelRequestAuth(
+@@ -409,14 +439,17 @@ function applyModelRequestAuth(
    requestAuth: ModelRequestAuth | undefined,
  ): AiSdkProviderConfig {
    if (!requestAuth) return providerConfig;
@@ -156,123 +796,6 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..4aa0a11b342bf9c527d3bff4b1b49d36
      ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
      headers: mergeModelRequestHeaders(headers, requestAuth.headers),
    };
-@@ -437,6 +448,116 @@ function withAnthropicAuthorizationHeader(
-   };
- }
- 
-+const compressCodexBody = promisify(zstdCompress);
-+
-+/** Compress only the fixed token-sharing route, after option mapping and request-security processing. */
-+export function createCodexResponsesFetch(
-+  transport: typeof globalThis.fetch,
-+  mode?: "device",
-+): typeof globalThis.fetch {
-+  return async (input, init) => {
-+    const request = new Request(input, init);
-+    const url = new URL(request.url);
-+    if (url.href !== "https://api.openai.com/v1/responses" || request.method !== "POST") {
-+      throw new Error("codex-endpoint-not-allowed");
-+    }
-+    request.signal.throwIfAborted();
-+    let body = Buffer.from(await request.arrayBuffer());
-+    let nonStreaming = false;
-+    if (mode === "device") {
-+      // 设备码身份属于 Codex 后端，不是 Token Sharing；只映射这个固定目标，禁止用户端点覆盖。
-+      const value = JSON.parse(body.toString("utf8")) as Record<string, unknown>;
-+      nonStreaming = value.stream !== true;
-+      value.store = false;
-+      value.stream = true;
-+      delete value.max_output_tokens;
-+      delete value.max_tokens;
-+      delete value.temperature;
-+      delete value.top_p;
-+      const instructions: string[] =
-+        typeof value.instructions === "string" ? [value.instructions] : [];
-+      if (Array.isArray(value.input))
-+        value.input = value.input.filter((item) => {
-+          if (!item || (item.role !== "system" && item.role !== "developer")) return true;
-+          if (typeof item.content === "string") instructions.push(item.content);
-+          else if (Array.isArray(item.content))
-+            for (const part of item.content)
-+              if (typeof part.text === "string") instructions.push(part.text);
-+          return false;
-+        });
-+      value.instructions = instructions.join("\n\n");
-+      body = Buffer.from(JSON.stringify(value));
-+    }
-+    const compressed = await compressCodexBody(body);
-+    request.signal.throwIfAborted();
-+    const headers = new Headers(request.headers);
-+    headers.set("Content-Encoding", "zstd");
-+    headers.delete("Content-Length");
-+    const response = await transport(
-+      mode === "device" ? "https://chatgpt.com/backend-api/codex/responses" : url,
-+      {
-+        ...init,
-+        method: "POST",
-+        headers,
-+        body: new Uint8Array(compressed),
-+        signal: request.signal,
-+        redirect: "error",
-+      },
-+    );
-+    return mode === "device" && nonStreaming && response.ok
-+      ? collectCodexResponse(response)
-+      : response;
-+  };
-+}
-+
-+/** Codex only streams; preserve SDK generateText/compact's JSON contract with a bounded final event. */
-+async function collectCodexResponse(response: Response): Promise<Response> {
-+  if (!response.headers.get("content-type")?.includes("text/event-stream") || !response.body)
-+    return response;
-+  const reader = response.body.getReader();
-+  const decoder = new TextDecoder();
-+  let pending = "";
-+  let bytes = 0;
-+  let completed: unknown;
-+  try {
-+    while (true) {
-+      const { done, value } = await reader.read();
-+      if (done) break;
-+      bytes += value.byteLength;
-+      if (bytes > 32 * 1024 * 1024) throw new Error("codex-response-too-large");
-+      pending += decoder.decode(value, { stream: true });
-+      const frames = pending.split(/\r?\n\r?\n/);
-+      pending = frames.pop() ?? "";
-+      for (const frame of frames) {
-+        const data = frame
-+          .split(/\r?\n/)
-+          .filter((line) => line.startsWith("data:"))
-+          .map((line) => line.slice(5).trimStart())
-+          .join("\n");
-+        if (!data || data === "[DONE]") continue;
-+        let event;
-+        try {
-+          event = JSON.parse(data);
-+        } catch {
-+          throw new Error("codex-response-invalid");
-+        }
-+        if (event.type === "response.failed" || event.type === "error")
-+          throw new Error("codex-response-failed");
-+        if (event.type === "response.completed") completed = event.response;
-+      }
-+      if (completed) break;
-+    }
-+  } finally {
-+    void reader.cancel().catch(() => {});
-+  }
-+  if (!completed) throw new Error("codex-response-incomplete");
-+  const headers = new Headers(response.headers);
-+  headers.set("content-type", "application/json");
-+  headers.delete("content-length");
-+  headers.delete("content-encoding");
-+  return new Response(JSON.stringify(completed), { status: response.status, headers });
-+}
-+
- function hasHeader(headers: Record<string, string> | undefined, name: string): boolean {
-   if (!headers) {
-     return false;
 diff --git a/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts b/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts
 index a7a066db2e6db0c733210282b8d900ab2cdba6a3..5dc686043ac4605733890bd4837b61d4d17d296b 100644
 --- a/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts
@@ -391,11 +914,533 @@ index 0f21b3708f5e2340bf263bc8dc6a1e109824c6ec..573979ea905a9253677410f0c25b353d
      return SqliteSessionStore.open(options, migrationOptions);
    }
  
+diff --git a/apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts b/apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b0ea9b3db15fe5eee9712a36b88f39b548cc8ff
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts
+@@ -0,0 +1,516 @@
++import { zstdDecompressSync } from "node:zlib";
++import { createOpenAI } from "@ai-sdk/openai";
++import { CodexOAuthAccessConfig, ProviderApiConfig, ProviderConfig } from "@zcode/provider";
++import { generateText, streamText, jsonSchema } from "ai";
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { LLM, Message } from "@opencode/ai";
++import { OpenAIResponses } from "@opencode/ai/protocols/openai-responses";
++import { Effect } from "effect";
++import { AiSdkModelExecution } from "../src/model/model-execution.js";
++import { createCodexResponsesModel } from "../src/model/codex-transport/module.js";
++import type { CodexRuntimeModel } from "../src/model/codex-transport/contract.js";
++
++vi.mock("@ai-sdk/openai", async (load) => {
++  const original = await load<typeof import("@ai-sdk/openai")>();
++  return { ...original, createOpenAI: vi.fn(original.createOpenAI) };
++});
++beforeEach(() => vi.mocked(createOpenAI).mockClear());
++
++const UA = "opencode/latest/2.1.4/cli";
++const textItem = {
++  id: "msg_fixture",
++  type: "message",
++  role: "assistant",
++  status: "completed",
++  content: [{ type: "output_text", text: "你好 done", annotations: [] }],
++};
++function frames(output: unknown[] = [textItem]) {
++  return [
++    {
++      type: "response.created",
++      response: { id: "resp_fixture", model: "gpt-6.1-sol", created_at: 1 },
++    },
++    ...output.flatMap((item, index) => [
++      { type: "response.output_item.added", output_index: index, item },
++      { type: "response.output_item.done", output_index: index, item },
++    ]),
++    {
++      type: "response.completed",
++      response: {
++        id: "resp_fixture",
++        model: "gpt-6.1-sol",
++        status: "completed",
++        output,
++        usage: {
++          input_tokens: 12,
++          output_tokens: 7,
++          total_tokens: 19,
++          input_tokens_details: { cached_tokens: 4 },
++          output_tokens_details: { reasoning_tokens: 3 },
++        },
++      },
++    },
++  ];
++}
++function sse(events: unknown[] = frames(), split = false) {
++  const bytes = new TextEncoder().encode(
++    events.map((e) => `data: ${JSON.stringify(e)}\r\n\r\n`).join(""),
++  );
++  return new Response(
++    new ReadableStream<Uint8Array>({
++      start(controller) {
++        for (let index = 0; index < bytes.length; index += split ? 1 : bytes.length)
++          controller.enqueue(bytes.slice(index, index + (split ? 1 : bytes.length)));
++        controller.close();
++      },
++    }),
++    { headers: { "content-type": "text/event-stream" } },
++  );
++}
++function fixture(response: () => Response | Promise<Response> = () => sse()) {
++  const transport = vi.fn(async (_url: unknown, _init?: RequestInit) => response());
++  const routing = { resolve: vi.fn() };
++  const execution = new AiSdkModelExecution(
++    { endpointRoutingPort: routing },
++    { transport: transport as typeof fetch },
++  );
++  const bind = execution.bindModel({
++    providerId: "codex-fixture",
++    modelId: "gpt-6.1-sol",
++    supportsJsonSchemaOutput: true,
++    providerConfig: new ProviderConfig({
++      group: "standard-personal",
++      access: new CodexOAuthAccessConfig(),
++      api: new ProviderApiConfig({
++        type: "openai-responses",
++        baseUrl: "https://api.openai.com/v1",
++      }),
++    }) as never,
++    optionSpecs: {
++      reasoningLevel: { map: '{"reasoning":{"effort":reasoningLevel}}' },
++      maxOutputTokens: { map: '{"max_output_tokens":maxOutputTokens}' },
++    },
++  });
++  const resolved = bind.resolveRequest({
++    options: { reasoningLevel: "high", maxOutputTokens: 1024 },
++    requestAuth: {
++      apiKey: "fixture-token",
++      codexMode: "device",
++      headers: {
++        "chatgpt-account-id": "fixture-account",
++        "session-id": "fixture-session",
++        "thread-id": "fixture-session",
++        "x-client-request-id": "fixture-session",
++        "User-Agent": UA,
++      },
++    },
++  });
++  return { transport, routing, resolved, bind };
++}
++async function sent(f: ReturnType<typeof fixture>) {
++  const [url, init] = f.transport.mock.calls[0]!;
++  const request = new Request(String(url), init);
++  const compressed = Buffer.from(await request.arrayBuffer());
++  return {
++    url: String(url),
++    init: init!,
++    headers: request.headers,
++    body: JSON.parse(zstdDecompressSync(compressed).toString("utf8")),
++  };
++}
++
++describe("Codex uses the actual opencode Responses implementation", () => {
++  it("does not use createOpenAI and sends opencode's native body and headers", async () => {
++    const f = fixture();
++    expect(f.resolved.model).toHaveProperty("provider", "opencode.codex");
++    const result = await generateText({
++      model: f.resolved.model,
++      system: "instructions",
++      prompt: "hello",
++      maxRetries: 0,
++    });
++    expect(result.text).toBe("你好 done");
++    expect(createOpenAI).not.toHaveBeenCalled();
++    expect(f.routing.resolve).not.toHaveBeenCalled();
++    const request = await sent(f);
++    expect(request.url).toBe("https://chatgpt.com/backend-api/codex/responses");
++    expect(request.init.method).toBe("POST");
++    expect(request.init.redirect).toBe("error");
++    expect(request.headers.get("User-Agent")).toBe(UA);
++    expect(request.headers.get("originator")).toBe("opencode");
++    expect(request.headers.get("Authorization")).toBe("Bearer fixture-token");
++    expect(request.headers.get("chatgpt-account-id")).toBe("fixture-account");
++    expect(request.headers.get("session-id")).toBe("fixture-session");
++    expect(request.headers.get("x-codex-beta-features")).toBe("remote_compaction_v2");
++    expect(request.headers.get("Content-Encoding")).toBe("zstd");
++    expect(request.body).toMatchObject({
++      store: false,
++      stream: true,
++      model: "gpt-6.1-sol",
++      instructions: "instructions",
++      reasoning: { effort: "high" },
++      include: ["reasoning.encrypted_content"],
++    });
++    expect(request.body).not.toHaveProperty("max_output_tokens");
++    const native = LLM.request({
++      model: OpenAIResponses.route.model({ id: "gpt-6.1-sol" }),
++      system: "instructions",
++      messages: [Message.user("hello")],
++      providerOptions: { store: false, include: ["reasoning.encrypted_content"] },
++    });
++    const nativeBody = await Effect.runPromise(OpenAIResponses.route.body.from(native));
++    expect(request.body).toEqual(
++      JSON.parse(JSON.stringify({ ...nativeBody, reasoning: { effort: "high" }, store: false })),
++    );
++    expect(f.resolved.rawRequestBodyCapture?.body).toEqual(request.body);
++    expect(result.usage).toMatchObject({
++      inputTokens: 12,
++      outputTokens: 7,
++      cachedInputTokens: 4,
++      reasoningTokens: 3,
++    });
++  });
++
++  it("uses the upstream parser across byte-split UTF-8 SSE and preserves encrypted reasoning", async () => {
++    const reasoning = {
++      id: "rs_fixture",
++      type: "reasoning",
++      encrypted_content: "encrypted-fixture",
++      summary: [{ type: "summary_text", text: "thinking" }],
++    };
++    const f = fixture(() => sse(frames([reasoning, textItem]), true));
++    const result = streamText({ model: f.resolved.model, prompt: "hello", maxRetries: 0 });
++    const chunks = [];
++    for await (const chunk of result.fullStream) chunks.push(chunk);
++    expect(await result.text).toBe("你好 done");
++    expect(await result.reasoningText).toBe("thinking");
++    expect(chunks).toContainEqual(
++      expect.objectContaining({
++        type: "reasoning-end",
++        providerMetadata: {
++          openai: expect.objectContaining({ reasoningEncryptedContent: "encrypted-fixture" }),
++        },
++      }),
++    );
++    expect(createOpenAI).not.toHaveBeenCalled();
++  });
++
++  it("maps function calls and replays tool results without AI SDK wire serialization", async () => {
++    const call = {
++      id: "fc_fixture",
++      type: "function_call",
++      call_id: "call_fixture",
++      name: "lookup",
++      arguments: '{"value":"one"}',
++      status: "completed",
++    };
++    const f = fixture(() => sse(frames([call])));
++    const result = await generateText({
++      model: f.resolved.model,
++      prompt: "hello",
++      maxRetries: 0,
++      tools: {
++        lookup: {
++          description: "look up",
++          inputSchema: jsonSchema({
++            type: "object",
++            properties: { value: { type: "string" } },
++            required: ["value"],
++          }),
++        },
++      },
++    });
++    expect(result.toolCalls).toMatchObject([
++      { toolCallId: "call_fixture", toolName: "lookup", input: { value: "one" } },
++    ]);
++    expect(result.finishReason).toBe("tool-calls");
++    expect((await sent(f)).body.tools[0]).toMatchObject({ type: "function", name: "lookup" });
++    const next = fixture();
++    await generateText({
++      model: next.resolved.model,
++      maxRetries: 0,
++      messages: [
++        { role: "user", content: "hello" },
++        {
++          role: "assistant",
++          content: [
++            {
++              type: "tool-call",
++              toolCallId: "call_fixture",
++              toolName: "lookup",
++              input: { value: "one" },
++            },
++          ],
++        },
++        {
++          role: "tool",
++          content: [
++            {
++              type: "tool-result",
++              toolCallId: "call_fixture",
++              toolName: "lookup",
++              output: { type: "json", value: { found: true } },
++            },
++          ],
++        },
++      ],
++    });
++    expect((await sent(next)).body.input).toContainEqual(
++      expect.objectContaining({
++        type: "function_call_output",
++        call_id: "call_fixture",
++        output: '{"found":true}',
++      }),
++    );
++  });
++
++  it.each([400, 429])("preserves upstream HTTP %s without internal retries", async (status) => {
++    const f = fixture(() =>
++      Response.json(
++        { error: { message: "fixture rejected", code: "invalid_request_error" } },
++        { status },
++      ),
++    );
++    await expect(
++      generateText({ model: f.resolved.model, prompt: "hello", maxRetries: 0 }),
++    ).rejects.toMatchObject({ statusCode: status });
++    expect(f.transport).toHaveBeenCalledTimes(1);
++  });
++
++  it("fails an interrupted response rather than reporting partial output as complete", async () => {
++    const f = fixture(() => sse(frames().slice(0, -1)));
++    await expect(
++      generateText({ model: f.resolved.model, prompt: "hello", maxRetries: 0 }),
++    ).rejects.toThrow();
++  });
++
++  it("does not treat an SSE failure after partial text as a successful generation", async () => {
++    const f = fixture(() =>
++      sse([
++        ...frames().slice(0, -1),
++        { type: "error", code: "server_error", message: "fixture stream failed" },
++      ]),
++    );
++    await expect(
++      generateText({ model: f.resolved.model, prompt: "hello", maxRetries: 0 }),
++    ).rejects.toThrow("fixture stream failed");
++  });
++
++  it("preserves streamed function argument deltas", async () => {
++    const call = {
++      id: "fc_fragment",
++      type: "function_call",
++      call_id: "call_fragment",
++      name: "lookup",
++      arguments: "",
++      status: "in_progress",
++    };
++    const completed = { ...call, arguments: '{"value":"one"}', status: "completed" };
++    const events = [
++      frames()[0],
++      { type: "response.output_item.added", output_index: 0, item: call },
++      {
++        type: "response.function_call_arguments.delta",
++        item_id: call.id,
++        output_index: 0,
++        delta: '{"value":',
++      },
++      {
++        type: "response.function_call_arguments.delta",
++        item_id: call.id,
++        output_index: 0,
++        delta: '"one"}',
++      },
++      ...frames([completed]).slice(2),
++    ];
++    const f = fixture(() => sse(events));
++    const result = await (f.resolved.model as CodexRuntimeModel).doStream({
++      prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
++    });
++    const chunks = [];
++    for await (const chunk of result.stream) chunks.push(chunk);
++    expect(
++      chunks
++        .filter((chunk) => chunk.type === "tool-input-delta")
++        .map((chunk) => chunk.delta)
++        .join(""),
++    ).toBe('{"value":"one"}');
++    expect(chunks).toContainEqual(
++      expect.objectContaining({
++        type: "tool-call",
++        toolCallId: "call_fragment",
++        input: '{"value":"one"}',
++      }),
++    );
++  });
++
++  it("replays signed reasoning metadata and image inputs through the upstream lowerer", async () => {
++    const f = fixture();
++    await generateText({
++      model: f.resolved.model,
++      maxRetries: 0,
++      messages: [
++        {
++          role: "user",
++          content: [{ type: "image", image: new URL("https://example.invalid/image.png") }],
++        },
++        {
++          role: "assistant",
++          content: [
++            {
++              type: "reasoning",
++              text: "thinking",
++              providerOptions: {
++                openai: { itemId: "rs_fixture", reasoningEncryptedContent: "encrypted-fixture" },
++              },
++            },
++          ],
++        },
++        { role: "user", content: "continue" },
++      ],
++    });
++    const { body } = await sent(f);
++    expect(body.input).toContainEqual(
++      expect.objectContaining({
++        type: "reasoning",
++        id: "rs_fixture",
++        encrypted_content: "encrypted-fixture",
++      }),
++    );
++    expect(body.input[0].content).toContainEqual(
++      expect.objectContaining({
++        type: "input_image",
++        image_url: "https://example.invalid/image.png",
++      }),
++    );
++    expect(f.transport).toHaveBeenCalledTimes(1);
++  });
++
++  it("forwards cancellation and releases an open upstream response", async () => {
++    const cancelled = vi.fn();
++    const events = [
++      frames()[0],
++      {
++        type: "response.output_item.added",
++        output_index: 0,
++        item: { ...textItem, status: "in_progress", content: [] },
++      },
++      {
++        type: "response.output_text.delta",
++        item_id: textItem.id,
++        output_index: 0,
++        content_index: 0,
++        delta: "partial",
++      },
++    ];
++    const f = fixture(
++      () =>
++        new Response(
++          new ReadableStream<Uint8Array>({
++            start(controller) {
++              controller.enqueue(
++                new TextEncoder().encode(
++                  events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
++                ),
++              );
++            },
++            cancel: cancelled,
++          }),
++          { headers: { "content-type": "text/event-stream" } },
++        ),
++    );
++    const result = await (f.resolved.model as CodexRuntimeModel).doStream({
++      prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
++    });
++    const reader = result.stream.getReader();
++    await reader.read();
++    await reader.read();
++    await reader.cancel();
++    expect(f.transport.mock.calls[0]![1]!.signal!.aborted).toBe(true);
++    expect(cancelled).toHaveBeenCalledOnce();
++  });
++
++  it("rejects protected option-map overrides without reaching the network", async () => {
++    const fetch = vi.fn();
++    const model = createCodexResponsesModel({
++      modelId: "gpt-6.1-sol",
++      apiKey: "fixture-token",
++      headers: { "chatgpt-account-id": "fixture-account" },
++      optionBody: { stream: false },
++      fetch,
++    });
++    await expect(model.doGenerate({ prompt: [] })).rejects.toThrow("codex-protected-option-field");
++    expect(fetch).not.toHaveBeenCalled();
++  });
++
++  it.each(["https://example.invalid/v1", "https://api.openai.com/v1/responses/compact"])(
++    "refuses custom Codex endpoints: %s",
++    (baseUrl) => {
++      const f = fixture();
++      const execution = new AiSdkModelExecution({}, { transport: f.transport as typeof fetch });
++      expect(() =>
++        execution.bindModel({
++          providerId: "unsafe",
++          modelId: "gpt-6.1-sol",
++          supportsJsonSchemaOutput: false,
++          providerConfig: new ProviderConfig({
++            group: "standard-personal",
++            access: new CodexOAuthAccessConfig(),
++            api: new ProviderApiConfig({ type: "openai-responses", baseUrl }),
++          }) as never,
++          optionSpecs: { reasoningLevel: { map: "{}" }, maxOutputTokens: { map: "{}" } },
++        }),
++      ).toThrow("codex-endpoint-not-allowed");
++      expect(f.transport).not.toHaveBeenCalled();
++    },
++  );
++
++  it("does not send any request without dynamic credentials", async () => {
++    const f = fixture();
++    await expect(
++      generateText({ model: f.bind.resolved.model, prompt: "hello", maxRetries: 0 }),
++    ).rejects.toThrow();
++    expect(f.transport).not.toHaveBeenCalled();
++  });
++
++  it("omits undefined headers and cannot override the Host identity or opencode UA", async () => {
++    const f = fixture();
++    await (f.resolved.model as CodexRuntimeModel).doGenerate({
++      prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
++      headers: {
++        "x-omitted": undefined,
++        "User-Agent": "wrong-client",
++        Authorization: "Bearer wrong-token",
++        "chatgpt-account-id": "wrong-account",
++      },
++    });
++    const { headers } = await sent(f);
++    expect(headers.has("x-omitted")).toBe(false);
++    expect(headers.get("User-Agent")).toBe(UA);
++    expect(headers.get("Authorization")).toBe("Bearer fixture-token");
++    expect(headers.get("chatgpt-account-id")).toBe("fixture-account");
++  });
++
++  it("propagates caller abort to the injected fetch without retrying", async () => {
++    const f = fixture();
++    const abort = new AbortController();
++    const reason = new DOMException("fixture cancelled", "AbortError");
++    f.transport.mockImplementationOnce(
++      async (_url, init) =>
++        new Promise<Response>((_resolve, reject) => {
++          init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), {
++            once: true,
++          });
++        }),
++    );
++    const result = (f.resolved.model as CodexRuntimeModel).doGenerate({
++      prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
++      abortSignal: abort.signal,
++    });
++    const rejected = expect(result).rejects.toBe(reason);
++    await vi.waitFor(() => expect(f.transport).toHaveBeenCalledOnce());
++    abort.abort(reason);
++    await rejected;
++    expect(f.transport.mock.calls[0]![1]!.signal!.aborted).toBe(true);
++  });
++});
 diff --git a/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts b/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
-index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb2f88dcc1 100644
+index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..3bbec888e2b7fd1eec55333c40f586f768fd5dde 100644
 --- a/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
 +++ b/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
-@@ -1,15 +1,188 @@
+@@ -1,15 +1,149 @@
  import http, { type Server } from "node:http";
  import type { AddressInfo } from "node:net";
 +import { zstdDecompressSync } from "node:zlib";
@@ -406,7 +1451,6 @@ index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb
  import {
    ProviderBusinessError,
    createProviderBusinessErrorFetch,
-+  createCodexResponsesFetch,
 +  AiSdkModelExecution,
  } from "../src/model/model-execution.js";
  import { TestProviderConfigFixture } from "./test-provider-config.js";
@@ -431,7 +1475,7 @@ index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb
 +    const transport = vi.fn(
 +      async (_input: unknown, _init?: RequestInit) =>
 +        new Response(
-+          `data: ${JSON.stringify({ type: "response.completed", response: result })}\n\n`,
++          `data: ${JSON.stringify({ type: "response.output_item.done", output_index: 0, item: { type: "message", ...result.output[0] } })}\n\ndata: ${JSON.stringify({ type: "response.completed", response: result })}\n\n`,
 +          { headers: { "content-type": "text/event-stream" } },
 +        ),
 +    );
@@ -490,7 +1534,7 @@ index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb
 +    expect(init.redirect).toBe("error");
 +    expect(route.resolve).not.toHaveBeenCalled();
 +  });
-+  it("keeps Codex tokens off endpoint-routing gateways and sends a complete Responses request", async () => {
++  it("refuses legacy token-sharing credentials without an account identity", async () => {
 +    const routing = {
 +      resolve: vi.fn(async () => ({ routed: true, url: "https://example.invalid/gateway" })),
 +    };
@@ -537,48 +1581,10 @@ index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb
 +        options: { maxOutputTokens: 1024, reasoningLevel: "disabled" },
 +        requestAuth: { apiKey: "fixture-token" },
 +      });
-+    expect(
-+      (await generateText({ model: resolved.model, prompt: "test", maxRetries: 0 })).text,
-+    ).toBe("done");
++    await expect(
++      generateText({ model: resolved.model, prompt: "test", maxRetries: 0 }),
++    ).rejects.toThrow("codex-login-required");
 +    expect(routing.resolve).not.toHaveBeenCalled();
-+    expect(String(transport.mock.calls[0]?.[0])).toBe("https://api.openai.com/v1/responses");
-+    const init = transport.mock.calls[0]![1]!;
-+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer fixture-token");
-+    expect(
-+      JSON.parse(zstdDecompressSync(init.body as Uint8Array).toString()).max_output_tokens,
-+    ).toBe(1024);
-+  });
-+  it("compresses Codex JSON without altering options and disallows redirects", async () => {
-+    const transport = vi.fn(async (_input: unknown, _init?: RequestInit) =>
-+      Response.json({ ok: true }),
-+    );
-+    const fetch = createCodexResponsesFetch(transport as typeof globalThis.fetch);
-+    const json = JSON.stringify({
-+      model: "test-model",
-+      input: "test",
-+      stream: true,
-+      reasoning: { effort: "high" },
-+    });
-+    await fetch("https://api.openai.com/v1/responses", {
-+      method: "POST",
-+      headers: { Authorization: "Bearer fixture-token" },
-+      body: json,
-+    });
-+    const init = transport.mock.calls[0][1]!;
-+    expect(new Headers(init.headers).get("Content-Encoding")).toBe("zstd");
-+    expect(zstdDecompressSync(init.body as Uint8Array).toString()).toBe(json);
-+    expect(init.redirect).toBe("error");
-+  });
-+
-+  it("refuses to send Codex authorization to custom endpoints or compact routes", async () => {
-+    const transport = vi.fn();
-+    const fetch = createCodexResponsesFetch(transport);
-+    await expect(
-+      fetch("https://example.com/v1/responses", { method: "POST", body: "{}" }),
-+    ).rejects.toThrow("codex-endpoint-not-allowed");
-+    await expect(
-+      fetch("https://api.openai.com/v1/responses/compact", { method: "POST", body: "{}" }),
-+    ).rejects.toThrow("codex-endpoint-not-allowed");
 +    expect(transport).not.toHaveBeenCalled();
 +  });
    it("adds Authorization alongside x-api-key for Anthropic provider requests", async () => {
