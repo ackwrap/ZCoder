@@ -1,0 +1,2 @@
+# 目录补丁按字节保存：manifest 记录其 SHA-256，checkout 时不能被 CRLF 转换改写。
+patches/** -text

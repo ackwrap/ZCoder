@@ -67,6 +67,8 @@ jobs:
         run: |
           set -euo pipefail
           while IFS= read -r patch; do
+            # Windows runner 可能按 core.autocrlf 输出 CRLF，行尾 CR 会让补丁路径多出字符。
+            patch="${patch%$'\r'}"
             [ -z "$patch" ] && continue
             echo "[patches] $patch"
             git -C ZCode apply --index --check "$GITHUB_WORKSPACE/patches/$patch"
