@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
-  "tree": "a7df178659980faaefb1b3c781d4767bafcec768",
+  "sourceHead": "892429f0d66edabce96973f4c2b291a9218196d4",
+  "tree": "ef357e3a2bca35bbd53b34b8c7017496791db29a",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -22,28 +22,36 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "ceea199572f446bc1a8fd53584fcef81e4bf3ab843679a725f616f11944e50af",
+      "sha256": "d5d248977a8968723548e5a497722216503deac047078670fc020fe6d276a217",
       "paths": [
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
         "apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md",
         "apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md",
+        "apps/zcode-cli/docs/design/v2/usage-observability.md",
         "apps/zcode-cli/packages/adapters/src/model/model-execution.ts",
         "apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts",
         "apps/zcode-cli/packages/adapters/src/model/runner.ts",
+        "apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts",
+        "apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts",
         "apps/zcode-cli/packages/adapters/tests/model-execution.test.ts",
         "apps/zcode-cli/packages/adapters/tests/model.test.ts",
+        "apps/zcode-cli/packages/adapters/tests/usage-query.test.ts",
         "apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts",
         "apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts",
         "apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts",
         "apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts",
+        "apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts",
         "apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts",
+        "apps/zcode-cli/packages/bootstrap/tests/v4-cold-resume.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts",
         "apps/zcode-cli/packages/contracts/src/events/session.events.ts",
+        "apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts",
         "apps/zcode-cli/packages/contracts/src/model/invocation-context.ts",
         "apps/zcode-cli/packages/core/src/context/sections/identity.ts",
         "apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts",
         "apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts",
+        "apps/zcode-cli/packages/core/src/runtime/deps.ts",
         "apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts",
         "apps/zcode-cli/packages/core/src/runtime/internal.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/config.ts",
@@ -51,6 +59,8 @@
         "apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/resume.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step-usage.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/turn.ts",
         "apps/zcode-cli/packages/core/src/runtime/types.ts",
         "apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md",
         "apps/zcode-cli/packages/core/src/session-resources/contract.example.ts",
@@ -58,13 +68,14 @@
         "apps/zcode-cli/packages/core/src/session-resources/module.ts",
         "apps/zcode-cli/packages/core/tests/context-builder.test.ts",
         "apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts",
-        "apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts"
+        "apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts",
+        "apps/zcode-cli/packages/core/tests/turn-model-timing.test.ts"
       ]
     },
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "c3626e8512535f4db69195c08c0d77a61a117b1d6e363f005583ff7850a410c5",
+      "sha256": "7f6c15c1859edf39f523735a01f6a66c10b6c87a54bcdbf173ac6594c76f3a03",
       "paths": [
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
@@ -199,7 +210,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "53419aefeeb9dd3fc3b4fbf351a1d93a9cb3de246879b3ae62325925b424995b",
+      "sha256": "fd748c78fd7674f13c9257cd99be1b10144d28735630ee5d578f657b6ffb4c74",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -235,6 +246,7 @@
         "packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts",
         "packages/ui/src/session-diagnostics/CONTRACT.md",
         "packages/ui/src/session-diagnostics/ContextDiagnostics.tsx",
+        "packages/ui/src/session-diagnostics/InspectorCard.tsx",
         "packages/ui/src/session-diagnostics/McpServerDiagnostics.tsx",
         "packages/ui/src/session-diagnostics/SessionInspector.tsx",
         "packages/ui/src/session-diagnostics/contract.example.ts",

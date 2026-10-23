@@ -54,31 +54,23 @@ index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80
  ## Implementation Contract
  
 diff --git a/docs/chat/assistant-latest-part-actions.md b/docs/chat/assistant-latest-part-actions.md
-index e21952d2888511b00b92b43f552a8dd06708d471..6c1c12b7845922494d0063f91f5c1c42351101f4 100644
+index e21952d2888511b00b92b43f552a8dd06708d471..8106d6bcd5b28dab91b888ee51054cac86495bde 100644
 --- a/docs/chat/assistant-latest-part-actions.md
 +++ b/docs/chat/assistant-latest-part-actions.md
-@@ -33,7 +33,7 @@ cold message.info.time.created ───────┤
-                                       |
-                     completed assistant action toolbar
-                          /                         \
--          desktop hover/focus          mobile /remote 常显
-+       desktop 完成后常显（不再 hover 显现）   mobile /remote 常显
- ```
- 
- live continuous 直接使用 CLI 事件时间；cold hydration 必须把 transcript assistant message 的
-@@ -61,9 +61,12 @@ desktop / mobile assistant action toolbar
+@@ -61,9 +61,13 @@ desktop / mobile assistant action toolbar
  
  - UI 复用 `MessageAction` 的紧凑 ghost/icon 样式和语义色 token；选中态保留清晰背景反馈。
  - 使用 `aria-pressed`、本地化 label 和可见 focus 状态。
 -- 桌面端随 assistant turn hover/focus 显示；手机 `/remote` 没有 hover，动作区直接可见且
 -  不用 Tooltip 包裹按钮，避免触屏首次 tap 被 hover/portal 吞掉。
 -- 时间跟随动作区一起显隐，排列在所有可用动作之后；它是只读元数据，不增加可点击区域。
-+- 桌面端在轮次完成后常显，不随 hover 显隐；运行中仍不渲染整条工具栏，避免半成品轮出现
++- 桌面端随 assistant turn hover/focus 显示；运行中仍不渲染整条工具栏，避免半成品轮出现
 +  可复制的残缺结果。
 +- 手机 `/remote` 没有 hover，动作区直接可见且不用 Tooltip 包裹按钮，避免触屏首次 tap 被
-+  hover/portal 吞掉。两端差别只剩 Tooltip 与紧凑程度，显隐规则一致。
++  hover/portal 吞掉。
 +- 时间与速率跟随动作区一起显隐，排列在所有可用动作之后；两者都是只读元数据，不增加
-+  可点击区域。
++  可点击区域。速率是渲染时由本轮 `outputTokens ÷ (modelDurationMs / 1000)` 现算的值，
++  不持久化格式化文本，也不在 hover 时查询数据库。
  - 点按选中动画尊重 `prefers-reduced-motion`。
  
  实现入口：`ConversationRowView.tsx` 和共享 test id。
@@ -317,10 +309,10 @@ index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..b46ed82bffb3e944ea1535d3ec790ab757166e14
+index 0000000000000000000000000000000000000000..bec96d65472f44ebbbcacfaefd6c2b6ac0edd286
 --- /dev/null
 +++ b/docs/session-context-and-mcp-diagnostics.md
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,54 @@
 +# 会话上下文来源与 MCP 诊断
 +
 +## 范围与所有者
@@ -356,6 +348,7 @@ index 0000000000000000000000000000000000000000..b46ed82bffb3e944ea1535d3ec790ab7
 +
 +- 复用 ConversationStatusPanel 的唯一展开/收起状态和会话容器断点，不新增平行侧栏。宽屏显示紧凑卡片，窄屏保留可展开摘要；不挤掉输入区，不改变 Browser/Side Pane 的生命周期。
 +- 卡片顺序为上下文、连接器、改动、后台任务，独立折叠。原有 Goal、计划、终端、工作流和子代理入口保留。
++- 后台任务卡片沿用信息栏其他卡片的同一外观与标题行折叠样式（`rounded-xl`、`card-border`、`bg-card`、`p-3`、标题行箭头），不另画一套容器；只有嵌入信息栏时采用卡片外观，独立状态面板仍沿用状态分区样式。
 +- 后台任务卡片固定在「改动」之后，聚合同一会话里仍在跑的后台工作：终端后台命令（`kind: "bash"`）与子代理（`kind: "subagent"`）。它不新开数据源，直接消费 `ConversationStatusPanelModel.runningBashWorks` 与 `runningSubagentWorks`；`resultPending`/`failed`/`cancelled` 仍按各自既有区块语义处理，不在本卡重复计数。
 +- 卡片标题行给折叠箭头与总数；每行是一行式：类型图标（终端/子代理）、单行截断标题、耗时、可取消时的停止按钮。列表按 `startedAt` 升序，最老的在最前，滚动上限沿用 `max-h-48`。
 +- 已完成数量来自子代理目录的权威投影 `endedTotal`（`subagents.endedTotal`），在卡片底部以「N 已完成」展示；该计数覆盖已结束的子代理，不代表已结束的后台终端命令——后台终端跑完即从 `backgroundWorks` 移除，投影不保留历史，因此不臆造一个合并后的「全部已完成」数字。
