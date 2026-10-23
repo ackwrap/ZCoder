@@ -22,8 +22,8 @@ env:
   NODE_VERSION: "24.14.0"
   PNPM_VERSION: "10.33.2"
   ZCODE_ENV: production
-  # 官方源：GitHub runner 访问 GitHub 最稳，避免内网镜像不可达。
-  ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/v
+  # builder 资源（nsis/appimage 等）走官方 GitHub；Electron runtime 用 @electron/get 默认源，
+  # 自定义 ELECTRON_MIRROR 的拼接规则与默认源不同，写死会 404。
   ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
   # 子 workspace 的 pnpm install 无法解析根 workspace 包，构建期禁止它自动安装。
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
