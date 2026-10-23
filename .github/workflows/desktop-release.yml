@@ -1,0 +1,132 @@
+name: desktop-release
+
+# 打标签（v*）自动出 Windows / Linux 安装包并发布到 GitHub Release；也可手动触发。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to the selected ref)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24.14.0"
+  PNPM_VERSION: "10.33.2"
+  ZCODE_ENV: production
+  # 官方源：GitHub runner 访问 GitHub 最稳，避免内网镜像不可达。
+  ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/v
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+  # 子 workspace 的 pnpm install 无法解析根 workspace 包，构建期禁止它自动安装。
+  PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: win
+            arch: x64
+            label: windows-x64
+            runner: windows-latest
+            shell: bash
+          - os: linux
+            arch: x64
+            label: linux-x64
+            runner: ubuntu-latest
+            shell: bash
+    steps:
+      - name: Checkout with pinned ZCode submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify submodule is the recorded official commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(git ls-tree HEAD ZCode | awk '{print $3}')"
+          actual="$(git -C ZCode rev-parse HEAD)"
+          echo "expected=$expected actual=$actual"
+          test "$expected" = "$actual"
+
+      - name: Apply directory patch queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r patch; do
+            [ -z "$patch" ] && continue
+            echo "[patches] $patch"
+            git -C ZCode apply --index --check "$GITHUB_WORKSPACE/patches/$patch"
+            git -C ZCode apply --index "$GITHUB_WORKSPACE/patches/$patch"
+          done < patches/series
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: ZCode/pnpm-lock.yaml
+
+      - name: Install Linux packaging tools
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fakeroot rpm libarchive-tools zstd
+
+      - name: Install dependencies
+        shell: bash
+        working-directory: ZCode
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and package
+        shell: bash
+        working-directory: ZCode
+        run: pnpm bundle:desktop -- --os ${{ matrix.os }} --arch ${{ matrix.arch }}
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          shopt -s nullglob
+          files=(ZCode/packages/desktop/dist/*.exe ZCode/packages/desktop/dist/*.AppImage ZCode/packages/desktop/dist/*.deb ZCode/packages/desktop/dist/*.rpm ZCode/packages/desktop/dist/*.pkg.tar.zst ZCode/packages/desktop/dist/*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no installer produced" >&2
+            exit 1
+          fi
+          cp "${files[@]}" artifacts/
+          ls -l artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" artifacts/* --clobber
