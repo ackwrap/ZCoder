@@ -1,21 +1,19 @@
-name: desktop-release
+name: desktop-build
 
-# 打标签（v*）自动出 Windows / Linux 安装包并发布到 GitHub Release；也可手动触发。
+# 只构建、不发版：产物挂在 Actions 运行页/artifact 供下载，不打标签也不建 Release。
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (defaults to the selected ref)"
+      version:
+        description: "Display version (defaults to 3.16.2-<run number>)"
         required: false
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-build-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -97,15 +95,16 @@ jobs:
         working-directory: ZCode
         run: pnpm install --frozen-lockfile
 
-      - name: Stamp release version
+      - name: Stamp build version
         shell: bash
         env:
-          TAG: ${{ inputs.tag || github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
+          version="${INPUT_VERSION:-3.16.2-${RUN_NUMBER}}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "release tag must be v<semver>, got: $TAG" >&2
+            echo "version must look like 3.16.2-1, got: $version" >&2
             exit 1
           fi
           # 只改检出目录里的版本，交付物仍是补丁；安装包名与 About 都取这个值。
@@ -136,14 +135,4 @@ jobs:
           name: ${{ matrix.label }}
           path: artifacts/*
           if-no-files-found: error
-          retention-days: 7
-
-      - name: Publish to release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
-          gh release upload "$TAG" artifacts/* --clobber
+          retention-days: 30

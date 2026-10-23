@@ -61,24 +61,28 @@ The previous queue is preserved under `.patch-backups/`.
 Directory patches are all-or-nothing: `patches/**` is marked `-text` so checkout line-ending
 conversion cannot change the bytes recorded in `manifest.json`.
 
-## Releases
+## Builds
 
-Releases are built on GitHub Actions for `windows-x64` (NSIS) and `linux-x64` (AppImage, deb,
+Builds run on GitHub Actions for `windows-x64` (NSIS installer) and `linux-x64` (AppImage, deb,
 rpm, pacman). The job checks out the pinned submodule, verifies the gitlink, applies
-`patches/series`, installs with the frozen lockfile, stamps the release version, then runs the
-existing `pnpm bundle:desktop -- --os <win|linux> --arch x64` pipeline and uploads the
-installers to the matching GitHub Release.
+`patches/series`, installs with the frozen lockfile, stamps a display version, then runs the
+existing `pnpm bundle:desktop -- --os <win|linux> --arch x64` pipeline.
 
-Version numbers follow the upstream version with a fork suffix, so a build is identifiable as
-ours without inventing a second version line: `3.16.2-1`, `3.16.2-2`, and so on.
+Nothing is published: there is no tag trigger, no GitHub Release and no upload step. The
+installers are attached to the workflow run for 30 days.
 
 ```bash
-git tag v3.16.2-1
-git push github v3.16.2-1     # triggers desktop-release
+gh workflow run desktop-build --repo ackwrap/ZCoder     # start a build
+gh run list --repo ackwrap/ZCoder --limit 1
+gh run download <run-id> --repo ackwrap/ZCoder -D dist  # fetch both platforms
 ```
 
-Manual runs: **Actions → desktop-release → Run workflow**, leaving the tag input empty uses the
-selected ref. Artifacts are unsigned; code signing and notarization are not configured.
+Versions follow the upstream number with a fork suffix, so a build is identifiable without
+inventing a second version line: `3.16.2-1`, `3.16.2-2`, and so on. The default is
+`3.16.2-<run number>`; pass an explicit `version` input to override it. The value is written
+only into the checked-out tree before packaging, never back into the patch queue.
+
+Artifacts are unsigned; code signing and notarization are not configured.
 
 ## Notes
 
