@@ -1,0 +1,272 @@
+diff --git a/docs/ui/tool-inline-diff.md b/docs/ui/tool-inline-diff.md
+index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..926f37a644a7c40a9b7302d1aff064731b16f541 100644
+--- a/docs/ui/tool-inline-diff.md
++++ b/docs/ui/tool-inline-diff.md
+@@ -21,7 +21,7 @@
+ 
+ - 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
+ - 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
+-- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
++- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write` 与 `execute`（命令输出）在**运行中默认展开**，实时显示 diff / 输出，完成后不单独收起，由整条 assistant 消息的默认折叠边界统一收口（用户手动折叠优先，`autoOpen` 只展开一次）
+ - 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
+ - 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
+ - “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx b/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
+index 69a3da030d2537cf09d2e433ae44d8872db9f329..5708be4778aae24657235da57b08eed58301032d 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
+@@ -21,15 +21,28 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ 
+ const EDIT_TOOL_ICON = <PencilIcon className="size-4 shrink-0 text-foreground-subtle" />;
+ 
+-const EDIT_SINGLE_LAYOUT = {
+-  canToggle: true,
+-  forceOpen: false,
+-} as const;
++/**
++ * 运行中的文件修改卡片默认展开，方便边写边看 diff；
++ * 完成后不单独收起，交给整条 assistant 消息的默认折叠边界统一收口。
++ * 用户手动折叠优先：autoOpen 只在首次挂载时展开一次。
++ */
++export function resolveEditToolLayout({
++  hasMultipleFiles,
++  isRunning,
++}: {
++  hasMultipleFiles: boolean;
++  isRunning: boolean;
++}): { canToggle: boolean; forceOpen: boolean; autoOpen: boolean } {
++  return {
++    canToggle: true,
++    forceOpen: false,
++    autoOpen: hasMultipleFiles ? false : isRunning,
++  };
++}
+ 
+-const EDIT_CHILD_LAYOUT = {
+-  canToggle: true,
+-  forceOpen: false,
+-} as const;
++export function resolveEditChildAutoOpen(isRunning: boolean): boolean {
++  return isRunning;
++}
+ 
+ function isRawToolCallFailed(raw: unknown) {
+   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+@@ -160,13 +173,7 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
+       } satisfies EditKindSource,
+     ),
+   });
+-  const layoutConfig = hasMultipleFiles
+-    ? {
+-        canToggle: true,
+-        forceOpen: false,
+-        autoOpen: false,
+-      }
+-    : EDIT_SINGLE_LAYOUT;
++  const layoutConfig = resolveEditToolLayout({ hasMultipleFiles, isRunning });
+   const expandedPrimaryText = useMemo(
+     () =>
+       rawFileSummaries.length > 1 ? (
+@@ -460,8 +467,11 @@ function EditFileSummaryBlock({
+         toolId={toolId}
+         icon={EDIT_TOOL_ICON}
+         showIcon={showIcon !== false}
+-        // 多文件 edit 的每个子文件都有自己的 diff content，必须允许单独展开查看。
+-        {...EDIT_CHILD_LAYOUT}
++        // 多文件 edit 的每个子文件都有自己的 diff content，必须允许单独展开。
++        // 运行中默认展开，完成后不单独收起，由整条消息的折叠边界统一收口。
++        canToggle
++        forceOpen={false}
++        autoOpen={resolveEditChildAutoOpen(isRunning)}
+         kindLabel={kindLabel}
+         sourceLabel={sourceLabel}
+         primaryText={primaryText}
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
+index 37ac09799834fcfdb8d0c29853166af7f8a30046..ce95f7e8016b5e25b115e43ec48b68fa3acdae42 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
+@@ -347,6 +347,9 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+         showIcon={context.showIcon !== false}
+         canToggle={!isOfficeMode && (context.canToggle ?? true)}
+         forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
++        // 运行中的命令默认展开，实时显示输出；完成后不单独收起，
++        // 由整条 assistant 消息的默认折叠边界统一收口。
++        autoOpen={!isOfficeMode && isRunning}
+         hideSecondaryTextWhenOpen
+         kindLabel={
+           (isOfficeMode
+diff --git a/packages/ui/test/toolLiveExpand.test.ts b/packages/ui/test/toolLiveExpand.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e97261d21
+--- /dev/null
++++ b/packages/ui/test/toolLiveExpand.test.ts
+@@ -0,0 +1,169 @@
++// @vitest-environment jsdom
++
++import { cleanup, render } from "@testing-library/react";
++import { createElement } from "react";
++import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
++import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
++import {
++  EditToolCallBlock,
++  resolveEditChildAutoOpen,
++  resolveEditToolLayout,
++} from "../src/ToolCallBlocks/renderers/edit.js";
++import { ExecuteToolCallBlock } from "../src/ToolCallBlocks/renderers/execute.js";
++import { readRawToolCallFileSummaries } from "../src/ToolCallBlocks/fileSummaries.js";
++
++const displayModel = {
++  inlinePreview: { type: "none" as const },
++  planResult: null,
++  viewerSource: null,
++  viewerLabelId: "codeViewer.viewCode",
++  showSummaryFileLink: true,
++  showInput: false,
++  showOutput: true,
++  showKind: false,
++};
++
++function renderEdit(status: "running" | "completed") {
++  const node = toolCallRowToLegacyNode({
++    kind: "toolCall",
++    rowId: 1,
++    turnId: "turn",
++    createdAt: 1,
++    createdAtSeq: 1,
++    toolCallId: `edit-live-${status}`,
++    toolName: "Edit",
++    status,
++    inputText: "",
++    input: {
++      file_path: "/workspace/live.ts",
++      old_string: "const before = 1;",
++      new_string: "const after = 2;",
++    },
++  } as ToolCallRow);
++  const rawFileSummaries = readRawToolCallFileSummaries(node.toolCall.raw, node.toolCall);
++  return render(
++    createElement(
++      ZCodeIntlProvider,
++      { initialLocale: "zh-CN" },
++      createElement(EditToolCallBlock, {
++        toolCallNode: node,
++        workspacePath: "/workspace",
++        displayModel,
++        viewerSource: null,
++        rawFileSummaries,
++        isRunning: status === "running",
++        statusLabel: status,
++        childToolList: null,
++      } as never),
++    ),
++  );
++}
++
++function renderExecute(status: "running" | "completed") {
++  const node = toolCallRowToLegacyNode({
++    kind: "toolCall",
++    rowId: 2,
++    turnId: "turn",
++    createdAt: 1,
++    createdAtSeq: 1,
++    toolCallId: `exec-live-${status}`,
++    toolName: "Bash",
++    status,
++    inputText: "",
++    input: { command: "run-build" },
++    outputPreview: {
++      text: "latest-line-xyz",
++      fullText: "latest-line-xyz",
++      totalLines: 1,
++      totalBytes: 11,
++      linesEstimated: false,
++    },
++  } as ToolCallRow);
++  return render(
++    createElement(
++      ZCodeIntlProvider,
++      { initialLocale: "zh-CN" },
++      createElement(ExecuteToolCallBlock, {
++        toolCallNode: node,
++        workspacePath: "/workspace",
++        displayModel,
++        viewerSource: null,
++        rawFileSummaries: [],
++        isRunning: status === "running",
++        statusLabel: status,
++        childToolList: null,
++      } as never),
++    ),
++  );
++}
++
++afterEach(() => {
++  cleanup();
++});
++
++beforeAll(() => {
++  // jsdom 不实现 matchMedia / ResizeObserver，diff 高亮与命令输出测量需要它们。
++  vi.stubGlobal(
++    "ResizeObserver",
++    class {
++      observe() {}
++      unobserve() {}
++      disconnect() {}
++    },
++  );
++  Object.defineProperty(window, "matchMedia", {
++    configurable: true,
++    value: (query: string) => ({
++      matches: false,
++      media: query,
++      onchange: null,
++      addEventListener() {},
++      removeEventListener() {},
++      addListener() {},
++      removeListener() {},
++      dispatchEvent: () => false,
++    }),
++  });
++});
++
++describe("edit live expand layout", () => {
++  it("auto-opens a single-file edit only while it is running", () => {
++    expect(resolveEditToolLayout({ hasMultipleFiles: false, isRunning: true })).toEqual({
++      canToggle: true,
++      forceOpen: false,
++      autoOpen: true,
++    });
++    expect(resolveEditToolLayout({ hasMultipleFiles: false, isRunning: false }).autoOpen).toBe(
++      false,
++    );
++  });
++
++  it("keeps the multi-file container collapsed and auto-opens each child while running", () => {
++    expect(resolveEditToolLayout({ hasMultipleFiles: true, isRunning: true }).autoOpen).toBe(false);
++    expect(resolveEditChildAutoOpen(true)).toBe(true);
++    expect(resolveEditChildAutoOpen(false)).toBe(false);
++  });
++
++  it("renders the diff without a click while running and stays collapsed after completion", () => {
++    const running = renderEdit("running");
++    expect(running.container.textContent).toContain("const after = 2;");
++
++    cleanup();
++    const completed = renderEdit("completed");
++    expect(completed.container.textContent).not.toContain("const after = 2;");
++  });
++});
++
++describe("execute live expand layout", () => {
++  it("renders command output without a click while running", () => {
++    const running = renderExecute("running");
++    expect(running.container.textContent).toContain("latest-line-xyz");
++  });
++
++  it("keeps a completed command collapsed", () => {
++    const completed = renderExecute("completed");
++    expect(completed.container.textContent).not.toContain("latest-line-xyz");
++  });
++});
