@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "source": "ZCode",
+  "output": "patches",
+  "base": {
+    "ref": "refs/heads/main",
+    "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
+  },
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/dist-*/**",
+    "**/dist-types/**",
+    "**/out/**",
+    "**/coverage/**",
+    "**/.turbo/**",
+    "**/.cache/**",
+    "**/.codegraph/**",
+    "**/.e2e-*/**",
+    "**/bundled-agents/**",
+    "**/bundled-resources/**",
+    "**/bundled-tools/**",
+    "**/mock-cdn/**",
+    "**/*.log",
+    "**/*.tsbuildinfo",
+    ".zcode-dev-data/**",
+    ".zcode-runtime/**"
+  ]
+}

@@ -3,3 +3,6 @@ node_modules/
 .zcode-dev-data/
 *.log
 .DS_Store
+.patch-backups/
+.patch-export-*/
+.patch-export.lock

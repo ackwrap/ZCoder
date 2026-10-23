@@ -2,28 +2,29 @@
 
 ## 修改边界
 
-- 默认中文，先明确功能范围。外层是补丁仓库，不是 pnpm workspace；应用命令在源码 worktree 根目录执行。
-- `ZCode/` 是上游子模块。**二开源码、测试、配置及规格只在隔离 worktree 修改，再导出到外层 `patches/`**；外层说明、工具、补丁可直接编辑。`ZCode/patches/` 是上游依赖补丁，勿混用。
-- 当前 `ZCode/` 不作开发或独立验收目录；用户明确要求应用、运行或构建时才应用已验证队列。不擅自更新 gitlink、切分支、提交、推送或改远程配置。
+- 默认中文，先明确功能范围。外层不是 pnpm workspace；应用命令在 `ZCode/`（或明确指定的源码目录）根目录执行。
+- `ZCode/` 是源码子模块，**日常允许直接修改源码、测试、配置及规格，完成后按目录统一导出补丁**，不再按功能追加补丁或强制新建开发 worktree。`ZCode/patches/` 是上游依赖补丁，勿与外层 `patches/` 混用。
+- `patches.config.json` 的基准分支引用和固定 SHA 是导出基准；不擅自切分支、提交、推送、更新 gitlink 或改远程配置。源码 HEAD 可在基准之后，工具不替用户管理开发分支。
 - 保留 staged、unstaged、untracked 内容；禁用 `reset --hard`、`clean -fd` 或强制覆盖取得干净环境。
 
 ## 开工与工作区复用
 
-- 记录外层及子模块 Git 状态；用 `git -C <外层> ls-files --stage -- ZCode` 读 gitlink，与子模块 HEAD 核对。不一致先报告，补丁不以远程最新提交为基线。
+- 记录外层/子模块 Git 状态、HEAD、gitlink 和配置基准；差异先说明。基准引用漂移、HEAD 不包含固定基准或 index 有冲突时停止，不以远程最新提交自动替换基准。
 - 读源码 worktree 的 `AGENTS.md`、目标目录指令及 `.agents/skills/architecture-governance/SKILL.md`；UI 另读 `DESIGN.md`。源码开工先跑 `node scripts/check-workspace-freshness.mjs`、`pnpm architecture:check --changed`；失败不自动 merge/rebase。
 - 有 `.codegraph/` 才先用 CodeGraph，传对应 `projectPath`；无索引的 worktree 用 Read/Grep，不自行索引。
-- **日常测试不还原工作区、不重放队列、不重建开发 worktree。** 同基线、同队列复用开发目录、依赖和缓存，保持实时预览常驻；最终交付另用干净 worktree 重放验收，不动当前 `ZCode/`。
+- **日常测试不还原工作区、不重放队列、不重建开发 worktree。** 复用当前源码、依赖和缓存，保持实时预览常驻；导出脚本另建唯一临时 worktree 验证队列，不修改开发目录或真实 index。
 
 ## 补丁交付
 
-1. 从 gitlink 在 `/tmp/opencode/` 下建唯一 detached worktree，记录归属。严格按 `patches/series`（相对文件名，忽略空行及 `#` 注释行）重放；有补丁无清单先明确顺序。
-2. 每个补丁先 `git -C <worktree> apply --check --index <补丁绝对路径>`，再 `apply --index`。失败立即报告补丁和文件，不用 `--reject` 或跳过；所有 Git 命令显式指定 worktree 的 cwd 或 `-C`。
-3. 先规格、再测试与实现。以重放后的 index 为增量基准，**本次修改不暂存**；新增文件逐个 `git add -N -- <path>`，用 `git diff --binary --full-index` 导出，勿重复包含旧补丁。
-4. 保存为 `patches/000N-short-description.patch` 并更新 `series`；用标准 Git diff，路径为 `a/packages/...` 而非 `a/ZCode/...`，保留新增文件、模式和二进制内容，排除依赖、产物、日志及凭据。
-5. 另建同基线干净 worktree 重放整队列、验证功能；改中间补丁须复验全部后续补丁。升级上游先隔离验证，再由用户确认更新 gitlink。
+1. 先规格、再测试与实现；直接在源码目录修改，保留用户原有暂存分层。新文件无需为导出执行 `git add` 或 `git add -N`。
+2. 功能验证后在外层运行 `node scripts/export-patches.mjs`；可先加 `--check`，或用 `--source <源码目录>` 指定已有开发目录。工具读取最终工作树（含暂存、未暂存和非忽略新增文件），不改真实 index。
+3. 每次重建**基准到最终源码的整套目录快照**：`packages/<包>`、`apps/<应用>` 各一组，其余顶层目录及根文件分组。工具生成标准 binary/full-index diff、`series`、带 SHA-256/目标 tree 的 `manifest.json`；不手工按功能追加或改顺序。
+4. 工具严格逐项 `apply --check --index`、`apply --index`，比较重放 tree；失败即停，不用 `--reject` 或跳过。成功后把旧 `patches/` 整体保留到 `.patch-backups/` 再发布。Windows 临时验证优先 `%LOCALAPPDATA%/Temp/opencode/`；其他平台使用系统临时目录下 `opencode/`。
+5. 目录补丁需整套使用，Git 树一致不代替源码类型/Lint/受影响测试及 E2E。排除产物/凭据，保留新增、删除、模式与二进制；改基准须显式确认配置 SHA 并重新验证，不自动更新 gitlink。详见 `docs/patch-workflow.md`。
 
-- 现有 `0004` 已合并浏览器/设备码 Codex 登录；`0005` 统一包含模型发现、供应商操作精简、Codex 离线上下文兜底及参数来源/刷新优先级修复（早期去重及原 `0010`/`0011` 已并入，不再独立应用）；`0007` 隐藏设置侧栏的 Start Plan 入口，`0008` 让运行中的编辑/命令卡片默认展开。勿恢复旧独立设备码补丁；工作过程默认展开的补丁已移除。
-- 换队列勿直接叠加：备份 staged/unstaged 差异，确认所属旧版，隔离演练后按**旧补丁逆序**逐个 `apply --reverse --check` 再撤回，保留暂存分层。归属不明或冲突即停，不拿改写后的新补丁撤旧版。
+- 目录快照保留 Codex 浏览器/设备码登录、模型发现及来源优先级/已核实型号窗口兜底、供应商操作精简、Start Plan 设置导航隐藏、运行中的编辑/命令卡默认展开。勿恢复旧独立功能补丁；工作过程默认展开的补丁已移除。
+- 上下文面板保留“模型名 · 来源”、窗口及真实压缩阈值；`/mcp`（别名 `/mcps`）提供脱敏诊断。状态刷新只读，主动连接检查复用既有链路，不另建连接或授权流程。Skills/MCP 快捷开关仅作用当前会话，不改配置/授权，不强停已执行调用。
+- 导出无需撤回旧队列。启动/准备遇到 dirty 开发目录或基准之后的开发 HEAD 时不应用、不反向撤回补丁；不明版本或手工迁移冲突先备份并停止，不能用新队列覆盖当前编辑。
 
 ## 命令与验证
 
@@ -40,9 +41,9 @@
 
 ## 预览与启动陷阱
 
-- 开发 worktree 用 `ZCODE_DATA_BASE_DIR=<独立基目录> pnpm dev:desktop:test`；`dev:desktop` 默认生产环境。UI 热更新，Host watch 可能重启；CLI 改动需 `node scripts/build-desktop-agent-cli.mjs` 后重启，确保更新 `bundled-agents/`，不只 `cli/dist/`。
+- 开发目录用 `ZCODE_DATA_BASE_DIR=<测试数据基目录> pnpm dev:desktop:test`；沿用用户指定数据目录，不擅自换库。`dev:desktop` 默认生产环境。UI 热更新，Host watch 可能重启；CLI 改动需 `node scripts/build-desktop-agent-cli.mjs` 后重启，确保更新 `bundled-agents/`，不只 `cli/dist/`。
 - dev 每次启动清理 `packages/desktop/out`，反复重启会重建。保留预览、依赖、`.turbo` 及构建缓存；冷 worktree 不代表每次测试必须全量编译。
-- `./start-test.sh` 固定操作当前 `ZCode/`。**`--check` 非只读**：仍可能恢复版本备份、下载工具、应用补丁、安装依赖、修改沙箱权限。它不核对 gitlink，逐补丁反查不能可靠识别被后续补丁改动的版本，不作隔离开发或队列迁移入口。
+- `./start-test.sh` 固定操作当前 `ZCode/`，复用 `node scripts/prepare-patches.mjs` 的基准/完整性检查；只对完全干净的固定基准首次应用队列。**`--check` 非只读**：仍可能恢复版本备份、下载工具、首次应用补丁、安装依赖或修改沙箱权限。
 - 启动脚本默认数据在外层 `.zcode-dev-data/`；Linux 临时补桌面 `package.json` 版本，退出恢复。隔离目录缺 Electron 可用 `ELECTRON_OVERRIDE_DIST_PATH=<已有 electron/dist>`，不因此改源码或关闭沙箱。
 
 ## 保留的安全与交付约束

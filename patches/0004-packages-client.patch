@@ -1,0 +1,30 @@
+diff --git a/packages/client/src/remoteServiceAccess.ts b/packages/client/src/remoteServiceAccess.ts
+index 6575fc6de071ce9d7910d7827fbeecfc2c736ba2..cad98348f13b0b4d234d7b31de104795e709a341 100644
+--- a/packages/client/src/remoteServiceAccess.ts
++++ b/packages/client/src/remoteServiceAccess.ts
+@@ -22,6 +22,7 @@ import {
+   IBotsService,
+   IFileWatcherService,
+   IOAuthService,
++  ICodexProviderService,
+   IModelSelectionService,
+   IProviderSettingsService,
+   IProviderProvisioningTargetService,
+@@ -91,6 +92,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
+   readonly botsService: IBotsService;
+   readonly fileWatcherService: IFileWatcherService;
+   readonly oauthService: IOAuthService;
++  readonly codexProviderService: ICodexProviderService;
+   readonly providerSettingsService: IProviderSettingsService;
+   readonly modelSelectionService: IModelSelectionService;
+   /** Host-only target proxy；不属于 IServiceAccessor，避免向 Renderer 暴露 Secret 写入接口。 */
+@@ -211,6 +213,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
+     this.oauthService = ProxyChannel.toService<IOAuthService>(
+       channelClient.getChannel(IOAuthService.channelName),
+     );
++    this.codexProviderService = ProxyChannel.toService<ICodexProviderService>(
++      channelClient.getChannel(ICodexProviderService.channelName),
++    );
+     this.providerSettingsService = ProxyChannel.toService<IProviderSettingsService>(
+       channelClient.getChannel(IProviderSettingsService.channelName),
+     );

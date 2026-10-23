@@ -1,0 +1,2706 @@
+diff --git a/packages/services/package.json b/packages/services/package.json
+index 2d7845d5a04e12a14ad67b40ebc4bff169de2b77..bf4e9dc10ec7a53ec791cba7e4e7cbd5f4ac30a4 100644
+--- a/packages/services/package.json
++++ b/packages/services/package.json
+@@ -27,6 +27,7 @@
+     "chokidar": "4.0.3",
+     "croner": "^10.0.1",
+     "ignore": "^5.3.2",
++    "jose": "6.2.1",
+     "node-forge": "^1.4.0",
+     "node-pty": "^1.0.0",
+     "smol-toml": "^1.6.1",
+diff --git a/packages/services/src/accessor.ts b/packages/services/src/accessor.ts
+index f23e43d6f88f8df3079f9dabce8a82493cc1f7ea..5356640039c288cac0915723253391bdbe44ddf1 100644
+--- a/packages/services/src/accessor.ts
++++ b/packages/services/src/accessor.ts
+@@ -26,6 +26,7 @@ import type { ICuaPermissionService } from "./cua-permission-broker/cuaPermissio
+ import type { IBotsService } from "./bots/bots.js";
+ import type { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
+ import type { IOAuthService } from "./oauth/oauth.js";
++import type { ICodexProviderService } from "./codex-provider/contract.js";
+ import type {
+   IModelSelectionService,
+   IProviderSettingsService,
+@@ -84,6 +85,7 @@ export interface IServiceAccessor {
+   readonly botsService: IBotsService;
+   readonly fileWatcherService: IFileWatcherService;
+   readonly oauthService: IOAuthService;
++  readonly codexProviderService?: ICodexProviderService;
+   /** 当前 Environment 的 Provider 配置与设置视图。 */
+   readonly providerSettingsService: IProviderSettingsService;
+   /** 当前 Environment Registry 发布的唯一模型选择 View。 */
+diff --git a/packages/services/src/codex-provider/CONTRACT.md b/packages/services/src/codex-provider/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bcf3f663356ebb4fcf7b91f1c04dab25f33bc52
+--- /dev/null
++++ b/packages/services/src/codex-provider/CONTRACT.md
+@@ -0,0 +1,9 @@
++# codex-provider
++
++Host 唯一拥有 ChatGPT token-sharing 登录尝试、注册身份、加密凭据和刷新。
++同时拥有显式 Codex device 登录尝试、轮询与模式隔离；两种登录共享生命周期 owner，不隐式回退。user_code 只投影给主动登录的 UI，不包含 device_auth_id / code_verifier / tokens。
++UI 只消费 contract 的无秘密状态；Agent 通过既有 runtime-header RPC 获取单次请求材料。
++`assertProvider` 在读取凭据前校验当前 provider 与固定 OpenAI Responses endpoint；`withLock` 与 CredentialService 由装配层注入。
++状态、client ID、nonce、ID token 与 sharing scope 必须验证；取消、超时、Host dispose、不同 revision 的迟到结果不能提交。
++协议与场景见 `docs/provider-codex.md`，不使用 legacy Codex 或其他应用的凭据作为隐式回退。
++设备码明确选择、固定后端和单次鉴权 codexMode 的例外见 `docs/provider-codex-device.md`。
+diff --git a/packages/services/src/codex-provider/contract.example.ts b/packages/services/src/codex-provider/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2524d221cb558a0a9043d7b3daa9a438e3264ac
+--- /dev/null
++++ b/packages/services/src/codex-provider/contract.example.ts
+@@ -0,0 +1,12 @@
++/**
++ * codex-provider 标准调用示例：agent 靠模仿写代码，这里放的就是该模仿的那份。
++ */
++import type { ICodexProviderService } from "./contract.js";
++
++export async function exampleCodexProvider(
++  service: ICodexProviderService,
++  providerId: string,
++): Promise<boolean> {
++  const status = await service.status(providerId);
++  return status.connected;
++}
+diff --git a/packages/services/src/codex-provider/contract.test.ts b/packages/services/src/codex-provider/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f2707b763e34bb1de0ceb86c5d4a3657714ffd7
+--- /dev/null
++++ b/packages/services/src/codex-provider/contract.test.ts
+@@ -0,0 +1,10 @@
++import { describe, expect, it } from "vitest";
++
++import { codexProviderModule } from "./module.js";
++
++// 契约测试只 import contract 与 module，不知道实现是谁；同一份测试应同时跑真实现与跨进程代理。
++describe("codex-provider contract", () => {
++  it("declares its module manifest", () => {
++    expect(codexProviderModule.id).toBe("codex-provider");
++  });
++});
+diff --git a/packages/services/src/codex-provider/contract.ts b/packages/services/src/codex-provider/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..40cc8a36e4c1ad743e8f4089f4aebed58297bee4
+--- /dev/null
++++ b/packages/services/src/codex-provider/contract.ts
+@@ -0,0 +1,41 @@
++import { createServiceDescriptor } from "../descriptors.js";
++import { ServiceChannels } from "@zcode/shared";
++
++/** No authorization_code, device_auth_id, tokens or client secrets. user_code is an explicit short-lived UI projection. */
++export interface CodexConnectionStatus {
++  connected: boolean;
++  method?: "browser" | "device";
++  loginAvailable: boolean;
++  flow?: {
++    id: string;
++    state: "waiting" | "connected" | "cancelled" | "failed";
++    error?: string;
++    device?: CodexDeviceCode;
++  };
++}
++
++/** Only the short-lived user-facing code, never the device authorization secret. */
++export interface CodexDeviceCode {
++  verificationUrl: string;
++  userCode: string;
++  expiresAt: number;
++}
++
++export interface ICodexProviderService {
++  status(providerId: string): Promise<CodexConnectionStatus>;
++  start(providerId: string): Promise<{ flowId: string; authorizeUrl: string }>;
++  startDevice(providerId: string): Promise<{ flowId: string } & CodexDeviceCode>;
++  cancel(providerId: string, flowId: string): Promise<void>;
++  disconnect(providerId: string): Promise<void>;
++}
++
++export const ICodexProviderService = createServiceDescriptor<ICodexProviderService>(
++  ServiceChannels.CodexProvider,
++);
++
++export interface CodexRequestAuthResolver {
++  resolve(
++    providerId: string,
++    sessionId: string,
++  ): Promise<{ apiKey: string; headers: Record<string, string>; codexMode?: "device" }>;
++}
+diff --git a/packages/services/src/codex-provider/device.ts b/packages/services/src/codex-provider/device.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d0f160fdec636c15c845c312f67cf00b57d7930
+--- /dev/null
++++ b/packages/services/src/codex-provider/device.ts
+@@ -0,0 +1,176 @@
++// Device protocol reference: OpenCode c93aaae provider/openai.ts (MIT), explicit legacy method.
++import { z } from "zod";
++export const DEVICE_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
++export const DEVICE_VERIFICATION_URL = "https://auth.openai.com/codex/device";
++const ISSUER = "https://auth.openai.com";
++const tokenSchema = z.object({
++  access_token: z.string().min(1),
++  refresh_token: z.string().min(1),
++  id_token: z.string().optional(),
++  expires_in: z.number().positive().optional(),
++  scope: z.string().optional(),
++});
++const deviceSchema = z.object({
++  device_auth_id: z.string().min(1).max(4096),
++  user_code: z.string().regex(/^[A-Za-z0-9-]{4,64}$/),
++  interval: z.union([z.string().regex(/^\d+$/), z.number().int().positive()]).optional(),
++  expires_in: z.number().positive().optional(),
++});
++type Fetch = typeof globalThis.fetch;
++function wait(ms: number, signal: AbortSignal): Promise<void> {
++  signal.throwIfAborted();
++  return new Promise((resolve, reject) => {
++    const abort = () => {
++      clearTimeout(timer);
++      reject(signal.reason);
++    };
++    const timer = setTimeout(() => {
++      signal.removeEventListener("abort", abort);
++      resolve();
++    }, ms);
++    signal.addEventListener("abort", abort, { once: true });
++  });
++}
++async function boundedJson(response: Response): Promise<unknown> {
++  if (!response.body) throw new Error("codex-device-response-invalid");
++  const reader = response.body.getReader();
++  const chunks: Uint8Array[] = [];
++  let length = 0;
++  try {
++    while (true) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      length += value.length;
++      if (length > 64 * 1024) throw new Error("codex-device-response-invalid");
++      chunks.push(value);
++    }
++    const body = Buffer.concat(chunks);
++    try {
++      return JSON.parse(body.toString("utf8"));
++    } catch {
++      throw new Error("codex-device-response-invalid");
++    }
++  } finally {
++    void reader.cancel().catch(() => {});
++  }
++}
++async function post(
++  fetcher: Fetch,
++  path: string,
++  body: object | URLSearchParams,
++  signal: AbortSignal,
++): Promise<Response> {
++  return fetcher(`${ISSUER}${path}`, {
++    method: "POST",
++    redirect: "error",
++    signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
++    headers: {
++      "Content-Type":
++        body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json",
++      "User-Agent": "ZCode",
++    },
++    body: body instanceof URLSearchParams ? body.toString() : JSON.stringify(body),
++  });
++}
++export async function requestDeviceCode(fetcher: Fetch, signal: AbortSignal) {
++  const response = await post(
++    fetcher,
++    "/api/accounts/deviceauth/usercode",
++    { client_id: DEVICE_CLIENT_ID },
++    signal,
++  );
++  if (!response.ok) {
++    void response.body?.cancel().catch(() => {});
++    throw new Error(
++      response.status === 404 ? "codex-device-unavailable" : "codex-device-request-failed",
++    );
++  }
++  const parsed = deviceSchema.safeParse(await boundedJson(response));
++  if (!parsed.success) throw new Error("codex-device-response-invalid");
++  return {
++    ...parsed.data,
++    intervalMs: Math.max(1, Math.min(60, Number(parsed.data.interval) || 5)) * 1000 + 3000,
++    expiresMs: Math.min(900, parsed.data.expires_in ?? 900) * 1000,
++  };
++}
++export async function pollDeviceTokens(
++  fetcher: Fetch,
++  device: Awaited<ReturnType<typeof requestDeviceCode>>,
++  signal: AbortSignal,
++) {
++  let interval = device.intervalMs;
++  while (true) {
++    signal.throwIfAborted();
++    const response = await post(
++      fetcher,
++      "/api/accounts/deviceauth/token",
++      { device_auth_id: device.device_auth_id, user_code: device.user_code },
++      signal,
++    );
++    if (response.ok) {
++      const parsed = z
++        .object({ authorization_code: z.string().min(1), code_verifier: z.string().min(1) })
++        .safeParse(await boundedJson(response));
++      if (!parsed.success) throw new Error("codex-device-response-invalid");
++      return requestDeviceTokens(
++        fetcher,
++        new URLSearchParams({
++          grant_type: "authorization_code",
++          code: parsed.data.authorization_code,
++          code_verifier: parsed.data.code_verifier,
++          redirect_uri: `${ISSUER}/deviceauth/callback`,
++        }),
++        signal,
++      );
++    }
++    const retryHeader = response.headers.get("retry-after");
++    const retryAfter =
++      retryHeader && Number.isNaN(Number(retryHeader))
++        ? (Date.parse(retryHeader) - Date.now()) / 1000
++        : Number(retryHeader);
++    let error: unknown;
++    try {
++      const value = await boundedJson(response);
++      const raw = value && typeof value === "object" && "error" in value ? value.error : undefined;
++      error =
++        typeof raw === "string"
++          ? raw
++          : raw && typeof raw === "object" && "code" in raw
++            ? raw.code
++            : undefined;
++    } catch {
++      /* Legacy pending replies may have no JSON body. */
++    }
++    if (error === "access_denied" || error === "authorization_declined")
++      throw new Error("codex-authorization-denied");
++    if (error === "expired_token" || error === "expired_device_code")
++      throw new Error("codex-device-expired");
++    if (error === "slow_down" || response.status === 429)
++      interval = Math.max(
++        Math.min(60_000, interval + 5000),
++        Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(900_000, retryAfter * 1000) : 0,
++      );
++    else if (
++      error !== "authorization_pending" &&
++      response.status !== 403 &&
++      response.status !== 404
++    )
++      throw new Error("codex-device-poll-failed");
++    await wait(interval, signal);
++  }
++}
++export async function requestDeviceTokens(
++  fetcher: Fetch,
++  body: URLSearchParams,
++  signal: AbortSignal,
++) {
++  body.set("client_id", DEVICE_CLIENT_ID);
++  const response = await post(fetcher, "/oauth/token", body, signal);
++  if (!response.ok) {
++    void response.body?.cancel().catch(() => {});
++    throw new Error("codex-device-token-failed");
++  }
++  const parsed = tokenSchema.safeParse(await boundedJson(response));
++  if (!parsed.success) throw new Error("codex-device-response-invalid");
++  return parsed.data;
++}
+diff --git a/packages/services/src/codex-provider/index.ts b/packages/services/src/codex-provider/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..655c47c4bbf748af123a135a578cce78886f578e
+--- /dev/null
++++ b/packages/services/src/codex-provider/index.ts
+@@ -0,0 +1,2 @@
++export * from "./contract.js";
++export { createCodexProviderService } from "./oauth.js";
+diff --git a/packages/services/src/codex-provider/module.ts b/packages/services/src/codex-provider/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c16756689f1b3d6930c1fb456a3ec5cae633e04
+--- /dev/null
++++ b/packages/services/src/codex-provider/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * codex-provider 模块清单（architecture-governance managed 模块）。
++ * 层：adapters。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const codexProviderModule = {
++  id: "codex-provider",
++  requires: ["services", "shared"],
++  provides: ["codex-provider"],
++  publicEntrypoints: ["index.ts", "contract.ts"],
++} as const;
+diff --git a/packages/services/src/codex-provider/oauth.ts b/packages/services/src/codex-provider/oauth.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..91438edf6e64b549583230fb47bebf3d1d05e561
+--- /dev/null
++++ b/packages/services/src/codex-provider/oauth.ts
+@@ -0,0 +1,593 @@
++// Protocol reference: anomalyco/opencode c93aaae, provider/chatgpt.ts (MIT).
++// ZCode owns its client registration and credentials; it never impersonates OpenCode.
++import { createHash, randomBytes, randomUUID } from "node:crypto";
++import { createServer, type Server, type ServerResponse } from "node:http";
++import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
++import { z } from "zod";
++import {
++  DEVICE_CLIENT_ID,
++  DEVICE_VERIFICATION_URL,
++  requestDeviceCode,
++  pollDeviceTokens,
++  requestDeviceTokens,
++} from "./device.js";
++import type {
++  CodexConnectionStatus,
++  CodexRequestAuthResolver,
++  ICodexProviderService,
++} from "./contract.js";
++
++const ISSUER = "https://auth.openai.com";
++const RESOURCE = "https://api.openai.com/v1";
++const SHARING_SCOPE = "chatgpt.tokens.use.direct";
++const FLOW_TIMEOUT_MS = 10 * 60_000;
++const HTTP_TIMEOUT_MS = 20_000;
++const REFRESH_MARGIN_MS = 60_000;
++const providerIdSchema = z.string().trim().min(1).max(200);
++const tokenSchema = z.object({
++  access_token: z.string().min(1),
++  refresh_token: z.string().min(1),
++  id_token: z.string().optional(),
++  expires_in: z.number().positive().optional(),
++  scope: z.string().optional(),
++});
++const storedSchema = z
++  .object({
++    hostID: z.string().min(1),
++    revision: z.string().min(1),
++    clientID: z.string().min(1).optional(),
++    tokens: z
++      .object({
++        access: z.string().min(1),
++        refresh: z.string().min(1),
++        expires: z.number().finite(),
++        scopes: z.array(z.string()),
++        method: z.literal("device").optional(),
++        accountID: z.string().min(1).optional(),
++      })
++      .optional(),
++  })
++  .strict();
++type Stored = z.infer<typeof storedSchema>;
++type Tokens = z.infer<typeof tokenSchema>;
++interface Flow {
++  id: string;
++  state: "waiting" | "connected" | "cancelled" | "failed";
++  error?: string;
++  server?: Server;
++  device?: { verificationUrl: string; userCode: string; expiresAt: number };
++  abort: AbortController;
++  timer?: ReturnType<typeof setTimeout>;
++  completing: boolean;
++}
++interface Options {
++  onConnected?(providerId: string): void;
++  beforeIdentityChange?(providerId: string): Promise<void>;
++  credentials: {
++    load(key: string): Promise<string | null>;
++    save(key: string, value: string, assertCurrent?: () => void): Promise<void>;
++    delete(key: string): Promise<void>;
++  };
++  assertProvider(providerId: string): Promise<void>;
++  withLock<T>(providerId: string, run: () => Promise<T>): Promise<T>;
++  fetch: typeof globalThis.fetch;
++  /** Only the owning local desktop Host can start a loopback flow. */
++  canLogin: boolean;
++}
++
++export function createCodexProviderService(
++  options: Options,
++): ICodexProviderService &
++  CodexRequestAuthResolver & { dispose(): void; forget(providerId: string): Promise<void> } {
++  const flows = new Map<string, Flow>();
++  let disposed = false;
++  // 同一 Host 先排队，再进入跨进程锁，避免同窗并发 refresh 轮换同一令牌。
++  let queue: Promise<unknown> = Promise.resolve();
++  const locked = <T>(id: string, run: () => Promise<T>): Promise<T> => {
++    const result = queue.then(() => options.withLock(id, run));
++    queue = result.catch(() => {});
++    return result;
++  };
++  const key = (id: string) => `codex:${createHash("sha256").update(id).digest("hex")}`;
++  const load = async (id: string): Promise<Stored | null> => {
++    const raw = await options.credentials.load(key(id));
++    if (raw === null) return null;
++    // 不吞掉损坏记录，也不把可能含 token 的 schema issues 暴露给 UI / 日志。
++    try {
++      return storedSchema.parse(JSON.parse(raw));
++    } catch {
++      throw new Error("codex-credential-invalid");
++    }
++  };
++  const save = (id: string, record: Stored, assertCurrent?: () => void) =>
++    options.credentials.save(key(id), JSON.stringify(record), assertCurrent);
++  const assertLive = () => {
++    if (disposed) throw new Error("codex-host-closed");
++  };
++  const stop = (flow: Flow) => {
++    if (flow.timer) clearTimeout(flow.timer);
++    flow.abort.abort();
++    flow.server?.close();
++    flow.server?.closeIdleConnections();
++    delete flow.device;
++  };
++  const cancelFlow = (id: string) => {
++    const flow = flows.get(id);
++    if (flow?.state === "waiting") {
++      flow.state = "cancelled";
++      stop(flow);
++    }
++  };
++  const request = async (body: URLSearchParams, signal?: AbortSignal): Promise<Tokens> => {
++    const timeout = AbortSignal.timeout(HTTP_TIMEOUT_MS);
++    const response = await options.fetch(`${ISSUER}/api/accounts/oauth/token`, {
++      method: "POST",
++      redirect: "error",
++      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "ZCode" },
++      body: body.toString(),
++      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
++    });
++    if (!response.ok) throw new Error(`codex-token-http-${response.status}`);
++    const parsed = tokenSchema.safeParse(await response.json());
++    if (!parsed.success) throw new Error("codex-token-invalid");
++    return parsed.data;
++  };
++  const jwks = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`), {
++    timeoutDuration: HTTP_TIMEOUT_MS,
++    [customFetch]: (url, init) => options.fetch(url, init),
++  });
++  const material = (tokens: Tokens, scopes?: string[]): NonNullable<Stored["tokens"]> => ({
++    access: tokens.access_token,
++    refresh: tokens.refresh_token,
++    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
++    scopes: tokens.scope?.split(" ").filter(Boolean) ?? scopes ?? [],
++  });
++  const deviceAccount = async (token: string | undefined): Promise<string> => {
++    if (!token) throw new Error("codex-id-token-invalid");
++    try {
++      const { payload } = await jwtVerify(token, jwks, {
++        issuer: ISSUER,
++        audience: DEVICE_CLIENT_ID,
++        algorithms: ["RS256"],
++        requiredClaims: ["exp", "sub"],
++      });
++      const auth = z
++        .object({ chatgpt_account_id: z.string().trim().min(1).max(300) })
++        .safeParse(payload["https://api.openai.com/auth"] ?? payload);
++      if (!auth.success || typeof payload.sub !== "string" || !payload.sub.trim())
++        throw new Error();
++      return auth.data.chatgpt_account_id;
++    } catch {
++      throw new Error("codex-id-token-invalid");
++    }
++  };
++
++  return {
++    async status(rawId) {
++      assertLive();
++      const id = providerIdSchema.parse(rawId);
++      await options.assertProvider(id);
++      const record = await load(id);
++      const flow = flows.get(id);
++      return {
++        connected: Boolean(
++          record?.tokens?.method === "device"
++            ? record.tokens.accountID
++            : record?.clientID && record.tokens?.scopes.includes(SHARING_SCOPE),
++        ),
++        ...(record?.tokens
++          ? {
++              method:
++                record.tokens.method === "device" ? ("device" as const) : ("browser" as const),
++            }
++          : {}),
++        loginAvailable: options.canLogin,
++        ...(flow
++          ? {
++              flow: {
++                id: flow.id,
++                state: flow.state,
++                ...(flow.error ? { error: flow.error } : {}),
++                ...(flow.state === "waiting" && flow.device ? { device: { ...flow.device } } : {}),
++              },
++            }
++          : {}),
++      } satisfies CodexConnectionStatus;
++    },
++    async start(rawId) {
++      assertLive();
++      if (!options.canLogin) throw new Error("codex-local-desktop-required");
++      const id = providerIdSchema.parse(rawId);
++      cancelFlow(id);
++      await options.beforeIdentityChange?.(id);
++      await options.assertProvider(id);
++      return locked(id, async () => {
++        assertLive();
++        cancelFlow(id);
++        const previous = await load(id);
++        const record: Stored = {
++          ...previous,
++          hostID: previous?.hostID ?? `urn:uuid:${randomUUID()}`,
++          revision: randomUUID(),
++        };
++        await save(id, record);
++        const state = randomBytes(32).toString("base64url");
++        const nonce = randomBytes(32).toString("base64url");
++        const verifier = randomBytes(32).toString("base64url");
++        const challenge = createHash("sha256").update(verifier).digest("base64url");
++        let redirect = "";
++        const flow: Flow = {
++          id: record.revision,
++          state: "waiting",
++          completing: false,
++          abort: new AbortController(),
++          server: createServer((req, res) => {
++            const url = new URL(req.url ?? "/", "http://127.0.0.1");
++            if (req.method !== "GET" || url.pathname !== "/auth/callback") {
++              res.writeHead(404).end();
++              return;
++            }
++            // 必须先校验 state，错误回调同样受 CSRF 约束。
++            if (url.searchParams.get("state") !== state) {
++              respond(res, false);
++              return;
++            }
++            if (flow.state !== "waiting" || flow.completing) {
++              res.writeHead(409).end();
++              return;
++            }
++            flow.completing = true;
++            void (async () => {
++              try {
++                if (url.searchParams.has("error")) throw new Error("codex-authorization-denied");
++                const code = url.searchParams.get("code");
++                const returnedID = url.searchParams.get("client_id");
++                if (record.clientID && returnedID && record.clientID !== returnedID)
++                  throw new Error("codex-client-mismatch");
++                const clientID = record.clientID ?? returnedID;
++                if (!code || !clientID) throw new Error("codex-callback-incomplete");
++                const tokens = await request(
++                  new URLSearchParams({
++                    grant_type: "authorization_code",
++                    client_id: clientID,
++                    code,
++                    code_verifier: verifier,
++                    redirect_uri: redirect,
++                    resource: RESOURCE,
++                  }),
++                  flow.abort.signal,
++                );
++                if (!tokens.scope?.split(" ").includes(SHARING_SCOPE))
++                  throw new Error("codex-token-sharing-required");
++                if (!tokens.id_token) throw new Error("codex-id-token-invalid");
++                try {
++                  const { payload } = await jwtVerify(tokens.id_token, jwks, {
++                    issuer: ISSUER,
++                    audience: clientID,
++                    algorithms: ["RS256"],
++                    requiredClaims: ["exp", "nonce", "sub"],
++                  });
++                  if (
++                    typeof payload.sub !== "string" ||
++                    !payload.sub.trim() ||
++                    payload.nonce !== nonce
++                  )
++                    throw new Error();
++                } catch {
++                  throw new Error("codex-id-token-invalid");
++                }
++                await locked(id, async () => {
++                  assertLive();
++                  const current = await load(id);
++                  if (
++                    flow.state !== "waiting" ||
++                    flows.get(id) !== flow ||
++                    current?.revision !== record.revision
++                  )
++                    throw new Error("codex-login-cancelled");
++                  const assertAttempt = () => {
++                    assertLive();
++                    if (flow.state !== "waiting" || flows.get(id) !== flow)
++                      throw new Error("codex-login-cancelled");
++                  };
++                  await options.assertProvider(id);
++                  assertAttempt();
++                  try {
++                    // CredentialService 在其文件锁内复核代次；外层锁同时排除跨 Host 刷新。
++                    await save(
++                      id,
++                      { ...current, clientID, tokens: material(tokens) },
++                      assertAttempt,
++                    );
++                    assertAttempt();
++                  } catch (error) {
++                    // 原子写入期间的取消无法撤回 IO；仍持有外层锁时恢复本次提交前的凭据，
++                    // 不用开始登录时的旧快照覆盖等待期间已经轮换过的 refresh token。
++                    if (flow.state !== "waiting" || disposed) await save(id, current);
++                    throw error;
++                  }
++                });
++                flow.state = "connected";
++                options.onConnected?.(id);
++                respond(res, true);
++              } catch (error) {
++                if (flow.state === "waiting") {
++                  flow.state = "failed";
++                  flow.error =
++                    error instanceof Error && /^codex-[a-z-]+(?:-\d{3})?$/.test(error.message)
++                      ? error.message
++                      : "codex-login-failed";
++                }
++                respond(res, false);
++              } finally {
++                stop(flow);
++              }
++            })();
++          }),
++        };
++        await new Promise<void>((resolve, reject) => {
++          flow.server!.once("error", reject);
++          flow.server!.listen(0, "127.0.0.1", () => {
++            flow.server!.off("error", reject);
++            resolve();
++          });
++        });
++        if (disposed) {
++          stop(flow);
++          throw new Error("codex-host-closed");
++        }
++        const address = flow.server!.address();
++        if (!address || typeof address === "string") {
++          stop(flow);
++          throw new Error("codex-loopback-unavailable");
++        }
++        redirect = `http://127.0.0.1:${address.port}/auth/callback`;
++        flows.set(id, flow);
++        flow.timer = setTimeout(() => {
++          if (flow.state === "waiting") {
++            flow.state = "failed";
++            flow.error = "codex-login-timeout";
++            stop(flow);
++          }
++        }, FLOW_TIMEOUT_MS);
++        flow.timer.unref();
++        const params = new URLSearchParams({
++          client_id: record.clientID ?? "dynamic_agent_client",
++          ...(record.clientID ? {} : { agent_name_hint: "ZCode" }),
++          ext_agent_host_id: record.hostID,
++          response_type: "code",
++          redirect_uri: redirect,
++          scope: `openid profile email offline_access resource.invoke ${SHARING_SCOPE}`,
++          resource: RESOURCE,
++          state,
++          nonce,
++          code_challenge_method: "S256",
++          code_challenge: challenge,
++        });
++        return { flowId: flow.id, authorizeUrl: `${ISSUER}/api/accounts/authorize?${params}` };
++      });
++    },
++    async startDevice(rawId) {
++      assertLive();
++      if (!options.canLogin) throw new Error("codex-local-desktop-required");
++      const id = providerIdSchema.parse(rawId);
++      cancelFlow(id);
++      await options.beforeIdentityChange?.(id);
++      await options.assertProvider(id);
++      const flow = await locked(id, async () => {
++        assertLive();
++        cancelFlow(id);
++        const previous = await load(id);
++        const revision = randomUUID();
++        await save(id, {
++          ...previous,
++          hostID: previous?.hostID ?? `urn:uuid:${randomUUID()}`,
++          revision,
++        });
++        const next: Flow = {
++          id: revision,
++          state: "waiting",
++          abort: new AbortController(),
++          completing: false,
++        };
++        flows.set(id, next);
++        next.timer = setTimeout(() => {
++          if (next.state === "waiting") {
++            next.state = "failed";
++            next.error = "codex-device-expired";
++            stop(next);
++          }
++        }, 900_000);
++        next.timer.unref();
++        return next;
++      });
++      const assertAttempt = () => {
++        assertLive();
++        if (flow.state !== "waiting" || flows.get(id) !== flow)
++          throw new Error("codex-login-cancelled");
++      };
++      const fail = (error: unknown) => {
++        if (flow.state === "waiting") {
++          flow.state = "failed";
++          flow.error =
++            error instanceof Error && /^codex-[a-z-]+$/.test(error.message)
++              ? error.message
++              : "codex-device-login-failed";
++        }
++        stop(flow);
++      };
++      try {
++        const device = await requestDeviceCode(options.fetch, flow.abort.signal);
++        assertAttempt();
++        if (flow.timer) clearTimeout(flow.timer);
++        flow.device = {
++          verificationUrl: DEVICE_VERIFICATION_URL,
++          userCode: device.user_code,
++          expiresAt: Date.now() + device.expiresMs,
++        };
++        flow.timer = setTimeout(() => {
++          if (flow.state === "waiting") {
++            flow.state = "failed";
++            flow.error = "codex-device-expired";
++            stop(flow);
++          }
++        }, device.expiresMs);
++        flow.timer.unref();
++        const result = { flowId: flow.id, ...flow.device };
++        void (async () => {
++          try {
++            const tokens = await pollDeviceTokens(options.fetch, device, flow.abort.signal);
++            assertAttempt();
++            const accountID = await deviceAccount(tokens.id_token);
++            await locked(id, async () => {
++              assertAttempt();
++              await options.assertProvider(id);
++              const current = await load(id);
++              if (!current || current.revision !== flow.id)
++                throw new Error("codex-login-cancelled");
++              try {
++                await save(
++                  id,
++                  { ...current, tokens: { ...material(tokens), method: "device", accountID } },
++                  assertAttempt,
++                );
++                assertAttempt();
++              } catch (error) {
++                if (flow.state !== "waiting" || disposed) await save(id, current);
++                throw error;
++              }
++            });
++            flow.state = "connected";
++            options.onConnected?.(id);
++            stop(flow);
++          } catch (error) {
++            fail(error);
++          }
++        })();
++        return result;
++      } catch (error) {
++        fail(error);
++        throw new Error(flow.error ?? "codex-device-login-failed");
++      }
++    },
++    async cancel(rawId, flowId) {
++      const id = providerIdSchema.parse(rawId);
++      const flow = flows.get(id);
++      if (!flow || flow.id !== flowId || flow.state !== "waiting") return;
++      cancelFlow(id);
++      await locked(id, async () => {
++        const record = await load(id);
++        if (record?.revision === flowId) await save(id, { ...record, revision: randomUUID() });
++      });
++    },
++    async disconnect(rawId) {
++      assertLive();
++      const id = providerIdSchema.parse(rawId);
++      cancelFlow(id);
++      await options.beforeIdentityChange?.(id);
++      await locked(id, async () => {
++        const record = await load(id);
++        if (!record) return;
++        const { tokens: _, ...identity } = record;
++        await save(id, { ...identity, revision: randomUUID() });
++      });
++    },
++    async forget(rawId) {
++      const id = providerIdSchema.parse(rawId);
++      cancelFlow(id);
++      await options.beforeIdentityChange?.(id);
++      await locked(id, () => options.credentials.delete(key(id)));
++    },
++    async resolve(rawId, sessionId) {
++      assertLive();
++      const id = providerIdSchema.parse(rawId);
++      await options.assertProvider(id);
++      return locked(id, async (): ReturnType<CodexRequestAuthResolver["resolve"]> => {
++        assertLive();
++        const record = await load(id);
++        if (
++          !record?.tokens ||
++          (record.tokens.method === "device"
++            ? !record.tokens.accountID
++            : !record.clientID || !record.tokens.scopes.includes(SHARING_SCOPE))
++        )
++          throw new Error("codex-login-required");
++        if (record.tokens.method === "device") {
++          if (record.tokens.expires <= Date.now() + REFRESH_MARGIN_MS) {
++            const tokens = await requestDeviceTokens(
++              options.fetch,
++              new URLSearchParams({
++                grant_type: "refresh_token",
++                refresh_token: record.tokens.refresh,
++              }),
++              AbortSignal.timeout(HTTP_TIMEOUT_MS),
++            );
++            const accountID = tokens.id_token
++              ? await deviceAccount(tokens.id_token)
++              : record.tokens.accountID!;
++            if (accountID !== record.tokens.accountID)
++              throw new Error("codex-device-account-mismatch");
++            assertLive();
++            await options.assertProvider(id);
++            record.tokens = { ...material(tokens), method: "device", accountID };
++            await save(id, record);
++          }
++          return {
++            apiKey: record.tokens.access,
++            codexMode: "device" as const,
++            headers: {
++              "chatgpt-account-id": record.tokens.accountID!,
++              originator: "zcode",
++              "session-id": sessionId,
++              "thread-id": sessionId,
++              "x-client-request-id": sessionId,
++            },
++          };
++        }
++        if (record.tokens.expires <= Date.now() + REFRESH_MARGIN_MS) {
++          const tokens = await request(
++            new URLSearchParams({
++              grant_type: "refresh_token",
++              client_id: record.clientID!,
++              refresh_token: record.tokens.refresh,
++              resource: RESOURCE,
++            }),
++          );
++          assertLive();
++          await options.assertProvider(id);
++          record.tokens = material(tokens, record.tokens.scopes);
++          if (!record.tokens.scopes.includes(SHARING_SCOPE))
++            throw new Error("codex-token-sharing-required");
++          await save(id, record);
++        }
++        return {
++          apiKey: record.tokens.access,
++          headers: {
++            "session-id": sessionId,
++            "thread-id": sessionId,
++            "x-client-request-id": sessionId,
++          },
++        };
++      });
++    },
++    dispose() {
++      if (disposed) return;
++      disposed = true;
++      for (const id of flows.keys()) cancelFlow(id);
++      flows.clear();
++    },
++  };
++}
++
++function respond(response: ServerResponse, success: boolean) {
++  response
++    .writeHead(success ? 200 : 400, {
++      "Content-Type": "text/html; charset=utf-8",
++      "Cache-Control": "no-store",
++      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
++      "Referrer-Policy": "no-referrer",
++    })
++    .end(
++      `<!doctype html><title>ZCode Codex</title><p>${success ? "Authorization complete. Return to ZCode." : "Authorization failed. Return to ZCode and try again."}</p>`,
++    );
++}
+diff --git a/packages/services/src/index.ts b/packages/services/src/index.ts
+index eb7940a7466b27797eac79abf6f441d6941017bc..7297b6cde82264104621ed6a119b72e08827f6ee 100644
+--- a/packages/services/src/index.ts
++++ b/packages/services/src/index.ts
+@@ -1,6 +1,7 @@
+ // Descriptors & collection (browser-safe)
+ export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
+ export { ServiceCollection, type ServiceExposurePolicy } from "./collection.js";
++export { ICodexProviderService, type CodexConnectionStatus } from "./codex-provider/contract.js";
+ export {
+   IModelSelectionService,
+   IProviderSettingsService,
+@@ -8,6 +9,7 @@ export {
+   type ModelSelectionViewInput,
+   type ProviderSettingsProviderView,
+   type ProviderSettingsView,
++  type ProviderModelDiscoveryState,
+ } from "./model-provider/providerFacadeServices.js";
+ export {
+   createAccountRequestAuthService,
+diff --git a/packages/services/src/model-provider/accountProviderRequestAuthService.ts b/packages/services/src/model-provider/accountProviderRequestAuthService.ts
+index 2e1995590481719bace11293b714a64c5485c2cf..4a0faf95ae996d82888a058b9ac3297257389161 100644
+--- a/packages/services/src/model-provider/accountProviderRequestAuthService.ts
++++ b/packages/services/src/model-provider/accountProviderRequestAuthService.ts
+@@ -11,6 +11,7 @@ import {
+ } from "@zcode/shared";
+ 
+ export interface AccountRequestAuthMaterial {
++  codexMode?: "device";
+   /** 私有传输字段兼容旧命名；套餐 OAuth 实际传入短期 Project Token。 */
+   apiKey?: string;
+   apiKeyId?: string;
+diff --git a/packages/services/src/model-provider/providerFacadeServices.ts b/packages/services/src/model-provider/providerFacadeServices.ts
+index 83c0d0c93731a9847a0e34c237854135f48a3b20..ec141b0a504af8a1a7309af0818455a9cb041879 100644
+--- a/packages/services/src/model-provider/providerFacadeServices.ts
++++ b/packages/services/src/model-provider/providerFacadeServices.ts
+@@ -19,6 +19,12 @@ import {
+ import { createServiceDescriptor } from "../descriptors.js";
+ import type { ModelConnectivityResult } from "@zcode/shared";
+ import { createServiceLogger } from "../logger/serviceLogger.js";
++import type {
++  ProviderModelDiscovery,
++  ProviderModelDiscoveryState,
++} from "../provider-model-discovery/index.js";
++
++export type { ProviderModelDiscoveryState } from "../provider-model-discovery/index.js";
+ 
+ export type {
+   ProviderSettingsProviderView,
+@@ -28,6 +34,8 @@ export type {
+ } from "@zcode/provider";
+ 
+ export interface IProviderSettingsService {
++  getModelDiscoveryState(providerId: string): Promise<ProviderModelDiscoveryState>;
++  refreshModels(providerId: string): Promise<ProviderModelDiscoveryState>;
+   readonly onDidChange: Event<ProviderSettingsView>;
+   getView(): Promise<ProviderSettingsView>;
+   refresh(reason: string): Promise<ProviderSettingsView>;
+@@ -110,8 +118,15 @@ export function createProviderSettingsService(
+   facade: ProviderSettingsFacade,
+   ensureReady: () => Promise<void> = async () => {},
+   testConnectivity?: ProviderSettingsConnectivityTester,
++  beforeDeletePersonalProvider?: (providerId: string) => Promise<void>,
++  discovery?: ProviderModelDiscovery,
+ ): IProviderSettingsService {
+   return {
++    getModelDiscoveryState: async (id) => discovery?.getState(id) ?? { status: "unsupported" },
++    refreshModels: async (id) => {
++      await ensureReady();
++      return discovery?.refresh(id) ?? { status: "unsupported" };
++    },
+     onDidChange: toEvent((listener) => facade.onDidChange(listener)),
+     getView: async () => {
+       await ensureReady();
+@@ -123,7 +138,12 @@ export function createProviderSettingsService(
+     },
+     createPersonalProvider: async (input) => {
+       await ensureReady();
+-      return facade.createPersonalProvider(input);
++      const result = await facade.createPersonalProvider(input);
++      discovery?.saved(
++        undefined,
++        result.view.providers.find((p) => p.providerId === result.providerId),
++      );
++      return result;
+     },
+     resolveModelConfig: async (input) => {
+       await ensureReady();
+@@ -131,10 +151,21 @@ export function createProviderSettingsService(
+     },
+     savePersonalProviderOverlay: async (providerId, config, metadata) => {
+       await ensureReady();
+-      return facade.savePersonalProviderOverlay(providerId, config, metadata);
++      const before = discovery
++        ? facade.getView().providers.find((p) => p.providerId === providerId)
++        : undefined;
++      await discovery?.beforeSave(providerId, config, metadata?.enabled);
++      const view = await facade.savePersonalProviderOverlay(providerId, config, metadata);
++      discovery?.saved(
++        before,
++        view.providers.find((p) => p.providerId === providerId),
++      );
++      return view;
+     },
+     deletePersonalProvider: async (providerId) => {
+       await ensureReady();
++      await discovery?.cancel(providerId);
++      await beforeDeletePersonalProvider?.(providerId);
+       return facade.deletePersonalProvider(providerId);
+     },
+     reorderPersonalProviders: async (providerIds) => {
+diff --git a/packages/services/src/model-provider/providerRuntime.ts b/packages/services/src/model-provider/providerRuntime.ts
+index 1880a104e6cc19f29b9f88b472360b6901367e66..276314cba652adae282efae6fe7b19b386716915 100644
+--- a/packages/services/src/model-provider/providerRuntime.ts
++++ b/packages/services/src/model-provider/providerRuntime.ts
+@@ -25,6 +25,11 @@ import {
+   type ProviderSettingsConnectivityTester,
+ } from "./providerFacadeServices.js";
+ import { createServiceLogger } from "#src/logger/serviceLogger.js";
++import {
++  createProviderModelDiscovery,
++  type ProviderModelDiscovery,
++  type ProviderModelDiscoveryOptions,
++} from "../provider-model-discovery/index.js";
+ 
+ const log = createServiceLogger("provider-runtime");
+ 
+@@ -34,6 +39,11 @@ export interface ProviderRuntimeOptions extends ProviderConfigRuntimeOptions {
+ }
+ 
+ export interface ProviderRuntimeDependencies {
++  readonly modelDiscovery?: Pick<
++    ProviderModelDiscoveryOptions,
++    "fetch" | "codexAuth" | "clientVersion"
++  >;
++  readonly beforeDeletePersonalProvider?: (providerId: string) => Promise<void>;
+   readonly configRuntime: ProviderConfigRuntime;
+   readonly accountSource?: RefreshableProviderSource<AccountProviderConfigSnapshot>;
+   readonly disposeAccountSource?: () => void;
+@@ -64,6 +74,7 @@ export class EmptyAccountProviderConfigSource implements ProviderSource<AccountP
+ 
+ /** 组装一个进程内共享的 Provider Config、Registry 与 Facade。 */
+ export class ProviderRuntime {
++  readonly modelDiscovery?: ProviderModelDiscovery;
+   readonly configService: ProviderConfigRuntime["configService"];
+   readonly registryService: ProviderRegistryService;
+   readonly providerSettings: IProviderSettingsService;
+@@ -104,10 +115,22 @@ export class ProviderRuntime {
+     );
+     const ensureReady = () => this.start();
+     const settingsFacade = new ProviderSettingsFacade(this.registryService, mutations);
++    if (dependencies.modelDiscovery) {
++      this.modelDiscovery = createProviderModelDiscovery({
++        ...dependencies.modelDiscovery,
++        getView: async () => {
++          await ensureReady();
++          return settingsFacade.getView();
++        },
++        merge: (input) => settingsFacade.mergeDiscoveredModels(input),
++      });
++    }
+     this.providerSettings = createProviderSettingsService(
+       settingsFacade,
+       ensureReady,
+       dependencies.testConnectivity,
++      dependencies.beforeDeletePersonalProvider,
++      this.modelDiscovery,
+     );
+     this.#modelSelectionRuntime = createModelSelectionService(
+       createNodeModelSelectionFacade(this.registryService),
+@@ -131,6 +154,7 @@ export class ProviderRuntime {
+   dispose(): void {
+     if (this.#disposed) return;
+     this.#disposed = true;
++    this.modelDiscovery?.dispose();
+     this.#disposeBuiltinRecovery();
+     this.#modelSelectionRuntime.dispose();
+     this.registryService.dispose();
+@@ -156,6 +180,7 @@ function createSettingsMutationTarget(
+       configService.reorderPersonalModels(providerId, modelIds, membership),
+     // 手工四参数转发曾丢掉新增的配置模式；直接绑定完整签名，避免装配层截断写入意图。
+     addPersonalModel: configService.addPersonalModel.bind(configService),
++    mergeDiscoveredModels: configService.mergeDiscoveredModels.bind(configService),
+     renamePersonalModel: (providerId, currentModelId, nextModelId, membership) =>
+       configService.renamePersonalModel(providerId, currentModelId, nextModelId, membership),
+     deletePersonalModel: (providerId, modelId, membership) =>
+diff --git a/packages/services/src/node.ts b/packages/services/src/node.ts
+index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0cadb9d18b 100644
+--- a/packages/services/src/node.ts
++++ b/packages/services/src/node.ts
+@@ -1,3 +1,6 @@
++import { createHash } from "node:crypto";
++import { withFileLock } from "@zcode/shared/node";
++import { createCodexProviderService, ICodexProviderService } from "./codex-provider/index.js";
+ import {
+   createRemoteProjectService,
+   IRemoteProjectService,
+@@ -697,6 +700,10 @@ interface ManagedCuaHelperHostDispose {
+ // 的 WeakMap 侧表登记，dispose 时统一终止（best-effort，不阻断其它资源回收）。
+ const managedCuaHelperHosts = new WeakMap<ServiceCollection, ManagedCuaHelperHostDispose>();
+ const providerRuntimes = new WeakMap<ServiceCollection, ProviderRuntime>();
++const codexProviderServices = new WeakMap<
++  ServiceCollection,
++  ReturnType<typeof createCodexProviderService>
++>();
+ const providerProvisioningSources = new WeakMap<ServiceCollection, ProviderProvisioningSource>();
+ const providerProvisioningTriggerDisposers = new WeakMap<
+   ServiceCollection,
+@@ -1609,6 +1616,12 @@ export function createLocalServices(options: {
+     | Pick<IZCodeAgentService, "testModelConnectivity">
+     | undefined;
+   const providerRuntime = createProviderRuntimeFromConfigRuntime({
++    modelDiscovery: {
++      fetch: hostApiNetworkTransport.fetch,
++      clientVersion: ZCODE_VERSION,
++      codexAuth: (id) => codexProviderService.resolve(id, "model-discovery"),
++    },
++    beforeDeletePersonalProvider: (providerId) => codexProviderService.forget(providerId),
+     configRuntime: providerConfigRuntime,
+     accountSource: accountProviderConfigSource,
+     modelSelectionConfiguredDefaultSource,
+@@ -1628,6 +1641,34 @@ export function createLocalServices(options: {
+       accountProviderConfigSource.dispose();
+     },
+   });
++  const codexProviderService = createCodexProviderService({
++    onConnected: (id) => providerRuntime.modelDiscovery?.schedule(id),
++    beforeIdentityChange: (id) => providerRuntime.modelDiscovery?.cancel(id) ?? Promise.resolve(),
++    credentials: credentialService,
++    fetch: hostApiNetworkTransport.fetch,
++    canLogin:
++      !isDesktopAttachedRemote && options.agentTelemetry?.runtimeSurface === "desktop_local_host",
++    assertProvider: async (providerId) => {
++      const provider = (await providerRuntime.providerSettings.getView()).providers.find(
++        (item) => item.providerId === providerId,
++      );
++      if (
++        provider?.effectiveConfig.access?.type !== "codex-oauth" ||
++        provider.effectiveConfig.api?.type !== "openai-responses" ||
++        provider.effectiveConfig.api.baseUrl !== "https://api.openai.com/v1"
++      ) {
++        throw new Error("codex-provider-invalid");
++      }
++    },
++    withLock: (providerId, run) =>
++      withFileLock(
++        join(
++          resolveAppConfigDir(),
++          `codex-${createHash("sha256").update(providerId).digest("hex")}`,
++        ),
++        run,
++      ),
++  });
+   handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
+     accountProviderCredentialStore,
+     refreshAccountProviders: (reason: string) => accountProviderConfigSource.refresh(reason),
+@@ -2215,6 +2256,7 @@ export function createLocalServices(options: {
+     workspaceIdentity: undefined,
+   });
+   const zcodeAgentService = createZCodeAgentService({
++    codexRequestAuth: codexProviderService,
+     prepareProjectExecution,
+     prepareSessionCreation: async (target) =>
+       (await taskIndexRepo.getProjectRepository()).reserveCreatedTask({
+@@ -2964,6 +3006,7 @@ export function createLocalServices(options: {
+   offPeakRequestAuthBuilders.set(services, buildOffPeakRequestAuthForTicket);
+ 
+   providerRuntimes.set(services, providerRuntime);
++  codexProviderServices.set(services, codexProviderService);
+   providerProvisioningSources.set(services, providerProvisioningSource);
+   providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
+   // desktop-attached-remote 的组织态在远端 Host 库里，由远端自己的扫描器归档；本机不扫。
+@@ -2980,6 +3023,14 @@ export function createLocalServices(options: {
+     });
+   }
+   services
++    // ProxyChannel 根据运行时方法名分派，不能把带 resolve/forget/dispose 的私有对象直接暴露。
++    .register(ICodexProviderService, {
++      status: codexProviderService.status,
++      start: codexProviderService.start,
++      startDevice: codexProviderService.startDevice,
++      cancel: codexProviderService.cancel,
++      disconnect: codexProviderService.disconnect,
++    })
+     .register(IProviderSettingsService, providerRuntime.providerSettings)
+     .register(IModelSelectionService, providerRuntime.modelSelection);
+   if (isDesktopAttachedRemote || options.providerProvisioningTargetEnabled === true) {
+@@ -3130,6 +3181,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
+   // 关闭共享 tasks-index sqlite 句柄（Windows 上悬着句柄会让后续目录清理撞 EBUSY）
+   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
+   sharedSqliteRepos.delete(services);
++  codexProviderServices.get(services)?.dispose();
+   providerRuntimes.get(services)?.dispose();
+   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
+   providerProvisioningTriggerDisposers.delete(services);
+@@ -3174,6 +3226,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
+   // 关闭共享 tasks-index sqlite 句柄（同 disposeServiceResources，异步收口路径也要释放）
+   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
+   sharedSqliteRepos.delete(services);
++  codexProviderServices.get(services)?.dispose();
+   providerRuntimes.get(services)?.dispose();
+   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
+   providerProvisioningTriggerDisposers.delete(services);
+diff --git a/packages/services/src/provider-model-discovery/CONTRACT.md b/packages/services/src/provider-model-discovery/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..342c08aba1fcbc503c30424b506a09cc50b1b0ac
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/CONTRACT.md
+@@ -0,0 +1,5 @@
++# Provider Model Discovery
++
++Host 独占每个 Provider 的目录任务、取消与无秘密进度。完整目录通过原 Facade / Config Service 单次事务合并，Registry 是唯一模型事实。目录只提交接口能力，Config Service 写入独立 discoveredConfig 来源；Codex 离线窗口由公共 Resolver 提供，不能混入个人覆盖或“接口参数”计数。
++getView / merge / fetch / codexAuth 由装配层注入。鉴权配置或身份变化先取消并等待旧任务，重复触发合并；手动编辑优先，旧 revision 不重试写入。
++公共 RPC 只展示进度和显式刷新；不暴露凭据解析端口。协议与预算见 `docs/provider-model-discovery.md`。
+diff --git a/packages/services/src/provider-model-discovery/contract.example.ts b/packages/services/src/provider-model-discovery/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cacb0c15972bb0b180bceae65cf020bf4360e27
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/contract.example.ts
+@@ -0,0 +1,4 @@
++import type { ProviderModelDiscovery } from "./contract.js";
++export function exampleDiscovery(owner: ProviderModelDiscovery, providerId: string): void {
++  owner.schedule(providerId);
++}
+diff --git a/packages/services/src/provider-model-discovery/contract.test.ts b/packages/services/src/provider-model-discovery/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5dda6a308f340a81b6c2fdb95fe24104829fe327
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/contract.test.ts
+@@ -0,0 +1,5 @@
++import { expect, it } from "vitest";
++import { providerModelDiscoveryModule } from "./module.js";
++it("declares the model-discovery owner", () => {
++  expect(providerModelDiscoveryModule.requires).toEqual(["provider", "shared"]);
++});
+diff --git a/packages/services/src/provider-model-discovery/contract.ts b/packages/services/src/provider-model-discovery/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2a17314deb8fcd735803f2fd8620c9d7cbce8a8
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/contract.ts
+@@ -0,0 +1,44 @@
++import type {
++  ModelConfigObject,
++  ProviderConfigObject,
++  ProviderSettingsProviderView,
++  ProviderSettingsView,
++} from "@zcode/provider";
++
++export interface DiscoveredProviderModel {
++  readonly modelId: string;
++  readonly config: ModelConfigObject;
++}
++export interface ProviderModelDiscoveryState {
++  readonly status: "idle" | "loading" | "ready" | "error" | "unsupported";
++  readonly count?: number;
++  readonly reportedParameters?: number;
++  readonly error?: "auth" | "network" | "invalid-response" | "empty" | "timeout" | "stale";
++}
++/** Host-private owner. Only getState / refresh are projected through ProviderSettings RPC. */
++export interface ProviderModelDiscovery {
++  getState(providerId: string): ProviderModelDiscoveryState;
++  refresh(providerId: string): Promise<ProviderModelDiscoveryState>;
++  schedule(providerId: string): void;
++  cancel(providerId: string): Promise<void>;
++  beforeSave(providerId: string, config: ProviderConfigObject, enabled?: boolean): Promise<void>;
++  saved(
++    before: ProviderSettingsProviderView | undefined,
++    after: ProviderSettingsProviderView | undefined,
++  ): void;
++  dispose(): void;
++}
++export interface ProviderModelDiscoveryOptions {
++  readonly getView: () => Promise<ProviderSettingsView>;
++  readonly merge: (input: {
++    providerId: string;
++    basedOnRevision: number;
++    models: readonly DiscoveredProviderModel[];
++    assertCurrent: () => void;
++  }) => Promise<unknown>;
++  readonly fetch: typeof globalThis.fetch;
++  readonly codexAuth: (
++    providerId: string,
++  ) => Promise<{ apiKey: string; codexMode?: "device"; headers?: Record<string, string> }>;
++  readonly clientVersion?: string;
++}
+diff --git a/packages/services/src/provider-model-discovery/directory.ts b/packages/services/src/provider-model-discovery/directory.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d3c9b45b9b652231ae107cfccb766e7a9fb02eb
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/directory.ts
+@@ -0,0 +1,208 @@
++import type { ModelConfigObject, ProviderConfigObject } from "@zcode/provider";
++import { modelConfigDataSchema } from "@zcode/shared/model-config";
++import type { DiscoveredProviderModel, ProviderModelDiscoveryState } from "./contract.js";
++
++export class DiscoveryError extends Error {
++  constructor(
++    readonly code: ProviderModelDiscoveryState["error"],
++    readonly unsupported = false,
++  ) {
++    super(code);
++  }
++}
++const invalid = () => new DiscoveryError("invalid-response");
++function object(value: unknown): Record<string, unknown> {
++  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
++  return value as Record<string, unknown>;
++}
++function id(value: unknown): string {
++  if (
++    typeof value !== "string" ||
++    !value.trim() ||
++    value !== value.trim() ||
++    value.length > 300 ||
++    [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
++  )
++    throw invalid();
++  return value;
++}
++function positive(value: unknown): number | undefined {
++  if (value == null) return undefined;
++  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw invalid();
++  return value;
++}
++function configFor(row: Record<string, unknown>, api: string, codex: boolean): ModelConfigObject {
++  // 这里只产生接口事实；本地兜底属于 Resolver，否则会污染来源计数并冻结后续刷新。
++  const context = positive(row.context_window ?? row.context_length ?? row.max_input_tokens);
++  const output = positive(
++    row.max_output_tokens ?? (api === "anthropic-messages" ? row.max_tokens : undefined),
++  );
++  const properties: Record<string, unknown> = {};
++  const optionSpecs: Record<string, unknown> = {};
++  if (context !== undefined) properties.contextWindow = context;
++  if (row.input_modalities != null) {
++    if (
++      !Array.isArray(row.input_modalities) ||
++      !row.input_modalities.every((v) => typeof v === "string")
++    )
++      throw invalid();
++    const values = row.input_modalities;
++    properties.inputFormat = Object.fromEntries(
++      ["Text", "Image", "Video", "Audio", "Pdf"].map((v) => [
++        `supports${v}`,
++        values.includes(v.toLowerCase()),
++      ]),
++    );
++  }
++  if (output !== undefined) {
++    const field =
++      api === "openai-responses"
++        ? "max_output_tokens"
++        : api === "anthropic-messages"
++          ? "max_tokens"
++          : "max_completion_tokens";
++    optionSpecs.maxOutputTokens = { max: output, map: `{"${field}":maxOutputTokens}` };
++  }
++  if (codex && row.supported_reasoning_levels != null) {
++    if (!Array.isArray(row.supported_reasoning_levels)) throw invalid();
++    const values = [...new Set(row.supported_reasoning_levels.map((v) => id(object(v).effort)))];
++    // 保持供应商公开的档位顺序；不从模型名称推断不存在的档位。
++    if (values.length)
++      optionSpecs.reasoningLevel = { values, map: '{"reasoning":{"effort":reasoningLevel}}' };
++  }
++  const parsed = modelConfigDataSchema.safeParse({
++    ...(Object.keys(properties).length ? { properties } : {}),
++    ...(Object.keys(optionSpecs).length ? { optionSpecs } : {}),
++  });
++  if (!parsed.success) throw invalid();
++  return parsed.data;
++}
++
++export function directoryURL(config: ProviderConfigObject): URL {
++  const api = config.api;
++  if (!api?.type || !api.baseUrl) throw invalid();
++  let url: URL;
++  try {
++    url = new URL(api.baseUrl);
++  } catch {
++    throw invalid();
++  }
++  if (
++    !["https:", "http:"].includes(url.protocol) ||
++    url.username ||
++    url.password ||
++    url.search ||
++    url.hash
++  )
++    throw invalid();
++  if (
++    config.access?.type === "codex-oauth" &&
++    (api.type !== "openai-responses" || api.baseUrl !== "https://api.openai.com/v1")
++  )
++    throw invalid();
++  const base = url.pathname.replace(/\/+$/, "");
++  url.pathname = `${base}${api.type === "anthropic-messages" && !base.endsWith("/v1") ? "/v1" : ""}/models`;
++  if (api.type === "anthropic-messages") url.searchParams.set("limit", "100");
++  return url;
++}
++
++/** Complete bounded directory only: callers must not persist partial pages. */
++export async function readDirectory(
++  config: ProviderConfigObject,
++  key: string,
++  fetcher: typeof fetch,
++  signal: AbortSignal,
++  auth?: { codexMode?: "device"; headers?: Record<string, string>; clientVersion?: string },
++): Promise<DiscoveredProviderModel[]> {
++  const codex = config.access?.type === "codex-oauth";
++  const anthropic = config.api?.type === "anthropic-messages";
++  const url = directoryURL(config);
++  if (auth?.codexMode === "device") {
++    if (!codex) throw invalid();
++    url.href = "https://chatgpt.com/backend-api/codex/models";
++    url.searchParams.set("client_version", auth.clientVersion ?? "0.0.0");
++  }
++  const headers = new Headers(codex ? undefined : (config.api?.headers ?? undefined));
++  if (codex && auth?.codexMode === "device")
++    for (const [name, value] of Object.entries(auth.headers ?? {})) headers.set(name, value);
++  headers.set("Accept", "application/json");
++  headers.set("User-Agent", "ZCode");
++  if (anthropic) {
++    headers.set("x-api-key", key);
++    if (!headers.has("anthropic-version")) headers.set("anthropic-version", "2023-06-01");
++  } else headers.set("Authorization", `Bearer ${key}`);
++  let bytes = 0;
++  let entries = 0;
++  const models = new Map<string, DiscoveredProviderModel>();
++  const cursors = new Set<string>();
++  for (let page = 0; page < 10; page++) {
++    const response = await fetcher(url.toString(), { headers, signal, redirect: "error" });
++    if (!response.ok) {
++      void response.body?.cancel().catch(() => {});
++      throw new DiscoveryError(
++        response.status === 401 || response.status === 403 ? "auth" : "network",
++        response.status === 404 || response.status === 405,
++      );
++    }
++    if (!response.body) throw invalid();
++    const reader = response.body.getReader();
++    const cancelReader = () => {
++      void reader.cancel().catch(() => {});
++    };
++    signal.addEventListener("abort", cancelReader, { once: true });
++    const chunks: Uint8Array[] = [];
++    try {
++      while (true) {
++        signal.throwIfAborted();
++        const { done, value } = await reader.read();
++        if (done) break;
++        bytes += value.byteLength;
++        if (bytes > 4 * 1024 * 1024) throw invalid();
++        chunks.push(value);
++      }
++    } finally {
++      signal.removeEventListener("abort", cancelReader);
++      void reader.cancel().catch(() => {});
++    }
++    const size = chunks.reduce((n, chunk) => n + chunk.length, 0);
++    const buffer = new Uint8Array(size);
++    let offset = 0;
++    for (const chunk of chunks) {
++      buffer.set(chunk, offset);
++      offset += chunk.length;
++    }
++    let data: Record<string, unknown>;
++    try {
++      data = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer)));
++    } catch {
++      throw invalid();
++    }
++    const rows = data[codex ? "models" : "data"];
++    if (!Array.isArray(rows)) throw invalid();
++    entries += rows.length;
++    if (entries > 1000) throw invalid();
++    for (const raw of rows) {
++      const row = object(raw);
++      if (
++        codex &&
++        (row.visibility !== "list" ||
++          (auth?.codexMode !== "device" && row.supported_in_api !== true))
++      )
++        continue;
++      const modelId = id(row[codex ? "slug" : "id"]);
++      const modelConfig = configFor(row, config.api?.type ?? "", codex);
++      if (!models.has(modelId)) models.set(modelId, { modelId, config: modelConfig });
++    }
++    if (anthropic && typeof data.has_more !== "boolean") throw invalid();
++    if (!anthropic && data.has_more === true) throw invalid();
++    if (!data.has_more) {
++      if (!models.size) throw new DiscoveryError("empty");
++      return [...models.values()];
++    }
++    const cursor = id(data.last_id);
++    if (!rows.length || cursors.has(cursor)) throw invalid();
++    cursors.add(cursor);
++    url.searchParams.set("after_id", cursor);
++  }
++  throw invalid();
++}
+diff --git a/packages/services/src/provider-model-discovery/discovery.ts b/packages/services/src/provider-model-discovery/discovery.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ce264009669fe6c4b9ce2fe90047fcbc3b7bc6a
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/discovery.ts
+@@ -0,0 +1,187 @@
++import {
++  parseProviderConfig,
++  type ProviderConfigObject,
++  type ProviderSettingsProviderView,
++} from "@zcode/provider";
++import type {
++  ProviderModelDiscovery,
++  ProviderModelDiscoveryOptions,
++  ProviderModelDiscoveryState,
++} from "./contract.js";
++import { DiscoveryError, directoryURL, readDirectory } from "./directory.js";
++
++function identity(provider: ProviderSettingsProviderView | undefined): string {
++  const config = provider?.effectiveConfig;
++  return JSON.stringify([
++    provider?.enabled,
++    config?.access,
++    config?.api?.type,
++    config?.api?.baseUrl,
++    Object.entries(config?.api?.headers ?? {}).sort(([a], [b]) => a.localeCompare(b)),
++  ]);
++}
++function eligible(provider: ProviderSettingsProviderView | undefined): boolean {
++  const access = provider?.effectiveConfig.access;
++  return (
++    provider?.enabled === true &&
++    (access?.type === "codex-oauth" ||
++      ((access?.type === "api-key" || access?.type === "zhipu-coding-plan-api-key") &&
++        !!access.apiKey?.trim()))
++  );
++}
++/** Abort races also bound non-cooperative transports / credential reads. */
++function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
++  return new Promise((resolve, reject) => {
++    const abort = () => reject(signal.reason);
++    if (signal.aborted) {
++      reject(signal.reason);
++    } else {
++      signal.addEventListener("abort", abort, { once: true });
++    }
++    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
++  });
++}
++
++export function createProviderModelDiscovery(
++  options: ProviderModelDiscoveryOptions,
++): ProviderModelDiscovery {
++  const states = new Map<string, ProviderModelDiscoveryState>();
++  const jobs = new Map<
++    string,
++    { abort: AbortController; task: Promise<ProviderModelDiscoveryState> }
++  >();
++  const generations = new Map<string, number>();
++  let disposed = false;
++  const owner: ProviderModelDiscovery = {
++    getState: (id) => states.get(id) ?? { status: "idle" },
++    refresh(id) {
++      if (disposed) return Promise.resolve({ status: "idle" });
++      const existing = jobs.get(id);
++      if (existing) return existing.task;
++      const abort = new AbortController();
++      const timeout = setTimeout(() => abort.abort(new DiscoveryError("timeout")), 20_000);
++      const assertCurrent = () => {
++        if (disposed || abort.signal.aborted || jobs.get(id)?.abort !== abort)
++          throw new DiscoveryError("stale");
++      };
++      states.set(id, { status: "loading" });
++      const task = Promise.resolve()
++        .then(async (): Promise<ProviderModelDiscoveryState> => {
++          try {
++            const view = await abortable(options.getView(), abort.signal);
++            const provider = view.providers.find((p) => p.providerId === id);
++            if (!eligible(provider)) return { status: "unsupported" };
++            const config = provider!.effectiveConfig;
++            // 验证固定 origin 必须早于凭据解析，避免改端点后向第三方发送 OAuth token。
++            directoryURL(config);
++            const auth =
++              config.access?.type === "codex-oauth"
++                ? await abortable(
++                    options.codexAuth(id).catch(() => {
++                      throw new DiscoveryError("auth");
++                    }),
++                    abort.signal,
++                  )
++                : { apiKey: (config.access as { apiKey: string }).apiKey };
++            assertCurrent();
++            const models = await abortable(
++              readDirectory(config, auth.apiKey, options.fetch, abort.signal, {
++                ...auth,
++                clientVersion: options.clientVersion,
++              }),
++              abort.signal,
++            );
++            assertCurrent();
++            const current = await abortable(options.getView(), abort.signal);
++            if (
++              current.revision !== view.revision ||
++              identity(current.providers.find((p) => p.providerId === id)) !== identity(provider)
++            )
++              throw new DiscoveryError("stale");
++            try {
++              await options.merge({
++                providerId: id,
++                basedOnRevision: view.revision,
++                models,
++                assertCurrent,
++              });
++            } catch {
++              throw new DiscoveryError("stale");
++            }
++            assertCurrent();
++            return {
++              status: "ready",
++              count: models.length,
++              reportedParameters: models.filter((m) => Object.keys(m.config).length > 0).length,
++            };
++          } catch (error) {
++            if (
++              abort.signal.aborted &&
++              !(
++                abort.signal.reason instanceof DiscoveryError &&
++                abort.signal.reason.code === "timeout"
++              )
++            )
++              return { status: "idle" };
++            const failure = abort.signal.aborted ? abort.signal.reason : error;
++            return {
++              status:
++                failure instanceof DiscoveryError && failure.unsupported ? "unsupported" : "error",
++              error: failure instanceof DiscoveryError ? failure.code : "network",
++            };
++          }
++        })
++        .then((state) => {
++          clearTimeout(timeout);
++          if (!disposed && jobs.get(id)?.abort === abort) {
++            jobs.delete(id);
++            states.set(id, state);
++          }
++          return state;
++        });
++      jobs.set(id, { abort, task });
++      return task;
++    },
++    schedule(id) {
++      if (!disposed) void owner.refresh(id);
++    },
++    async cancel(id) {
++      const generation = (generations.get(id) ?? 0) + 1;
++      generations.set(id, generation);
++      const job = jobs.get(id);
++      job?.abort.abort();
++      if (job) await job.task;
++      if (generations.get(id) === generation) states.delete(id);
++    },
++    async beforeSave(id, config: ProviderConfigObject, enabled) {
++      const before = (await options.getView()).providers.find((p) => p.providerId === id);
++      if (!before) return;
++      const effectiveConfig = parseProviderConfig(before.effectiveBuiltinConfig ?? {})
++        .overlay(parseProviderConfig(config))
++        .toJSON();
++      if (
++        identity(before) !==
++        identity({ ...before, enabled: enabled ?? before.enabled, effectiveConfig })
++      )
++        await owner.cancel(id);
++    },
++    saved(before, after) {
++      if (!eligible(after) || identity(before) === identity(after)) return;
++      const id = after!.providerId;
++      const generation = (generations.get(id) ?? 0) + 1;
++      generations.set(id, generation);
++      const previous = jobs.get(id);
++      // 两次保存可在各自 beforeSave 之后交错；最终保存仍须取消中途启动的旧 Key 任务，不能仅合并触发。
++      previous?.abort.abort();
++      void (previous?.task ?? Promise.resolve()).then(() => {
++        if (!disposed && generations.get(id) === generation) owner.schedule(id);
++      });
++    },
++    dispose() {
++      disposed = true;
++      for (const job of jobs.values()) job.abort.abort();
++      states.clear();
++    },
++  };
++  return owner;
++}
+diff --git a/packages/services/src/provider-model-discovery/index.ts b/packages/services/src/provider-model-discovery/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..558f166e08a4f7fa260450ec8a8655b18d9380b8
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/index.ts
+@@ -0,0 +1,2 @@
++export * from "./contract.js";
++export { createProviderModelDiscovery } from "./discovery.js";
+diff --git a/packages/services/src/provider-model-discovery/module.ts b/packages/services/src/provider-model-discovery/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae722dea0fce471fdbbc691619f61028d88abd22
+--- /dev/null
++++ b/packages/services/src/provider-model-discovery/module.ts
+@@ -0,0 +1,6 @@
++export const providerModelDiscoveryModule = {
++  id: "provider-model-discovery",
++  requires: ["provider", "shared"],
++  provides: ["provider-model-discovery"],
++  publicEntrypoints: ["index.ts", "contract.ts"],
++} as const;
+diff --git a/packages/services/src/zcode-agent/zcodeAgentService.ts b/packages/services/src/zcode-agent/zcodeAgentService.ts
+index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fedbcc4b63 100644
+--- a/packages/services/src/zcode-agent/zcodeAgentService.ts
++++ b/packages/services/src/zcode-agent/zcodeAgentService.ts
+@@ -996,6 +996,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+   mcpStatusIdleTimeoutMs?: number;
+   accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
+   accountRequestAuthService?: IAccountRequestAuthService;
++  codexRequestAuth?: import("../codex-provider/contract.js").CodexRequestAuthResolver;
+   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
+   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
+   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
+@@ -1440,6 +1441,11 @@ export function createZCodeAgentService(
+   async function resolveAccountRequestAuth(
+     request: ZCodeProviderRuntimeHeadersRequestParams,
+   ): Promise<AccountRequestAuthMaterial | undefined> {
++    if (request.requestAuthType === "codex-oauth") {
++      if (request.accountAccess || !options?.codexRequestAuth)
++        throw new Error("codex-request-auth-unavailable");
++      return options.codexRequestAuth.resolve(request.providerId, request.sessionId);
++    }
+     if (!request.accountAccess || !accountRequestAuthService) {
+       return undefined;
+     }
+@@ -2648,9 +2654,10 @@ export function createZCodeAgentService(
+           });
+           const accountAccess = parsed.data.accountAccess;
+           if (
+-            accountRequestAuthService &&
+-            accountAccess &&
+-            !requiresRequestVerification(accountAccess)
++            parsed.data.requestAuthType === "codex-oauth" ||
++            (accountRequestAuthService &&
++              accountAccess &&
++              !requiresRequestVerification(accountAccess))
+           ) {
+             // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
+             // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
+@@ -5713,6 +5720,7 @@ export function createZCodeAgentService(
+           ? {
+               ...(accountRequestAuth?.apiKey ? { apiKey: accountRequestAuth.apiKey } : {}),
+               ...(accountRequestAuth?.apiKeyId ? { apiKeyId: accountRequestAuth.apiKeyId } : {}),
++              ...(accountRequestAuth?.codexMode ? { codexMode: accountRequestAuth.codexMode } : {}),
+               ...(accountRequestAuth?.accountScope
+                 ? { accountScope: accountRequestAuth.accountScope }
+                 : {}),
+diff --git a/packages/services/test/codexDeviceLogin.test.ts b/packages/services/test/codexDeviceLogin.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e6ab1142b0bda03671eabe95e57ccf746896cc3
+--- /dev/null
++++ b/packages/services/test/codexDeviceLogin.test.ts
+@@ -0,0 +1,238 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { createHash } from "node:crypto";
++import { exportJWK, generateKeyPair, SignJWT } from "jose";
++import { createCodexProviderService } from "../src/codex-provider/index.js";
++
++const owners: Array<ReturnType<typeof createCodexProviderService>> = [];
++afterEach(() => {
++  for (const owner of owners.splice(0)) owner.dispose();
++  vi.useRealTimers();
++});
++async function fixture() {
++  const pair = await generateKeyPair("RS256");
++  const jwk = await exportJWK(pair.publicKey);
++  const values = new Map<string, string>();
++  const calls: Array<{ path: string; body: string }> = [];
++  const connected = vi.fn();
++  let pending = false;
++  let denied = false;
++  let wrongAudience = false;
++  let expires = 900;
++  let slow = false;
++  let exchangeGate: Promise<void> | undefined;
++  const owner = createCodexProviderService({
++    canLogin: true,
++    onConnected: connected,
++    assertProvider: async (id) => {
++      if (id !== "device-fixture") throw new Error("not-codex");
++    },
++    withLock: async (_id, run) => run(),
++    credentials: {
++      load: async (id) => values.get(id) ?? null,
++      save: async (id, value, assert) => {
++        assert?.();
++        values.set(id, value);
++      },
++      delete: async (id) => {
++        values.delete(id);
++      },
++    },
++    fetch: async (input, init) => {
++      const url = new URL(String(input));
++      expect(url.origin).toBe("https://auth.openai.com");
++      if (url.pathname.endsWith("jwks.json"))
++        return Response.json({ keys: [{ ...jwk, kid: "device-test", alg: "RS256" }] });
++      expect(init?.redirect).toBe("error");
++      calls.push({ path: url.pathname, body: String(init?.body) });
++      if (url.pathname.endsWith("/deviceauth/usercode"))
++        return Response.json({
++          device_auth_id: "private-device-id",
++          user_code: "ABCD-EFGH",
++          interval: "1",
++          expires_in: expires,
++        });
++      if (url.pathname.endsWith("/deviceauth/token")) {
++        if (slow)
++          return Response.json(
++            { error: "slow_down" },
++            { status: 429, headers: { "retry-after": "30" } },
++          );
++        if (denied) return Response.json({ error: "access_denied" }, { status: 403 });
++        if (pending) return Response.json({ error: "authorization_pending" }, { status: 403 });
++        return Response.json({
++          authorization_code: "private-auth-code",
++          code_verifier: "private-verifier",
++        });
++      }
++      expect(url.pathname).toBe("/oauth/token");
++      await exchangeGate;
++      const idToken = await new SignJWT({
++        sub: "fixture-subject",
++        "https://api.openai.com/auth": { chatgpt_account_id: "fixture-account" },
++      })
++        .setProtectedHeader({ alg: "RS256", kid: "device-test" })
++        .setIssuer("https://auth.openai.com")
++        .setAudience(wrongAudience ? "wrong-client" : "app_EMoamEEZ73f0CkXaXp7hrann")
++        .setExpirationTime("1h")
++        .sign(pair.privateKey);
++      return Response.json({
++        access_token: "fixture-device-token",
++        refresh_token: "fixture-device-refresh",
++        id_token: idToken,
++        expires_in: 3600,
++      });
++    },
++  });
++  owners.push(owner);
++  return {
++    owner,
++    values,
++    calls,
++    connected,
++    slow: (v: boolean) => {
++      slow = v;
++    },
++    pending: (v: boolean) => {
++      pending = v;
++    },
++    denied: () => {
++      denied = true;
++    },
++    wrongAudience: () => {
++      wrongAudience = true;
++    },
++    expires: (v: number) => {
++      expires = v;
++    },
++    gate: (v: Promise<void>) => {
++      exchangeGate = v;
++    },
++  };
++}
++describe("Codex explicit device login", () => {
++  it("retains an existing browser connection when device authorization is denied", async () => {
++    const f = await fixture();
++    const key = `codex:${createHash("sha256").update("device-fixture").digest("hex")}`;
++    f.values.set(
++      key,
++      JSON.stringify({
++        hostID: "fixture-host",
++        revision: "previous",
++        clientID: "fixture-browser-client",
++        tokens: {
++          access: "fixture-browser-token",
++          refresh: "fixture-browser-refresh",
++          expires: Date.now() + 3600000,
++          scopes: ["chatgpt.tokens.use.direct"],
++        },
++      }),
++    );
++    f.denied();
++    await f.owner.startDevice("device-fixture");
++    await vi.waitFor(async () =>
++      expect((await f.owner.status("device-fixture")).flow?.state).toBe("failed"),
++    );
++    expect(await f.owner.resolve("device-fixture", "session-fixture")).toMatchObject({
++      apiKey: "fixture-browser-token",
++    });
++    expect((await f.owner.resolve("device-fixture", "session-fixture")).codexMode).toBeUndefined();
++    expect(JSON.parse(f.values.get(key)!).clientID).toBe("fixture-browser-client");
++  });
++  it("uses the device flow, signed account identity, and a separate refresh endpoint", async () => {
++    const f = await fixture();
++    const started = await f.owner.startDevice("device-fixture");
++    expect(started).toMatchObject({
++      verificationUrl: "https://auth.openai.com/codex/device",
++      userCode: "ABCD-EFGH",
++    });
++    expect(JSON.stringify(started)).not.toContain("private-device-id");
++    await vi.waitFor(async () =>
++      expect((await f.owner.status("device-fixture")).connected).toBe(true),
++    );
++    const status = await f.owner.status("device-fixture");
++    expect(status.method).toBe("device");
++    expect(status.flow?.device).toBeUndefined();
++    expect(f.connected).toHaveBeenCalledOnce();
++    expect(await f.owner.resolve("device-fixture", "session-fixture")).toMatchObject({
++      apiKey: "fixture-device-token",
++      codexMode: "device",
++      headers: { "chatgpt-account-id": "fixture-account", originator: "zcode" },
++    });
++    const exchange = new URLSearchParams(f.calls.find((c) => c.path === "/oauth/token")!.body);
++    expect(exchange.get("redirect_uri")).toBe("https://auth.openai.com/deviceauth/callback");
++    expect(exchange.has("resource")).toBe(false);
++    for (const [key, raw] of f.values) {
++      const value = JSON.parse(raw);
++      value.tokens.expires = 0;
++      f.values.set(key, JSON.stringify(value));
++    }
++    await f.owner.resolve("device-fixture", "session-fixture");
++    expect(new URLSearchParams(f.calls.at(-1)!.body).get("grant_type")).toBe("refresh_token");
++    expect(JSON.stringify(status)).not.toContain("fixture-device-token");
++  });
++  it("respects pending intervals and hides the user code on cancellation", async () => {
++    const f = await fixture();
++    f.pending(true);
++    vi.useFakeTimers();
++    const started = await f.owner.startDevice("device-fixture");
++    await vi.advanceTimersByTimeAsync(0);
++    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++    await vi.advanceTimersByTimeAsync(3999);
++    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++    await f.owner.cancel("device-fixture", started.flowId);
++    await vi.advanceTimersByTimeAsync(10000);
++    expect((await f.owner.status("device-fixture")).flow).toMatchObject({ state: "cancelled" });
++    expect((await f.owner.status("device-fixture")).flow?.device).toBeUndefined();
++    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++  });
++  it.each(["denied", "wrong-audience"])("rejects %s without saving tokens", async (mode) => {
++    const f = await fixture();
++    if (mode === "denied") f.denied();
++    else f.wrongAudience();
++    await f.owner.startDevice("device-fixture");
++    await vi.waitFor(async () =>
++      expect((await f.owner.status("device-fixture")).flow?.state).toBe("failed"),
++    );
++    expect([...f.values.values()].some((v) => v.includes("fixture-device-token"))).toBe(false);
++    expect(f.connected).not.toHaveBeenCalled();
++  });
++  it("honors Retry-After instead of shortening provider rate limits", async () => {
++    const f = await fixture();
++    f.slow(true);
++    vi.useFakeTimers();
++    const started = await f.owner.startDevice("device-fixture");
++    await vi.advanceTimersByTimeAsync(29999);
++    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(1);
++    await vi.advanceTimersByTimeAsync(1);
++    expect(f.calls.filter((c) => c.path.endsWith("/deviceauth/token"))).toHaveLength(2);
++    await f.owner.cancel("device-fixture", started.flowId);
++  });
++  it("expires the attempt and does not commit late exchanges after deletion", async () => {
++    const f = await fixture();
++    f.pending(true);
++    f.expires(1);
++    vi.useFakeTimers();
++    await f.owner.startDevice("device-fixture");
++    await vi.advanceTimersByTimeAsync(1001);
++    expect((await f.owner.status("device-fixture")).flow).toMatchObject({
++      state: "failed",
++      error: "codex-device-expired",
++    });
++    f.pending(false);
++    f.expires(900);
++    vi.useRealTimers();
++    let release!: () => void;
++    f.gate(
++      new Promise<void>((resolve) => {
++        release = resolve;
++      }),
++    );
++    await f.owner.startDevice("device-fixture");
++    await vi.waitFor(() => expect(f.calls.some((c) => c.path === "/oauth/token")).toBe(true));
++    await f.owner.forget("device-fixture");
++    release();
++    await new Promise((resolve) => setTimeout(resolve, 30));
++    expect(f.values.size).toBe(0);
++    expect(f.connected).not.toHaveBeenCalled();
++  });
++});
+diff --git a/packages/services/test/codexOAuth.test.ts b/packages/services/test/codexOAuth.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a32f68fd1dd7be563eac4fd4980bb09346154d4
+--- /dev/null
++++ b/packages/services/test/codexOAuth.test.ts
+@@ -0,0 +1,220 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { exportJWK, generateKeyPair, SignJWT } from "jose";
++import { createCodexProviderService } from "../src/codex-provider/index.js";
++
++const services: Array<ReturnType<typeof createCodexProviderService>> = [];
++afterEach(() => {
++  for (const service of services.splice(0)) service.dispose();
++});
++
++async function fixture(canLogin = true) {
++  const values = new Map<string, string>();
++  const pair = await generateKeyPair("RS256");
++  const jwk = await exportJWK(pair.publicKey);
++  const calls: URLSearchParams[] = [];
++  let nonce = "";
++  let scope = "chatgpt.tokens.use.direct";
++  let clientID = "issued-test-client";
++  let gate: Promise<void> | undefined;
++  const onConnected = vi.fn();
++  const beforeIdentityChange = vi.fn(async () => {});
++  const service = createCodexProviderService({
++    onConnected,
++    beforeIdentityChange,
++    canLogin,
++    credentials: {
++      load: async (key) => values.get(key) ?? null,
++      save: async (key, value) => {
++        values.set(key, value);
++      },
++      delete: async (key) => {
++        values.delete(key);
++      },
++    },
++    assertProvider: async (id) => {
++      if (id !== "test-codex") throw new Error("not-codex");
++    },
++    withLock: async (_id, run) => run(),
++    fetch: async (url, init) => {
++      if (String(url).endsWith("jwks.json"))
++        return Response.json({ keys: [{ ...jwk, kid: "test", alg: "RS256" }] });
++      const body = new URLSearchParams(String(init?.body));
++      calls.push(body);
++      await gate;
++      const id = await new SignJWT({ nonce, sub: "test-subject" })
++        .setProtectedHeader({ alg: "RS256", kid: "test" })
++        .setIssuer("https://auth.openai.com")
++        .setAudience(clientID)
++        .setExpirationTime("1h")
++        .sign(pair.privateKey);
++      return Response.json({
++        access_token: "test-access",
++        refresh_token: "test-refresh",
++        id_token: id,
++        expires_in: 3600,
++        scope,
++      });
++    },
++  });
++  services.push(service);
++  return {
++    service,
++    values,
++    calls,
++    onConnected,
++    beforeIdentityChange,
++    async start() {
++      const result = await service.start("test-codex");
++      const url = new URL(result.authorizeUrl);
++      nonce = url.searchParams.get("nonce")!;
++      return { ...result, url };
++    },
++    setScope(value: string) {
++      scope = value;
++    },
++    setAudience(value: string) {
++      clientID = value;
++    },
++    holdTokens(value: Promise<void>) {
++      gate = value;
++    },
++    callback(url: URL, params: Record<string, string> = {}) {
++      const callback = new URL(url.searchParams.get("redirect_uri")!);
++      callback.search = new URLSearchParams({
++        state: url.searchParams.get("state")!,
++        code: "test-code",
++        client_id: "issued-test-client",
++        ...params,
++      }).toString();
++      return fetch(callback);
++    },
++  };
++}
++
++describe("Codex token-sharing OAuth", () => {
++  it("does not start loopback authorization on non-local Hosts", async () => {
++    const f = await fixture(false);
++    await expect(f.start()).rejects.toThrow("codex-local-desktop-required");
++    expect(f.values.size).toBe(0);
++  });
++  it("registers a ZCode client with PKCE, state, nonce and the exact resource", async () => {
++    const f = await fixture();
++    const { url } = await f.start();
++    expect(url.origin + url.pathname).toBe("https://auth.openai.com/api/accounts/authorize");
++    expect(url.searchParams.get("client_id")).toBe("dynamic_agent_client");
++    expect(url.searchParams.get("agent_name_hint")).toBe("ZCode");
++    expect(url.searchParams.get("resource")).toBe("https://api.openai.com/v1");
++    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
++    expect(url.searchParams.get("code_challenge")).toHaveLength(43);
++    expect(url.searchParams.get("state")).not.toBe(url.searchParams.get("nonce"));
++    expect(new URL(url.searchParams.get("redirect_uri")!).hostname).toBe("127.0.0.1");
++  });
++
++  it("verifies the ID token before storing tokens and reuses the issued client", async () => {
++    const f = await fixture();
++    const { url } = await f.start();
++    expect((await f.callback(url)).status).toBe(200);
++    expect((await f.service.status("test-codex")).connected).toBe(true);
++    expect(f.onConnected).toHaveBeenCalledOnce();
++    expect(f.onConnected).toHaveBeenCalledWith("test-codex");
++    expect(f.beforeIdentityChange).toHaveBeenCalledWith("test-codex");
++    expect(f.calls[0]!.get("code_verifier")).toBeTruthy();
++    expect(f.calls[0]!.get("resource")).toBe("https://api.openai.com/v1");
++    expect(await f.service.resolve("test-codex", "session-test")).toMatchObject({
++      apiKey: "test-access",
++      headers: { "session-id": "session-test", "thread-id": "session-test" },
++    });
++    expect(JSON.stringify(await f.service.status("test-codex"))).not.toContain("test-access");
++    const next = await f.start();
++    expect(next.url.searchParams.get("client_id")).toBe("issued-test-client");
++    expect(next.url.searchParams.has("agent_name_hint")).toBe(false);
++  });
++
++  it("does not exchange a code or accept an error with the wrong state", async () => {
++    const f = await fixture();
++    const { url } = await f.start();
++    expect((await f.callback(url, { state: "wrong", error: "access_denied" })).status).toBe(400);
++    expect(f.calls).toHaveLength(0);
++    expect((await f.service.status("test-codex")).connected).toBe(false);
++    expect((await f.callback(url)).status).toBe(200);
++  });
++
++  it.each(["missing-scope", "invalid-audience"])(
++    "rejects %s without saving tokens",
++    async (failure) => {
++      const f = await fixture();
++      const { url } = await f.start();
++      if (failure === "missing-scope") f.setScope("openid");
++      else f.setAudience("different-client");
++      expect((await f.callback(url)).status).toBe(400);
++      expect((await f.service.status("test-codex")).connected).toBe(false);
++      expect(f.onConnected).not.toHaveBeenCalled();
++      expect([...f.values.values()].some((value) => value.includes("test-access"))).toBe(false);
++    },
++  );
++
++  it("cancels the listener and disconnects without losing client registration", async () => {
++    const f = await fixture();
++    const first = await f.start();
++    await f.service.cancel("test-codex", first.flowId);
++    expect((await f.service.status("test-codex")).flow?.state).toBe("cancelled");
++    const next = await f.start();
++    await f.callback(next.url);
++    await f.service.disconnect("test-codex");
++    await expect(f.service.resolve("test-codex", "session-test")).rejects.toThrow(
++      "codex-login-required",
++    );
++    expect((await f.start()).url.searchParams.get("client_id")).toBe("issued-test-client");
++  });
++
++  it("refuses to resolve another provider", async () => {
++    const f = await fixture();
++    await expect(f.service.resolve("other-provider", "session-test")).rejects.toThrow("not-codex");
++  });
++
++  it("forgets tokens and client identity before a deleted provider ID is reused", async () => {
++    const f = await fixture();
++    await f.callback((await f.start()).url);
++    await f.service.forget("test-codex");
++    expect(f.values.size).toBe(0);
++    expect((await f.start()).url.searchParams.get("client_id")).toBe("dynamic_agent_client");
++  });
++
++  it("serializes concurrent refreshes and includes the registered client and resource", async () => {
++    const f = await fixture();
++    await f.callback((await f.start()).url);
++    for (const [key, value] of f.values) {
++      const record = JSON.parse(value);
++      if (record.tokens) {
++        record.tokens.expires = 0;
++        f.values.set(key, JSON.stringify(record));
++      }
++    }
++    await Promise.all([
++      f.service.resolve("test-codex", "s1"),
++      f.service.resolve("test-codex", "s2"),
++    ]);
++    expect(f.calls).toHaveLength(2);
++    expect(f.calls[1]!.get("grant_type")).toBe("refresh_token");
++    expect(f.calls[1]!.get("client_id")).toBe("issued-test-client");
++    expect(f.calls[1]!.get("resource")).toBe("https://api.openai.com/v1");
++  });
++
++  it("cannot save a late token exchange after cancellation", async () => {
++    const f = await fixture();
++    const attempt = await f.start();
++    let release!: () => void;
++    f.holdTokens(
++      new Promise<void>((resolve) => {
++        release = resolve;
++      }),
++    );
++    const response = f.callback(attempt.url);
++    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
++    await f.service.cancel("test-codex", attempt.flowId);
++    release();
++    expect((await response).status).toBe(400);
++    expect((await f.service.status("test-codex")).connected).toBe(false);
++    expect([...f.values.values()].some((value) => value.includes("test-access"))).toBe(false);
++  });
++});
+diff --git a/packages/services/test/providerFacadeServices.test.ts b/packages/services/test/providerFacadeServices.test.ts
+index 7746a6384f1e0e21b899b0d01c8215b4671d0845..9b5a615201255e29f11fe01b97aae046bbced90e 100644
+--- a/packages/services/test/providerFacadeServices.test.ts
++++ b/packages/services/test/providerFacadeServices.test.ts
+@@ -10,6 +10,73 @@ import {
+ } from "../src/model-provider/providerFacadeServices.js";
+ 
+ describe("Provider Settings 目标环境写入", () => {
++  it("starts discovery only after successful saved configuration and cancels before deletion", async () => {
++    const order: string[] = [];
++    const provider = { providerId: "p" };
++    const view = { providers: [provider] };
++    const facade = {
++      getView: () => view,
++      savePersonalProviderOverlay: vi.fn(async () => {
++        order.push("save");
++        return view;
++      }),
++      deletePersonalProvider: vi.fn(async () => {
++        order.push("delete");
++        return view;
++      }),
++    };
++    const discovery = {
++      beforeSave: vi.fn(async () => {
++        order.push("before");
++      }),
++      saved: vi.fn(() => {
++        order.push("schedule");
++      }),
++      cancel: vi.fn(async () => {
++        order.push("cancel");
++      }),
++    };
++    const service = createProviderSettingsService(
++      facade as unknown as ProviderSettingsFacade,
++      undefined,
++      undefined,
++      undefined,
++      discovery as never,
++    );
++    await service.savePersonalProviderOverlay("p", {});
++    expect(order).toEqual(["before", "save", "schedule"]);
++    facade.savePersonalProviderOverlay.mockRejectedValueOnce(new Error("failed"));
++    await expect(service.savePersonalProviderOverlay("p", {})).rejects.toThrow("failed");
++    expect(discovery.saved).toHaveBeenCalledOnce();
++    await service.deletePersonalProvider("p");
++    expect(order.slice(-2)).toEqual(["cancel", "delete"]);
++  });
++  it("invalidates OAuth before deletion and stops if credential invalidation fails", async () => {
++    const order: string[] = [];
++    const facade = {
++      onDidChange: vi.fn(),
++      deletePersonalProvider: vi.fn(async () => {
++        order.push("delete");
++        return {} as never;
++      }),
++    };
++    const invalidate = vi.fn(async () => {
++      order.push("invalidate");
++    });
++    const service = createProviderSettingsService(
++      facade as unknown as ProviderSettingsFacade,
++      undefined,
++      undefined,
++      invalidate,
++    );
++    await service.deletePersonalProvider("codex-test");
++    expect(order).toEqual(["invalidate", "delete"]);
++    invalidate.mockRejectedValueOnce(new Error("credential-write-failed"));
++    await expect(service.deletePersonalProvider("codex-test")).rejects.toThrow(
++      "credential-write-failed",
++    );
++    expect(facade.deletePersonalProvider).toHaveBeenCalledOnce();
++  });
+   it.each(["missing-provider", "missing-model", "upstream"])(
+     "连接测试边界区分 %s",
+     async (kind) => {
+diff --git a/packages/services/test/providerModelDiscovery.test.ts b/packages/services/test/providerModelDiscovery.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..73cfe62a45187872ebbfb9eb053d911e2a07929a
+--- /dev/null
++++ b/packages/services/test/providerModelDiscovery.test.ts
+@@ -0,0 +1,361 @@
++import { describe, expect, it, vi } from "vitest";
++import type { ProviderSettingsProviderView, ProviderSettingsView } from "@zcode/provider";
++import { createProviderModelDiscovery } from "../src/provider-model-discovery/index.js";
++
++function setup(type = "openai-responses", access = "api-key") {
++  let provider = {
++    providerId: "p",
++    enabled: true,
++    models: [],
++    effectiveConfig: {
++      access: { type: access, apiKey: "fixture-key" },
++      api: { type, baseUrl: "https://api.example.test/v1" },
++    },
++  } as unknown as ProviderSettingsProviderView;
++  if (access === "codex-oauth")
++    provider = {
++      ...provider,
++      effectiveConfig: {
++        access: { type: "codex-oauth" },
++        api: { type: "openai-responses", baseUrl: "https://api.openai.com/v1" },
++      },
++    };
++  const fetcher = vi.fn<typeof fetch>();
++  const merge = vi.fn(async (input: { assertCurrent: () => void }) => {
++    input.assertCurrent();
++  });
++  const auth = vi.fn(async () => ({ apiKey: "fixture-token" }));
++  const owner = createProviderModelDiscovery({
++    getView: async () =>
++      ({
++        revision: 7,
++        providers: [provider],
++        providerOrder: [],
++        providerTemplates: [],
++      }) as ProviderSettingsView,
++    merge,
++    fetch: fetcher,
++    codexAuth: auth,
++  });
++  return {
++    owner,
++    merge,
++    fetcher,
++    auth,
++    change: (next: ProviderSettingsProviderView) => {
++      provider = next;
++    },
++    get provider() {
++      return provider;
++    },
++  };
++}
++
++describe("Host model discovery", () => {
++  it("keeps device credentials on the Codex directory, with signed account headers", async () => {
++    const s = setup("openai-responses", "codex-oauth");
++    s.auth.mockResolvedValue({
++      apiKey: "fixture-device-token",
++      codexMode: "device",
++      headers: { "chatgpt-account-id": "fixture-account" },
++    } as never);
++    s.fetcher.mockResolvedValue(
++      Response.json({
++        models: [
++          {
++            slug: "codex-only",
++            visibility: "list",
++            supported_in_api: false,
++            context_window: 200000,
++          },
++        ],
++      }),
++    );
++    expect(await s.owner.refresh("p")).toMatchObject({ status: "ready", count: 1 });
++    expect(String(s.fetcher.mock.calls[0]?.[0])).toBe(
++      "https://chatgpt.com/backend-api/codex/models?client_version=0.0.0",
++    );
++    expect(new Headers(s.fetcher.mock.calls[0]?.[1]?.headers).get("chatgpt-account-id")).toBe(
++      "fixture-account",
++    );
++    s.owner.dispose();
++  });
++  it("does not persist or report local Codex defaults as directory metadata", async () => {
++    const s = setup("openai-responses", "codex-oauth");
++    s.fetcher.mockResolvedValue(
++      Response.json({
++        models: [
++          { slug: "gpt-5.3-codex", visibility: "list", supported_in_api: true },
++          { slug: "gpt-5.3-codex-2026-02-05", visibility: "list", supported_in_api: true },
++          { slug: "unlisted-codex-model", visibility: "list", supported_in_api: true },
++        ],
++      }),
++    );
++    expect(await s.owner.refresh("p")).toMatchObject({
++      status: "ready",
++      count: 3,
++      reportedParameters: 0,
++    });
++    const imported = s.merge.mock.calls[0]?.[0];
++    expect(imported).toBeDefined();
++    const models = (imported as { models: Array<{ modelId: string; config: unknown }> }).models;
++    expect(models).toHaveLength(3);
++    for (const model of models) {
++      expect(model.config).toEqual({});
++    }
++    s.owner.dispose();
++  });
++  it("keeps the reported Codex context window instead of the fallback", async () => {
++    const s = setup("openai-responses", "codex-oauth");
++    s.fetcher.mockResolvedValue(
++      Response.json({
++        models: [
++          {
++            slug: "gpt-5.3-codex",
++            visibility: "list",
++            supported_in_api: true,
++            context_window: 200000,
++          },
++        ],
++      }),
++    );
++    await s.owner.refresh("p");
++    expect(s.merge.mock.calls[0]?.[0]).toMatchObject({
++      models: [{ modelId: "gpt-5.3-codex", config: { properties: { contextWindow: 200000 } } }],
++    });
++    s.owner.dispose();
++  });
++  it("reads OpenAI IDs without inventing metadata, and deduplicates", async () => {
++    const s = setup();
++    s.fetcher.mockResolvedValue(
++      Response.json({ data: [{ id: "callable", display_name: "Not an ID" }, { id: "callable" }] }),
++    );
++    expect(await s.owner.refresh("p")).toEqual({
++      status: "ready",
++      count: 1,
++      reportedParameters: 0,
++    });
++    expect(s.merge.mock.calls[0]?.[0]).toMatchObject({
++      providerId: "p",
++      basedOnRevision: 7,
++      models: [{ modelId: "callable", config: {} }],
++    });
++    expect(s.fetcher.mock.calls[0]?.[0].toString()).toBe("https://api.example.test/v1/models");
++    expect(s.fetcher.mock.calls[0]?.[1]?.redirect).toBe("error");
++    s.owner.dispose();
++  });
++  it("filters Codex visibility and normalizes reported capabilities", async () => {
++    const s = setup("openai-responses", "codex-oauth");
++    s.fetcher.mockResolvedValue(
++      Response.json({
++        models: [
++          {
++            slug: "codex-new",
++            display_name: "Codex New",
++            visibility: "list",
++            supported_in_api: true,
++            context_window: 200000,
++            input_modalities: ["text", "image"],
++            supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
++          },
++          { slug: "hidden", visibility: "hidden", supported_in_api: true },
++          { slug: "web-only", visibility: "list", supported_in_api: false },
++        ],
++      }),
++    );
++    expect(await s.owner.refresh("p")).toMatchObject({
++      status: "ready",
++      count: 1,
++      reportedParameters: 1,
++    });
++    expect(s.merge.mock.calls[0]?.[0]).toMatchObject({
++      models: [
++        {
++          modelId: "codex-new",
++          config: {
++            properties: {
++              contextWindow: 200000,
++              inputFormat: { supportsText: true, supportsImage: true, supportsAudio: false },
++            },
++            optionSpecs: {
++              reasoningLevel: {
++                values: ["low", "high"],
++                map: '{"reasoning":{"effort":reasoningLevel}}',
++              },
++            },
++          },
++        },
++      ],
++    });
++    expect(s.auth).toHaveBeenCalledOnce();
++    s.owner.dispose();
++  });
++  it("fetches complete Anthropic pagination with reported limits", async () => {
++    const s = setup("anthropic-messages");
++    s.fetcher
++      .mockResolvedValueOnce(
++        Response.json({
++          data: [{ id: "claude-a", max_input_tokens: 200000, max_tokens: 64000 }],
++          has_more: true,
++          last_id: "claude-a",
++        }),
++      )
++      .mockResolvedValueOnce(Response.json({ data: [{ id: "claude-b" }], has_more: false }));
++    expect(await s.owner.refresh("p")).toMatchObject({ status: "ready", count: 2 });
++    expect(s.fetcher.mock.calls[1]?.[0].toString()).toContain("after_id=claude-a");
++    expect(s.merge.mock.calls[0]?.[0]).toMatchObject({
++      models: [
++        {
++          modelId: "claude-a",
++          config: {
++            properties: { contextWindow: 200000 },
++            optionSpecs: { maxOutputTokens: { max: 64000, map: '{"max_tokens":maxOutputTokens}' } },
++          },
++        },
++        { modelId: "claude-b", config: {} },
++      ],
++    });
++    s.owner.dispose();
++  });
++  it.each([401, 403, 404, 405, 500])(
++    "keeps config on HTTP %i and exposes no upstream secrets",
++    async (status) => {
++      const s = setup();
++      s.fetcher.mockResolvedValue(new Response("fixture-secret", { status }));
++      const result = await s.owner.refresh("p");
++      expect(result.status).toBe(status === 404 || status === 405 ? "unsupported" : "error");
++      expect(JSON.stringify(result)).not.toContain("fixture-secret");
++      expect(s.merge).not.toHaveBeenCalled();
++      s.owner.dispose();
++    },
++  );
++  it.each([
++    { data: [] },
++    { data: [{ id: " " }] },
++    { data: [{ id: "ok", context_window: -1 }] },
++    { wrong: [] },
++  ])("rejects empty / invalid results atomically", async (data) => {
++    const s = setup();
++    s.fetcher.mockResolvedValue(Response.json(data));
++    expect((await s.owner.refresh("p")).status).toBe("error");
++    expect(s.merge).not.toHaveBeenCalled();
++    s.owner.dispose();
++  });
++  it("rejects looping / incomplete pages", async () => {
++    const s = setup("anthropic-messages");
++    s.fetcher.mockImplementation(async () =>
++      Response.json({ data: [{ id: "a" }], has_more: true, last_id: "a" }),
++    );
++    expect((await s.owner.refresh("p")).status).toBe("error");
++    expect(s.merge).not.toHaveBeenCalled();
++    s.owner.dispose();
++  });
++  it("rejects oversized streams and overlong directories", async () => {
++    const s = setup();
++    s.fetcher
++      .mockResolvedValueOnce(new Response(" ".repeat(4 * 1024 * 1024 + 1)))
++      .mockResolvedValueOnce(
++        Response.json({ data: Array.from({ length: 1001 }, (_, i) => ({ id: `m${i}` })) }),
++      );
++    expect((await s.owner.refresh("p")).status).toBe("error");
++    expect((await s.owner.refresh("p")).status).toBe("error");
++    expect(s.merge).not.toHaveBeenCalled();
++    s.owner.dispose();
++  });
++  it("coalesces concurrent triggers and cancels a non-cooperative fetch without committing", async () => {
++    const s = setup();
++    s.fetcher.mockImplementation(() => new Promise(() => {}));
++    const first = s.owner.refresh("p");
++    const second = s.owner.refresh("p");
++    await vi.waitFor(() => expect(s.fetcher).toHaveBeenCalledOnce());
++    await s.owner.cancel("p");
++    await Promise.all([first, second]);
++    expect(s.merge).not.toHaveBeenCalled();
++    expect(s.owner.getState("p")).toEqual({ status: "idle" });
++    s.owner.dispose();
++  });
++  it("times out even if the transport ignores AbortSignal", async () => {
++    vi.useFakeTimers();
++    const s = setup();
++    s.fetcher.mockImplementation(() => new Promise(() => {}));
++    try {
++      const task = s.owner.refresh("p");
++      await vi.advanceTimersByTimeAsync(20001);
++      expect(await task).toMatchObject({ status: "error", error: "timeout" });
++      expect(s.merge).not.toHaveBeenCalled();
++    } finally {
++      s.owner.dispose();
++      vi.useRealTimers();
++    }
++  });
++  it("only schedules saved authentication changes; name/model edits do not fetch", async () => {
++    const s = setup();
++    s.fetcher.mockResolvedValue(Response.json({ data: [{ id: "m" }] }));
++    s.owner.saved(s.provider, { ...s.provider, providerName: "Renamed" });
++    await Promise.resolve();
++    expect(s.fetcher).not.toHaveBeenCalled();
++    s.owner.saved(undefined, s.provider);
++    await vi.waitFor(() => expect(s.merge).toHaveBeenCalledOnce());
++    s.owner.dispose();
++  });
++  it("refuses account providers and credential-bearing URLs", async () => {
++    const s = setup("openai-responses", "zhipu-account");
++    expect((await s.owner.refresh("p")).status).toBe("unsupported");
++    expect(s.fetcher).not.toHaveBeenCalled();
++    s.change({
++      ...s.provider,
++      effectiveConfig: {
++        access: { type: "api-key", apiKey: "key" },
++        api: {
++          type: "openai-responses",
++          baseUrl: "https://user:secret@example.test/v1?key=secret",
++        },
++      },
++    });
++    expect((await s.owner.refresh("p")).status).toBe("error");
++    expect(s.fetcher).not.toHaveBeenCalled();
++    s.owner.dispose();
++  });
++  it("rejects late results when credentials or revision change, and can discover the new key", async () => {
++    const s = setup();
++    let release!: (response: Response) => void;
++    s.fetcher
++      .mockImplementationOnce(
++        () =>
++          new Promise((resolve) => {
++            release = resolve;
++          }),
++      )
++      .mockResolvedValue(Response.json({ data: [{ id: "new-key-model" }] }));
++    const first = s.owner.refresh("p");
++    await vi.waitFor(() => expect(s.fetcher).toHaveBeenCalledOnce());
++    const before = s.provider;
++    const after = {
++      ...before,
++      effectiveConfig: {
++        ...before.effectiveConfig,
++        access: { type: "api-key" as const, apiKey: "new-key" },
++      },
++    };
++    s.change(after);
++    s.owner.saved(before, after);
++    release(Response.json({ data: [{ id: "old-key-model" }] }));
++    await first;
++    await vi.waitFor(() => expect(s.merge).toHaveBeenCalledOnce());
++    expect(s.merge.mock.calls[0]?.[0]).toMatchObject({ models: [{ modelId: "new-key-model" }] });
++    s.owner.dispose();
++  });
++  it("logout/deletion cancels a queued automatic refresh and dispose invalidates commits", async () => {
++    const s = setup();
++    s.owner.saved(undefined, s.provider);
++    await s.owner.cancel("p");
++    await Promise.resolve();
++    expect(s.fetcher).not.toHaveBeenCalled();
++    s.fetcher.mockImplementation(() => new Promise(() => {}));
++    const task = s.owner.refresh("p");
++    await vi.waitFor(() => expect(s.fetcher).toHaveBeenCalledOnce());
++    s.owner.dispose();
++    await task;
++    expect(s.merge).not.toHaveBeenCalled();
++  });
++});

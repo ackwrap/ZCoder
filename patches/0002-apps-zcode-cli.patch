@@ -1,0 +1,1913 @@
+diff --git a/apps/zcode-cli/docs/design/v2/llm/codex-provider.md b/apps/zcode-cli/docs/design/v2/llm/codex-provider.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a4040f3f107cceec73ba49da34f3d709df3419fd
+--- /dev/null
++++ b/apps/zcode-cli/docs/design/v2/llm/codex-provider.md
+@@ -0,0 +1,9 @@
++# Codex OAuth 请求适配
++
++产品、授权、存储与验收合同见根目录 `docs/provider-codex.md`。
++
++`codex-oauth` 是独立 Provider access 类型，不属于 zhipu-account，不参与 ZCode 套餐签名、Project Token 或其重试规则。
++CLI 不保存 refresh token；每次物理 attempt 经现有 runtime-header Port 向 Host 取当前 access token。
++动态鉴权必须 fail-closed，不能回退环境变量或静态 API Key。
++只有固定 OpenAI Responses endpoint 接受此鉴权；HTTP 不跟随跨站重定向，JSON 在 option map 后以 Node zstd 异步压缩。
++沿用代理、证书、取消、请求安全与流式读取，不引入代理服务器或 WebSocket。
+diff --git a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md b/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
+index 678710b8f24441ea4c47f0cfde0272ae1ede5a29..191d9fe1492571f987530ee62f1cdc94fed6cbad 100644
+--- a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
++++ b/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
+@@ -138,10 +138,6 @@ The stable prompt must include guidance equivalent to:
+ - External publishing may be cached or indexed and needs care.
+ - The agent inspects a target before deleting or overwriting it, especially when
+   it did not create that target or the observed state contradicts the request.
+-- Authorized security work (defensive security, vulnerability analysis, CTF,
+-  education) is allowed; malicious-intent requests (destructive techniques, DoS,
+-  mass targeting, supply-chain compromise, detection evasion) are refused, and
+-  dual-use tooling needs a clear authorization context.
+ - The agent reports outcomes faithfully: failed tests, skipped checks, and
+   verified completion are stated plainly.
+ - If the user must run an interactive shell command, the agent should tell them
+diff --git a/apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md b/apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md
+index d6f4112f084361b9b5c2c05bcf5e8f4602d1ebbc..3bf951a4dcacb80510349bd3d1765fdd1df296e5 100644
+--- a/apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md
++++ b/apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md
+@@ -1,5 +1,13 @@
+ # Tool Change Chain Spec
+ 
++## 当前会话资源开关（2026-10-23）
++
++右侧 Skills/MCP → V4 会话命令 → Core 会话策略唯一所有者 → session entry 持久化 → 权威事件/快照。
++Skill 在实际解析后、正文返回前检查稳定技能身份；MCP 在权限等待后实际发往路由端口前检查 serverName，
++涵盖直接/DeferredToolCall、MCP App 工具与资源读取/订阅。退订清理不拦截；既有调用不强停。
++禁用不是权限授予，重新启用不绕过 hook/审批/配置；不撤回已加载指令，不修改其他独立会话。
++恢复、保存失败、并发、别名和跨端验证见根 `docs/session-resource-controls.md`。
++
+ ## Bash 临时输出路径隔离
+ 
+ 主应用及 workflow 子运行时装配 tmp 父目录 → execution adapter 实际准备具名输出文件 →
+diff --git a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
+index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..4aa0a11b342bf9c527d3bff4b1b49d36ec2a676a 100644
+--- a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
++++ b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
+@@ -1,4 +1,6 @@
+ import { withoutRequestVerificationHeaders } from "@zcode/shared";
++import { zstdCompress } from "node:zlib";
++import { promisify } from "node:util";
+ /* eslint-disable max-lines -- AI SDK 模型执行装配集中维护 provider factory、鉴权和网络错误适配，拆分会让状态同步更脆弱。 */
+ // ============================================================
+ // Vercel AI SDK model execution
+@@ -41,6 +43,7 @@ export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
+ export type EnvRecord = Record<string, string | undefined>;
+ 
+ interface AiSdkProviderConfig {
++  codexMode?: "device";
+   access: RegistryProviderConfig["access"];
+   kind: AiSdkProviderKind;
+   apiKey?: string;
+@@ -296,7 +299,11 @@ export class AiSdkModelExecution {
+     const requestTransport = this.requestSecurity.protectTransport({
+       providerId,
+       providerConfig,
+-      transport: providerTransport,
++      // ChatGPT 身份不能发送给套餐路由网关；仍保留代理、证书和外层请求安全处理。
++      transport:
++        providerConfig.access.type === "codex-oauth"
++          ? createCodexResponsesFetch(networkTransport, providerConfig.codexMode)
++          : providerTransport,
+     });
+     const fetch = createProviderBusinessErrorFetch({
+       fetch: requestTransport,
+@@ -385,7 +392,8 @@ function toAiSdkProviderConfig(
+   config: RegistryProviderConfig,
+ ): AiSdkProviderConfig {
+   const common = {
+-    ...(config.access.type !== "zhipu-account" && config.access.apiKey
++    ...((config.access.type === "api-key" || config.access.type === "zhipu-coding-plan-api-key") &&
++    config.access.apiKey
+       ? { apiKey: config.access.apiKey }
+       : {}),
+     baseURL: config.api.baseUrl,
+@@ -409,14 +417,17 @@ function applyModelRequestAuth(
+   requestAuth: ModelRequestAuth | undefined,
+ ): AiSdkProviderConfig {
+   if (!requestAuth) return providerConfig;
++  if (requestAuth.codexMode && providerConfig.access.type !== "codex-oauth")
++    throw new Error("codex-route-identity-invalid");
+   const staticHeaders = withoutRequestVerificationHeaders(providerConfig.headers);
+   // 账号动态身份头必须先清理静态认证头，避免 SDK 优先使用旧凭据。
+   const headers =
+-    providerConfig.access.type === "zhipu-account"
++    providerConfig.access.type === "zhipu-account" || providerConfig.access.type === "codex-oauth"
+       ? withoutModelAuthHeaders(staticHeaders)
+       : staticHeaders;
+   return {
+     ...providerConfig,
++    ...(requestAuth.codexMode ? { codexMode: requestAuth.codexMode } : {}),
+     ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
+     headers: mergeModelRequestHeaders(headers, requestAuth.headers),
+   };
+@@ -437,6 +448,116 @@ function withAnthropicAuthorizationHeader(
+   };
+ }
+ 
++const compressCodexBody = promisify(zstdCompress);
++
++/** Compress only the fixed token-sharing route, after option mapping and request-security processing. */
++export function createCodexResponsesFetch(
++  transport: typeof globalThis.fetch,
++  mode?: "device",
++): typeof globalThis.fetch {
++  return async (input, init) => {
++    const request = new Request(input, init);
++    const url = new URL(request.url);
++    if (url.href !== "https://api.openai.com/v1/responses" || request.method !== "POST") {
++      throw new Error("codex-endpoint-not-allowed");
++    }
++    request.signal.throwIfAborted();
++    let body = Buffer.from(await request.arrayBuffer());
++    let nonStreaming = false;
++    if (mode === "device") {
++      // 设备码身份属于 Codex 后端，不是 Token Sharing；只映射这个固定目标，禁止用户端点覆盖。
++      const value = JSON.parse(body.toString("utf8")) as Record<string, unknown>;
++      nonStreaming = value.stream !== true;
++      value.store = false;
++      value.stream = true;
++      delete value.max_output_tokens;
++      delete value.max_tokens;
++      delete value.temperature;
++      delete value.top_p;
++      const instructions: string[] =
++        typeof value.instructions === "string" ? [value.instructions] : [];
++      if (Array.isArray(value.input))
++        value.input = value.input.filter((item) => {
++          if (!item || (item.role !== "system" && item.role !== "developer")) return true;
++          if (typeof item.content === "string") instructions.push(item.content);
++          else if (Array.isArray(item.content))
++            for (const part of item.content)
++              if (typeof part.text === "string") instructions.push(part.text);
++          return false;
++        });
++      value.instructions = instructions.join("\n\n");
++      body = Buffer.from(JSON.stringify(value));
++    }
++    const compressed = await compressCodexBody(body);
++    request.signal.throwIfAborted();
++    const headers = new Headers(request.headers);
++    headers.set("Content-Encoding", "zstd");
++    headers.delete("Content-Length");
++    const response = await transport(
++      mode === "device" ? "https://chatgpt.com/backend-api/codex/responses" : url,
++      {
++        ...init,
++        method: "POST",
++        headers,
++        body: new Uint8Array(compressed),
++        signal: request.signal,
++        redirect: "error",
++      },
++    );
++    return mode === "device" && nonStreaming && response.ok
++      ? collectCodexResponse(response)
++      : response;
++  };
++}
++
++/** Codex only streams; preserve SDK generateText/compact's JSON contract with a bounded final event. */
++async function collectCodexResponse(response: Response): Promise<Response> {
++  if (!response.headers.get("content-type")?.includes("text/event-stream") || !response.body)
++    return response;
++  const reader = response.body.getReader();
++  const decoder = new TextDecoder();
++  let pending = "";
++  let bytes = 0;
++  let completed: unknown;
++  try {
++    while (true) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      bytes += value.byteLength;
++      if (bytes > 32 * 1024 * 1024) throw new Error("codex-response-too-large");
++      pending += decoder.decode(value, { stream: true });
++      const frames = pending.split(/\r?\n\r?\n/);
++      pending = frames.pop() ?? "";
++      for (const frame of frames) {
++        const data = frame
++          .split(/\r?\n/)
++          .filter((line) => line.startsWith("data:"))
++          .map((line) => line.slice(5).trimStart())
++          .join("\n");
++        if (!data || data === "[DONE]") continue;
++        let event;
++        try {
++          event = JSON.parse(data);
++        } catch {
++          throw new Error("codex-response-invalid");
++        }
++        if (event.type === "response.failed" || event.type === "error")
++          throw new Error("codex-response-failed");
++        if (event.type === "response.completed") completed = event.response;
++      }
++      if (completed) break;
++    }
++  } finally {
++    void reader.cancel().catch(() => {});
++  }
++  if (!completed) throw new Error("codex-response-incomplete");
++  const headers = new Headers(response.headers);
++  headers.set("content-type", "application/json");
++  headers.delete("content-length");
++  headers.delete("content-encoding");
++  return new Response(JSON.stringify(completed), { status: response.status, headers });
++}
++
+ function hasHeader(headers: Record<string, string> | undefined, name: string): boolean {
+   if (!headers) {
+     return false;
+diff --git a/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts b/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts
+index a7a066db2e6db0c733210282b8d900ab2cdba6a3..5dc686043ac4605733890bd4837b61d4d17d296b 100644
+--- a/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts
++++ b/apps/zcode-cli/packages/adapters/src/model/runner-runtime.ts
+@@ -29,6 +29,7 @@ export interface AiSdkModelTextRequest extends ModelTextRequest {
+   // Start Plan 的账号鉴权材料按 attempt 刷新；adapter 内部 retry 也是真实模型请求，
+   // 必须在每个 attempt 发送前给 core/host 一个刷新机会。
+   refreshRuntimeHeadersBeforeAttempt?: (input: {
++    requestAuthType?: "codex-oauth";
+     accountAccess?: ZCodeProviderAccountAccess;
+     expectedAccountScope?: string;
+     rejectedProjectTokenFingerprint?: string;
+diff --git a/apps/zcode-cli/packages/adapters/src/model/runner.ts b/apps/zcode-cli/packages/adapters/src/model/runner.ts
+index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..1ee7aaa1b5552572f7310f7ef820ee9c820c4a3f 100644
+--- a/apps/zcode-cli/packages/adapters/src/model/runner.ts
++++ b/apps/zcode-cli/packages/adapters/src/model/runner.ts
+@@ -206,7 +206,8 @@ export class AiSdkModelAdapter {
+                 : requestAuth;
+             return { headersApplied: true, requestAuth: refreshedAuth };
+           }
+-        : options.providerConfig.access.type === "zhipu-account"
++        : options.providerConfig.access.type === "zhipu-account" ||
++            options.providerConfig.access.type === "codex-oauth"
+           ? (contextRefreshRuntimeHeadersBeforeAttempt ??
+             (async () => {
+               throw new ModelProtocolError(
+@@ -241,6 +242,9 @@ export class AiSdkModelAdapter {
+               refreshRuntimeHeadersBeforeAttempt: (input) =>
+                 refreshRuntimeHeadersBeforeAttempt({
+                   ...input,
++                  ...(options.providerConfig.access.type === "codex-oauth"
++                    ? { requestAuthType: "codex-oauth" as const }
++                    : {}),
+                   ...(options.providerConfig.access.type === "zhipu-account"
+                     ? { accountAccess: options.providerConfig.access }
+                     : {}),
+diff --git a/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts b/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
+index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..808a9e6379eb373e9692ded384b73dbb2f88dcc1 100644
+--- a/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
++++ b/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
+@@ -1,15 +1,188 @@
+ import http, { type Server } from "node:http";
+ import type { AddressInfo } from "node:net";
++import { zstdDecompressSync } from "node:zlib";
++import { CodexOAuthAccessConfig, ProviderApiConfig, ProviderConfig } from "@zcode/provider";
+ import { generateText, jsonSchema, Output } from "ai";
+ import { describe, expect, it, vi } from "vitest";
+ import { createAnthropicCompatFetch } from "../src/model/anthropic-stream-compat.js";
+ import {
+   ProviderBusinessError,
+   createProviderBusinessErrorFetch,
++  createCodexResponsesFetch,
++  AiSdkModelExecution,
+ } from "../src/model/model-execution.js";
+ import { TestProviderConfigFixture } from "./test-provider-config.js";
+ 
+ describe("AI SDK Provider execution", () => {
++  it("routes device credentials only to Codex, adapts instructions and preserves non-streaming results", async () => {
++    const result = {
++      id: "resp_device",
++      created_at: 1,
++      model: "gpt-5.6-sol",
++      status: "completed",
++      output: [
++        {
++          type: "message",
++          id: "msg_device",
++          role: "assistant",
++          content: [{ type: "output_text", text: "device done", annotations: [] }],
++        },
++      ],
++      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
++    };
++    const transport = vi.fn(
++      async (_input: unknown, _init?: RequestInit) =>
++        new Response(
++          `data: ${JSON.stringify({ type: "response.completed", response: result })}\n\n`,
++          { headers: { "content-type": "text/event-stream" } },
++        ),
++    );
++    const route = { resolve: vi.fn() };
++    const resolved = new AiSdkModelExecution(
++      { endpointRoutingPort: route },
++      { transport: transport as typeof fetch },
++    )
++      .bindModel({
++        providerId: "device-fixture",
++        modelId: "gpt-5.6-sol",
++        supportsJsonSchemaOutput: false,
++        providerConfig: new ProviderConfig({
++          group: "standard-personal",
++          access: new CodexOAuthAccessConfig(),
++          api: new ProviderApiConfig({
++            type: "openai-responses",
++            baseUrl: "https://api.openai.com/v1",
++          }),
++        }) as never,
++        optionSpecs: {
++          reasoningLevel: { map: "{}" },
++          maxOutputTokens: { map: '{"max_output_tokens":maxOutputTokens}' },
++        },
++      })
++      .resolveRequest({
++        options: { maxOutputTokens: 1024, reasoningLevel: "disabled" },
++        requestAuth: {
++          apiKey: "fixture-device-token",
++          codexMode: "device",
++          headers: { "chatgpt-account-id": "fixture-account" },
++        },
++      });
++    expect(
++      (
++        await generateText({
++          model: resolved.model,
++          system: "ZCode test instructions",
++          prompt: "test",
++          maxRetries: 0,
++        })
++      ).text,
++    ).toBe("device done");
++    expect(String(transport.mock.calls[0]?.[0])).toBe(
++      "https://chatgpt.com/backend-api/codex/responses",
++    );
++    const init = transport.mock.calls[0]![1]!;
++    const body = JSON.parse(zstdDecompressSync(init.body as Uint8Array).toString());
++    expect(body).toMatchObject({
++      store: false,
++      stream: true,
++      instructions: "ZCode test instructions",
++    });
++    expect(body.max_output_tokens).toBeUndefined();
++    expect(new Headers(init.headers).get("chatgpt-account-id")).toBe("fixture-account");
++    expect(init.redirect).toBe("error");
++    expect(route.resolve).not.toHaveBeenCalled();
++  });
++  it("keeps Codex tokens off endpoint-routing gateways and sends a complete Responses request", async () => {
++    const routing = {
++      resolve: vi.fn(async () => ({ routed: true, url: "https://example.invalid/gateway" })),
++    };
++    const transport = vi.fn(async (_input: unknown, _init?: RequestInit) =>
++      Response.json({
++        id: "resp_fixture",
++        created_at: 1,
++        model: "gpt-5.6-sol",
++        status: "completed",
++        output: [
++          {
++            type: "message",
++            id: "msg_fixture",
++            role: "assistant",
++            content: [{ type: "output_text", text: "done", annotations: [] }],
++          },
++        ],
++        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
++      }),
++    );
++    const execution = new AiSdkModelExecution(
++      { endpointRoutingPort: routing },
++      { transport: transport as typeof globalThis.fetch },
++    );
++    const resolved = execution
++      .bindModel({
++        providerId: "codex-fixture",
++        modelId: "gpt-5.6-sol",
++        supportsJsonSchemaOutput: false,
++        providerConfig: new ProviderConfig({
++          group: "standard-personal",
++          access: new CodexOAuthAccessConfig(),
++          api: new ProviderApiConfig({
++            type: "openai-responses",
++            baseUrl: "https://api.openai.com/v1",
++          }),
++        }) as never,
++        optionSpecs: {
++          reasoningLevel: { map: "{}" },
++          maxOutputTokens: { map: "{'max_output_tokens': maxOutputTokens}" },
++        },
++      })
++      .resolveRequest({
++        options: { maxOutputTokens: 1024, reasoningLevel: "disabled" },
++        requestAuth: { apiKey: "fixture-token" },
++      });
++    expect(
++      (await generateText({ model: resolved.model, prompt: "test", maxRetries: 0 })).text,
++    ).toBe("done");
++    expect(routing.resolve).not.toHaveBeenCalled();
++    expect(String(transport.mock.calls[0]?.[0])).toBe("https://api.openai.com/v1/responses");
++    const init = transport.mock.calls[0]![1]!;
++    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer fixture-token");
++    expect(
++      JSON.parse(zstdDecompressSync(init.body as Uint8Array).toString()).max_output_tokens,
++    ).toBe(1024);
++  });
++  it("compresses Codex JSON without altering options and disallows redirects", async () => {
++    const transport = vi.fn(async (_input: unknown, _init?: RequestInit) =>
++      Response.json({ ok: true }),
++    );
++    const fetch = createCodexResponsesFetch(transport as typeof globalThis.fetch);
++    const json = JSON.stringify({
++      model: "test-model",
++      input: "test",
++      stream: true,
++      reasoning: { effort: "high" },
++    });
++    await fetch("https://api.openai.com/v1/responses", {
++      method: "POST",
++      headers: { Authorization: "Bearer fixture-token" },
++      body: json,
++    });
++    const init = transport.mock.calls[0][1]!;
++    expect(new Headers(init.headers).get("Content-Encoding")).toBe("zstd");
++    expect(zstdDecompressSync(init.body as Uint8Array).toString()).toBe(json);
++    expect(init.redirect).toBe("error");
++  });
++
++  it("refuses to send Codex authorization to custom endpoints or compact routes", async () => {
++    const transport = vi.fn();
++    const fetch = createCodexResponsesFetch(transport);
++    await expect(
++      fetch("https://example.com/v1/responses", { method: "POST", body: "{}" }),
++    ).rejects.toThrow("codex-endpoint-not-allowed");
++    await expect(
++      fetch("https://api.openai.com/v1/responses/compact", { method: "POST", body: "{}" }),
++    ).rejects.toThrow("codex-endpoint-not-allowed");
++    expect(transport).not.toHaveBeenCalled();
++  });
+   it("adds Authorization alongside x-api-key for Anthropic provider requests", async () => {
+     const receivedHeaders: http.IncomingHttpHeaders[] = [];
+     const endpointRoutingPort = {
+diff --git a/apps/zcode-cli/packages/adapters/tests/model.test.ts b/apps/zcode-cli/packages/adapters/tests/model.test.ts
+index 56aab81dcf38f42366130a5902afac0fec78b36e..d0dd81572dfbe496ff5c2ea415d7ac90efd4faeb 100644
+--- a/apps/zcode-cli/packages/adapters/tests/model.test.ts
++++ b/apps/zcode-cli/packages/adapters/tests/model.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, it, vi } from "vitest";
++import { CodexOAuthAccessConfig, ProviderConfig, ProviderApiConfig } from "@zcode/provider";
+ import {
+   ModelErrorCode,
+   ModelFailureReason,
+@@ -349,6 +350,55 @@ describe("Model", () => {
+     expect(model).not.toHaveProperty("headers");
+   });
+ 
++  it("requests Codex OAuth for every attempt and fails closed without its Host port", async () => {
++    const generateText = vi.fn(
++      async () => ({ finishReason: "stop", text: "done", totalUsage: {}, usage: {} }) as never,
++    );
++    const adapter = new AiSdkModelAdapter({
++      runtime: {
++        generateText,
++        streamText: () => {
++          throw new Error("not used");
++        },
++      },
++    });
++    const model = adapter.createModel({
++      providerId: "codex-test",
++      modelId: "gpt-5.6-sol",
++      providerConfig: new ProviderConfig({
++        group: "standard-personal",
++        access: new CodexOAuthAccessConfig(),
++        api: new ProviderApiConfig({
++          type: "openai-responses",
++          baseUrl: "https://api.openai.com/v1",
++        }),
++      }) as never,
++      modelConfig: {
++        enabled: true,
++        properties,
++        optionSpecs: {
++          reasoningLevel: { values: ["disabled"], map: "{}" },
++          maxOutputTokens: { max: 1024, map: "{'max_output_tokens': maxOutputTokens}" },
++        },
++      } as never,
++      options: { reasoningLevel: "disabled", maxOutputTokens: 1024 },
++    });
++    const refresh = vi.fn(async () => ({
++      headersApplied: true,
++      requestAuth: { apiKey: "codex-test-access", headers: { "session-id": "test-session" } },
++    }));
++    await runWithModelInvocationContext({ refreshRuntimeHeadersBeforeAttempt: refresh }, () =>
++      model.generateText({ messages: [{ role: "user", content: "test" }] }),
++    );
++    expect(refresh).toHaveBeenCalledWith(
++      expect.objectContaining({ requestAuthType: "codex-oauth", providerId: "codex-test" }),
++    );
++    await expect(
++      model.generateText({ messages: [{ role: "user", content: "test" }] }),
++    ).rejects.toThrow();
++    expect(generateText).toHaveBeenCalledOnce();
++  });
++
+   it("forwards the Model-bound static account access to each account-auth attempt", async () => {
+     const requestAuth = {
+       apiKey: "attempt-key",
+diff --git a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
+index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127eaed2006 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
+@@ -397,6 +397,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+       });
+     },
+     readMcpResource: async (serverName, uri, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) {
+         throw new Error("MCP is disabled");
+       }
+@@ -409,6 +410,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+       );
+     },
+     readMcpResourceForUi: async (serverName, uri, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) {
+         throw new Error("MCP is disabled");
+       }
+@@ -421,6 +423,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+       );
+     },
+     listMcpResourcesForUi: async (serverName, cursor, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) throw new Error("MCP is disabled");
+       if (!deps.mcpPort.listResources) {
+         throw new McpResourceSubscribeUnsupportedError(serverName);
+@@ -431,6 +434,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+       );
+     },
+     listMcpResourceTemplatesForUi: async (serverName, cursor, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) throw new Error("MCP is disabled");
+       if (!deps.mcpPort.listResourceTemplates) {
+         throw new McpResourceSubscribeUnsupportedError(serverName);
+@@ -441,6 +445,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+       );
+     },
+     subscribeMcpResourceForUi: async (serverName, uri, subscriberKey, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) throw new Error("MCP is disabled");
+       if (!deps.mcpPort.subscribeResource) {
+         throw new McpResourceSubscribeUnsupportedError(serverName);
+@@ -469,6 +474,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+         ? deps.mcpPort.waitForAppConnection(name)
+         : (deps.mcpPort?.appConnectionSnapshot?.(name) ?? null),
+     callMcpToolForUi: async (serverName, toolName, args, options) => {
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       if (!deps.mcpPort) {
+         throw new Error("MCP is disabled");
+       }
+@@ -507,6 +513,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+         current.generation !== snapshot.generation
+       )
+         throw new Error("MCP App connection changed during authorization");
++      await deps.runtime.assertSessionResourceEnabled("mcp", serverName);
+       return deps.mcpPort.callTool(
+         {
+           serverName,
+@@ -526,9 +533,15 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+         // 不覆盖内置 / MCP 工具：`app__` 前缀本不该冲突，冲突时以既有工具为准。
+         if (registry.has(definition.modelName) || registered.includes(definition.modelName))
+           continue;
+-        registry.register(createMcpAppProvidedToolEntry(definition, execute), {
+-          silentDuplicateWarning: true,
+-        });
++        registry.register(
++          createMcpAppProvidedToolEntry(definition, async (call, options) => {
++            await deps.runtime.assertSessionResourceEnabled("mcp", call.definition.serverName);
++            return execute(call, options);
++          }),
++          {
++            silentDuplicateWarning: true,
++          },
++        );
+         registered.push(definition.modelName);
+       }
+       appProvidedToolNames = registered;
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
+index 859fce79163da5beb7befe3eeac51ccba87442b4..d905739a21e5a6f77b2e71d14a3ef7e7c44003e1 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
+@@ -165,6 +165,27 @@ async function renameSession(
+   return undefined;
+ }
+ 
++async function getSessionResources(
++  host: V4CommandCoreHost,
++  envelope: CommandEnvelope,
++): Promise<undefined> {
++  const record = requireRecord(host, envelope.sessionId);
++  await record.app.runtime.refreshSessionResources(record.traceContext);
++  return undefined;
++}
++
++async function setSessionResource(
++  host: V4CommandCoreHost,
++  envelope: CommandEnvelope,
++): Promise<undefined> {
++  const record = requireRecord(host, envelope.sessionId);
++  await record.app.runtime.setSessionResource(
++    envelope.payload as CommandPayloadMap["setSessionResource"],
++    record.traceContext,
++  );
++  return undefined;
++}
++
+ /** CLI 先持久化软删除，再关闭运行实例；正文保留，后续冷种子不会复活该会话。 */
+ async function deleteSession(
+   host: V4CommandCoreHost,
+@@ -200,6 +221,8 @@ async function discardSharedContext(
+ export const sessionMgmtHandlers = {
+   createSession,
+   renameSession,
++  getSessionResources,
++  setSessionResource,
+   deleteSession,
+   discardSharedContext,
+ };
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
+index f2503bdbd528b26ac1418b079253440d13298084..55b0bf34ad82cc588628f625a0cc15ee391449b7 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
+@@ -488,6 +488,9 @@ export class ProductProjection {
+   // Highspeed 分享需要的真实耗时由 CLI 事件聚合，避免 renderer 离场后丢失拆分数据。
+   private highspeedModelDurationByTurnId = new Map<string, number>();
+   private highspeedToolIntervalsByTurnId = new Map<string, Map<string, HighspeedToolInterval>>();
++  // 普通轮（非高速 provider）主链路模型耗时累计：只服务轮尾 tok/s 的除数，
++  // 与上面的高速拆分表互不影响，避免普通耗时污染加速节省时间。
++  private mainTurnModelDurationByTurnId = new Map<string, number>();
+   // 投递语义侧表：TurnSteerQueued 时按事件 payload（或 followupMode 兜底）记录，
+   // drain 时决定切轮 vs 内联；账本落地后以账本为准。
+   private deliveryByPendingInputId = new Map<string, "guide" | "queue">();
+@@ -1175,6 +1178,7 @@ export class ProductProjection {
+     );
+     clone.currentProductTurnStartedAtMs = this.currentProductTurnStartedAtMs;
+     clone.highspeedModelDurationByTurnId = new Map(this.highspeedModelDurationByTurnId);
++    clone.mainTurnModelDurationByTurnId = new Map(this.mainTurnModelDurationByTurnId);
+     clone.highspeedToolIntervalsByTurnId = new Map(
+       [...this.highspeedToolIntervalsByTurnId].map(([turnId, intervals]) => [
+         turnId,
+@@ -1225,6 +1229,7 @@ export class ProductProjection {
+     this.productTurnSplitOrdinalByRuntimeTurnId = candidate.productTurnSplitOrdinalByRuntimeTurnId;
+     this.currentProductTurnStartedAtMs = candidate.currentProductTurnStartedAtMs;
+     this.highspeedModelDurationByTurnId = candidate.highspeedModelDurationByTurnId;
++    this.mainTurnModelDurationByTurnId = candidate.mainTurnModelDurationByTurnId;
+     this.highspeedToolIntervalsByTurnId = candidate.highspeedToolIntervalsByTurnId;
+     this.deliveryByPendingInputId = candidate.deliveryByPendingInputId;
+     this.currentTurnId = candidate.currentTurnId;
+@@ -1389,6 +1394,16 @@ export class ProductProjection {
+         return this.onSessionResumed(event);
+       case SessionEventType.SessionTitleUpdated:
+         return this.onSessionTitleUpdated(event);
++      case SessionEventType.SessionResourcesUpdated:
++        return [
++          {
++            op: "state.updated",
++            patch: {
++              sessionResources:
++                event.payload as import("@zcode/shared/zcode-protocol-v4").SessionResourcesState,
++            },
++          },
++        ];
+       case SessionEventType.TurnStarted:
+         if (fact.semanticKind !== "userIntent") return [];
+         return [
+@@ -2470,11 +2485,25 @@ export class ProductProjection {
+   private onModelNetworkStatus(event: SessionEvent): ConversationDelta[] {
+     if (!this.acceptsActiveModelEvent(event)) return [];
+     const payload = event.payload as ModelNetworkStatusPayload;
+-    if (
++    const isMainTurnRequest =
+       (payload.querySource === undefined || payload.querySource === "main_turn") &&
+-      (payload.type === "model_request_completed" || payload.type === "model_request_failed") &&
++      (payload.type === "model_request_completed" || payload.type === "model_request_failed");
++    if (isMainTurnRequest && payload.durationMs !== undefined) {
++      // Bug 根因：轮尾 tok/s 读 turnHeader.outputTokens ÷ turnHeader.modelDurationMs
++      // （docs/session-context-and-mcp-diagnostics.md「会话诊断」）。outputTokens 在
++      // onModelComplete 对每个主轮累计，但 modelDurationMs 过去只在 isHighspeedProviderId
++      // 的快速轮累加，普通轮因此只有被除数没有除数，resolveOutputTokensPerSecond 恒为 null，
++      // 整段速率不渲染。这里按同一主轮口径另存一份普通轮模型耗时，与高速轮那两张表互不干扰。
++      const turnId = this.turnIdOf(event);
++      this.mainTurnModelDurationByTurnId.set(
++        turnId,
++        (this.mainTurnModelDurationByTurnId.get(turnId) ?? 0) + Math.max(0, payload.durationMs),
++      );
++    }
++    if (
+       // 加速卡按 family 拆成了多个隐藏 Provider（zai/bigmodel），不能再和单个常量比较，
+       // 否则 BigModel 账号的加速轮会被判成普通轮、节省时间恒为 0。
++      isMainTurnRequest &&
+       isHighspeedProviderId(payload.providerId) &&
+       payload.durationMs !== undefined
+     ) {
+@@ -5497,6 +5526,7 @@ export class ProductProjection {
+     const row = this.turnHeaderForEvent(event);
+     if (!row) return [];
+     const endedAt = this.ms(event);
++    const modelDurationMs = this.takeMainTurnModelDuration(this.turnIdOf(event));
+     return [
+       {
+         op: "row.upserted",
+@@ -5505,7 +5535,9 @@ export class ProductProjection {
+           state,
+           endedAt,
+           ...(activeMs !== undefined ? { activeMs } : {}),
+-          ...highspeedTiming,
++          // 高速轮用自己的拆分耗时（含 tool/other）；普通轮只需模型耗时，
++          // 供轮尾 tok/s 求商，缺失时保持字段缺席而不是写 0。
++          ...(highspeedTiming ?? (modelDurationMs !== undefined ? { modelDurationMs } : {})),
+           ...(historyRoundCount !== undefined ? { historyRoundCount } : {}),
+           ...(row.workSegments
+             ? {
+@@ -5542,6 +5574,13 @@ export class ProductProjection {
+     this.highspeedToolIntervalsByTurnId.set(turnId, intervals);
+   }
+ 
++  private takeMainTurnModelDuration(turnId: string): number | undefined {
++    const durationMs = this.mainTurnModelDurationByTurnId.get(turnId);
++    // 读后即清：同一 turn 的终态只写一次 header，残留会让后续轮次读到旧耗时。
++    this.mainTurnModelDurationByTurnId.delete(turnId);
++    return durationMs !== undefined ? Math.max(0, durationMs) : undefined;
++  }
++
+   private highspeedTimingForTurn(
+     turnId: string,
+     activeMs?: number,
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
+index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9dc4dbbd90 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
+@@ -41,6 +41,7 @@ export function createProviderRuntimeHeadersPort(
+             workspace,
+             modelSelection: { providerId: input.providerId, modelId: input.modelId },
+             providerId: input.providerId,
++            ...(input.requestAuthType ? { requestAuthType: input.requestAuthType } : {}),
+             ...(input.accountAccess ? { accountAccess: input.accountAccess } : {}),
+             ...(input.expectedAccountScope
+               ? { expectedAccountScope: input.expectedAccountScope }
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts b/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
+index ab3246653a94c7e3d21ca0c8150ae95e07d4a4a9..607d8a94a7f3788eec0c971f4467ffb2542115df 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
+@@ -122,6 +122,27 @@ function runAll(events: readonly SessionEvent[]): {
+   return { projection, deltasPerEvent, snapshots };
+ }
+ 
++describe("session resource policy projection", () => {
++  it("publishes one complete state for desktop and replayable mobile clients", () => {
++    const log = new EventLog();
++    const resources = {
++      policy: { revision: 1, disabledSkills: ["a"], disabledMcpServers: [] },
++      skills: [{ id: "a", label: "a", available: true, enabled: false }],
++      mcpServers: [],
++    };
++    log.push(SessionEventType.SessionResourcesUpdated, resources);
++    const { projection, snapshots, deltasPerEvent } = runAll(log.events);
++    expect(projection.getSnapshot().sessionResources).toEqual(resources);
++    for (const profile of [DELIVERY_PROFILES.continuous, DELIVERY_PROFILES.replayable]) {
++      const replayed = applyConversationDeltas(
++        snapshots[0]!,
++        filterConversationDeltasForProfile(deltasPerEvent.flat(), profile),
++      );
++      expect(conversationSnapshotSchema.parse(replayed).sessionResources).toEqual(resources);
++    }
++  });
++});
++
+ function inputTextAppends(deltas: readonly ConversationDelta[]): string[] {
+   return deltas.flatMap((delta) =>
+     delta.op === "row.delta" && delta.path === "inputText" ? [delta.append] : [],
+@@ -266,6 +287,63 @@ describe("ProductProjection 黄金测试（L1）", () => {
+     });
+   });
+ 
++  it("普通轮终态也写出 modelDurationMs，轮尾 tok/s 才有除数", () => {
++    // 回归：outputTokens 一直按主轮累计，但 modelDurationMs 过去只在高速 provider 累加，
++    // 普通轮因此只有被除数没有除数，resolveOutputTokensPerSecond 恒为 null，速率整段不渲染。
++    const log = new EventLog();
++    const turnId = "turn-regular-timing";
++    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 200_000 });
++    log.push(
++      SessionEventType.TurnStarted,
++      { turnNumber: 1, input: "regular", inputId: "command-regular", messageId: "user-1" },
++      { turnId, timestampMs: 1_700_000_000_000 },
++    );
++    // 两段主链路请求：普通轮的真实模型耗时是各段之和。
++    for (const [requestId, durationMs] of [
++      ["request-1", 1_500],
++      ["request-2", 2_500],
++    ] as const) {
++      log.push(
++        SessionEventType.ModelNetworkStatus,
++        {
++          type: "model_request_completed",
++          requestId,
++          providerId: "account:bigmodel-individual-coding-plan",
++          modelId: "glm-5.3",
++          transport: "sse",
++          attempt: 1,
++          maxAttempts: 1,
++          durationMs,
++        },
++        { turnId, timestampMs: 1_700_000_000_500 },
++      );
++    }
++    log.push(
++      SessionEventType.ModelComplete,
++      {
++        content: "done",
++        stopReason: "end_turn",
++        querySource: "main_turn",
++        usage: { inputTokens: 10, outputTokens: 1_000 },
++      },
++      { turnId, timestampMs: 1_700_000_004_500 },
++    );
++    log.push(
++      SessionEventType.TurnComplete,
++      { response: "done", tokenCount: 1_000, toolCallCount: 0, duration: 5_000, resultType: "success" },
++      { turnId, timestampMs: 1_700_000_005_000 },
++    );
++
++    const snapshot = runAll(log.events).projection.getSnapshot();
++    const header = snapshot.rows.window.find((row) => row.kind === "turnHeader");
++    expect(header).toMatchObject({ state: "completedSuccess", outputTokens: 1_000 });
++    expect(header?.kind === "turnHeader" ? header.modelDurationMs : undefined).toBe(4_000);
++    // 高速拆分字段不属于普通轮，不能被顺带写入。
++    expect(header).not.toHaveProperty("toolDurationMs");
++    expect(header).not.toHaveProperty("otherDurationMs");
++    expect(conversationSnapshotSchema.parse(snapshot).rows.window).toEqual(snapshot.rows.window);
++  });
++
+   it("Highspeed 卡失效降级后只记录 fallback 时间，不改变分享资格", () => {
+     const log = new EventLog();
+     log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 200_000 });
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts b/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts
+index c1968533f8ee68e0bc7d9ca506e53df47885dd91..e8635078f0b865deb889651c7e8dee1580d10f3c 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts
+@@ -10,6 +10,76 @@ import type { AgentRuntime } from "@zcode/core";
+ import { createSessionFacade } from "../src/app/session-facade.js";
+ 
+ describe("session facade shutdown", () => {
++  it("checks the session MCP guard again after App authorization and before sending", async () => {
++    let blocked = false;
++    let entered!: () => void;
++    let approve!: (input: unknown) => void;
++    const authorizing = new Promise<void>((resolve) => {
++      entered = resolve;
++    });
++    const authorization = new Promise<unknown>((resolve) => {
++      approve = resolve;
++    });
++    const callTool = vi.fn();
++    const facade = createSessionFacade({
++      configResult: { config: DefaultRuntimeConfig },
++      runtime: {
++        assertSessionResourceEnabled: async () => {
++          if (blocked) throw new Error("disabled in this session");
++        },
++        getToolRegistry: () => ({ list: () => [] }),
++        getToolExecutor: () => ({
++          authorizeAppTool: async () => {
++            entered();
++            return authorization;
++          },
++        }),
++      },
++      mcpPort: {
++        appConnectionSnapshot: () => ({ identity: "same", generation: 1 }),
++        listTools: async () => [
++          {
++            serverName: "fixture",
++            toolName: "read",
++            inputSchema: { type: "object" },
++            ui: { visibility: ["app"] },
++          },
++        ],
++        callTool,
++      },
++    } as never);
++    const pending = facade.callMcpToolForUi("fixture", "read", {});
++    await authorizing;
++    blocked = true;
++    approve({});
++    await expect(pending).rejects.toThrow("disabled in this session");
++    expect(callTool).not.toHaveBeenCalled();
++  });
++
++  it("blocks App resource reads and subscriptions but permits unsubscribe cleanup", async () => {
++    const readResource = vi.fn();
++    const subscribeResource = vi.fn();
++    const unsubscribeResource = vi.fn();
++    const facade = createSessionFacade({
++      configResult: { config: DefaultRuntimeConfig },
++      runtime: {
++        assertSessionResourceEnabled: async () => {
++          throw new Error("disabled in this session");
++        },
++      },
++      mcpPort: { readResource, subscribeResource, unsubscribeResource },
++    } as never);
++    await expect(facade.readMcpResourceForUi("fixture", "ui://fixture")).rejects.toThrow(
++      "disabled",
++    );
++    await expect(
++      facade.subscribeMcpResourceForUi("fixture", "ui://fixture", "subscriber"),
++    ).rejects.toThrow("disabled");
++    expect(readResource).not.toHaveBeenCalled();
++    expect(subscribeResource).not.toHaveBeenCalled();
++    await facade.unsubscribeMcpResourceForUi("fixture", "ui://fixture", "subscriber");
++    expect(unsubscribeResource).toHaveBeenCalledOnce();
++  });
+   it("keeps group mode changes in the session rather than the project", async () => {
+     const saveProjectPermissionMode = vi.fn();
+     const updateSession = vi.fn(async () => undefined);
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts
+index e72194e99f6a01c08962dcee52d498f2da8d6511..71304cec6fedf1bdcdad4275fcbad1665b173aaf 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts
+@@ -2054,6 +2054,24 @@ describe("v4 原生 stop", () => {
+ });
+ 
+ describe("supports 分流", () => {
++  it("routes session resource commands to the existing runtime with its root trace", async () => {
++    const refreshSessionResources = vi.fn(async () => {});
++    const setSessionResource = vi.fn(async () => {});
++    const traceContext = { traceId: "resources-root" } as never;
++    const host = makeHost(
++      makeRecord({
++        traceContext,
++        app: makeApp({ runtime: { refreshSessionResources, setSessionResource } }),
++      }),
++    );
++    const executor = new V4CommandExecutor(host);
++    await executor.execute(envelope("getSessionResources", {}));
++    const payload = { kind: "mcp", id: "fixture", enabled: false };
++    await executor.execute(envelope("setSessionResource", payload));
++    expect(refreshSessionResources).toHaveBeenCalledWith(traceContext);
++    expect(setSessionResource).toHaveBeenCalledWith(payload, traceContext);
++    expect(host.legacyMutations).toEqual([]);
++  });
+   it("协议命令全部原生（回落面清零）；未知命令不 supports", () => {
+     const executor = new V4CommandExecutor(makeHost(makeRecord()));
+     // 与 packages/shared/src/zcode-protocol-v4/command.ts 的 payload map 同步维护。
+diff --git a/apps/zcode-cli/packages/contracts/src/events/session.events.ts b/apps/zcode-cli/packages/contracts/src/events/session.events.ts
+index 6f68eb9162d69cd007886c9b2ddb88e6e4e271ca..2dc3d0966ee87df5208cdc63f2ab99b9f8d68ff7 100644
+--- a/apps/zcode-cli/packages/contracts/src/events/session.events.ts
++++ b/apps/zcode-cli/packages/contracts/src/events/session.events.ts
+@@ -87,6 +87,7 @@ export const SessionEventType = {
+   SessionForked: "session_forked",
+   SessionCompacted: "session_compacted",
+   SessionTitleUpdated: "session_title_updated",
++  SessionResourcesUpdated: "session_resources_updated",
+   SessionModeChanged: "session_mode_changed",
+   SessionEnded: "session_ended",
+   TurnStarted: "turn_started",
+@@ -1294,6 +1295,7 @@ export function createModelUsageSummaryFromEvents(
+ }
+ 
+ export type SessionEventPayload =
++  | import("@zcode/shared/zcode-protocol-v4").SessionResourcesState
+   | SessionCreatedPayload
+   | SessionResumedPayload
+   | SessionForkedPayload
+diff --git a/apps/zcode-cli/packages/contracts/src/model/invocation-context.ts b/apps/zcode-cli/packages/contracts/src/model/invocation-context.ts
+index bf9e9b71b5b2959a3ff73cfd1d7e347ebc2ccf8b..a734cc91569a7068ebb9dbe58de4f82fbf80d124 100644
+--- a/apps/zcode-cli/packages/contracts/src/model/invocation-context.ts
++++ b/apps/zcode-cli/packages/contracts/src/model/invocation-context.ts
+@@ -31,6 +31,7 @@ export interface ModelInvocationContext {
+   streamRecovery?: ModelStreamRecoveryStatus;
+   preserveProviderStreamBoundaries?: boolean;
+   refreshRuntimeHeadersBeforeAttempt?: (input: {
++    requestAuthType?: "codex-oauth";
+     accountAccess?: ZCodeProviderAccountAccess;
+     expectedAccountScope?: string;
+     rejectedProjectTokenFingerprint?: string;
+@@ -48,6 +49,8 @@ export interface ModelInvocationContext {
+ 
+ /** Adapter 为单个物理请求 attempt 使用的动态鉴权材料。 */
+ export interface ModelRequestAuth {
++  /** Host-issued fixed Codex route identity, never a caller-supplied endpoint. */
++  codexMode?: "device";
+   accountScope?: string;
+   apiKey?: string;
+   apiKeyId?: string;
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/identity.ts b/apps/zcode-cli/packages/core/src/context/sections/identity.ts
+index f018fd6e8b52c822bb1f12e239614919691c5926..83f807c78b5592d0b1db8a92157d3bcf3f01583a 100644
+--- a/apps/zcode-cli/packages/core/src/context/sections/identity.ts
++++ b/apps/zcode-cli/packages/core/src/context/sections/identity.ts
+@@ -6,14 +6,6 @@ import type { ContextSection } from "../types.js";
+ import type { OutputStylePromptConfig } from "../types.js";
+ import { estimateTokens } from "../utils.js";
+ 
+-const SECURITY_NOTICE =
+-  "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.";
+-
+-/** 安全 IMPORTANT 行：交互式身份与工作流子代理身份共用，逐字同一份。 */
+-export function buildSecurityNotice(): string {
+-  return SECURITY_NOTICE;
+-}
+-
+ /**
+  * `# Harness` 块：稳定运行时约束，不属于 output style 可替换的 coding instructions，
+  * 也是工作流子代理身份（sections/workflow-actor.ts）逐字复用的那一段。
+@@ -34,7 +26,7 @@ function buildIdentityPrompt(outputStyle?: OutputStylePromptConfig): string {
+     ? "You respond to the user according to the active Output Style below while using ZCode's tools and instructions."
+     : "You are an interactive ZCode agent that helps users with software engineering tasks.";
+ 
+-  const identityLines = ["", intro, "", SECURITY_NOTICE].join("\n");
++  const identityLines = ["", intro].join("\n");
+ 
+   return [identityLines, "", buildHarnessBlock()].join("\n");
+ }
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts b/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts
+index 82059cb532ed76a5ed45338672fe658611847776..d8cf486e096467a29ae66216f886feda6683809e 100644
+--- a/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts
++++ b/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts
+@@ -5,8 +5,8 @@
+ // 动态工作流子代理（workflow child）的身份段。
+ //
+ // 它替换的是交互式的 Agent Identity（「You are an interactive ZCode agent that helps
+-// users」）：子代理的读者是脚本，不是人。它**不**替换基座的其他段——安全 IMPORTANT 行与
+-// `# Harness` 块从 identity 逐字复用，memory / skills / 项目指令由 builder 照常追加。
++// users」）：子代理的读者是脚本，不是人。它**不**替换基座的其他段——`# Harness` 块从
++// identity 逐字复用，memory / skills / 项目指令由 builder 照常追加。
+ // 作者写的 persona 叠加在开场句之后、契约之前：角色比通用规则更靠前、更醒目，但开场句先把
+ // 「你是谁的谁、输出给谁」说死，persona 不能推翻它。
+ //
+@@ -18,7 +18,7 @@
+ 
+ import type { ContextSection, WorkflowActorContext } from "../types.js";
+ import { estimateTokens } from "../utils.js";
+-import { buildHarnessBlock, buildSecurityNotice } from "./identity.js";
++import { buildHarnessBlock } from "./identity.js";
+ 
+ /** 工具面的自述：一句「有什么」+ 一句「没有什么」，让模型不去猜。 */
+ const TOOL_SURFACE =
+@@ -58,8 +58,6 @@ function buildWorkflowActorIdentityPrompt(actor: WorkflowActorContext): string {
+     opening.join("\n"),
+     ...(persona ? ["", persona] : []),
+     "",
+-    buildSecurityNotice(),
+-    "",
+     buildHarnessBlock(),
+     "",
+     buildWorkflowContract(),
+diff --git a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
+index 862b572037e7a12aacf342d9b38fa806f6c51f9c..586112db16165fdf88e63a9b270c35541f6663df 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
+@@ -1,4 +1,5 @@
+ import { configureOffPeakRuntime, controlOffPeakRuntime } from "./off-peak/runtime.js";
++import { SessionResourceController } from "../session-resources/module.js";
+ import {
+   createTurnAgentDefinitions,
+   createAgentDefinitionsReader,
+@@ -198,6 +199,7 @@ export class AgentRuntime {
+   private pendingMemoryUpdate?: ProjectMemoryUpdate;
+   private contextSourcePort?: ContextSourcePort;
+   private skillPort?: SkillPort;
++  private sessionResources: SessionResourceController;
+   private mcpPort?: McpPort;
+   private mcpStartupPromise?: Promise<McpConnectionSnapshot>;
+   private residencyBlockingWorkCount = 0;
+@@ -307,6 +309,30 @@ export class AgentRuntime {
+     this.eventReducer = new EventReducer();
+     this.eventStore = deps.eventStore;
+     this.sessionStore = deps.sessionStore;
++    this.sessionResources = new SessionResourceController({
++      load: async () => {
++        const entries = await this.sessionStore?.sessionEntries?.({
++          sessionID: this.sessionId,
++          type: "session/resource-policy",
++        });
++        return entries?.find((entry) => entry.id === `resource-policy:${this.sessionId}`)?.data;
++      },
++      save: async (policy) => {
++        if (!this.sessionStore?.saveSessionEntry || !this.sessionStore.sessionEntries) {
++          throw new Error("Session resource persistence is unavailable");
++        }
++        await runtime.ensureSessionPersisted("", this.rootTraceContext);
++        const timestamp = this.now().getTime();
++        await this.sessionStore.saveSessionEntry({
++          id: `resource-policy:${this.sessionId}`,
++          sessionID: this.sessionId,
++          type: "session/resource-policy",
++          touchSession: false,
++          time: { created: timestamp, updated: timestamp },
++          data: policy,
++        });
++      },
++    });
+     this.rootTraceContext = deps.traceContext ?? createRootTraceContext({ sessionId });
+     this.appVersion = deps.appVersion ?? "0.0.0";
+     this.logger = deps.logger?.child({
+@@ -659,6 +685,12 @@ export interface AgentRuntime {
+   resolvePermission(toolCallId: ToolCallId, decision: PermissionDecisionResult): Promise<void>;
+   getPendingPermissionRequests(): PermissionBrokerRequest[];
+   getProjection(): Promise<SessionProjection>;
++  refreshSessionResources(traceContext?: TraceContext): Promise<void>;
++  setSessionResource(
++    input: { kind: "skill" | "mcp"; id: string; enabled: boolean },
++    traceContext?: TraceContext,
++  ): Promise<void>;
++  assertSessionResourceEnabled(kind: "skill" | "mcp", id: string): Promise<void>;
+   readBackgroundBashOutput(workId: string, sessionId?: string): Promise<BackgroundBashOutputResult>;
+   cancelBackgroundTask(
+     taskId: string,
+diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
+index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..653b6d908d67b7adeaf9a9aab3ab020121297020 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
+@@ -181,7 +181,7 @@ function createRuntimeToolExecutor(
+     pdfDocumentPort: deps.pdfDocumentPort,
+     embeddedSearchBackend: runtime.config.embeddedSearchBackend,
+     nativeSearchEnhancementsEnabled: runtime.config.nativeSearchEnhancementsEnabled,
+-    skillPort: deps.skillPort,
++    skillPort: deps.skillPort && runtime.sessionResources.guardSkillPort(deps.skillPort),
+     subagentPort: runtime.subagentPort,
+     coordinatorResponsePort: deps.coordinatorResponsePort,
+     workflowSubmitPort: deps.workflowSubmitPort,
+diff --git a/apps/zcode-cli/packages/core/src/runtime/internal.ts b/apps/zcode-cli/packages/core/src/runtime/internal.ts
+index 1ea63fc4105aab36fb3530962ef3166e766a6d55..f130f0fbd29e324c803892836a185fa864ee7c80 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/internal.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/internal.ts
+@@ -1,4 +1,5 @@
+ import { PermissionService, ToolScheduler } from "./deps.js";
++import type { SessionResourceController } from "../session-resources/module.js";
+ import type {
+   Logger,
+   ModelSelection,
+@@ -107,6 +108,7 @@ export interface AgentRuntimeInternal
+   pendingMemoryUpdate?: ProjectMemoryUpdate;
+   contextSourcePort?: ContextSourcePort;
+   skillPort?: SkillPort;
++  sessionResources: SessionResourceController;
+   mcpPort?: McpPort;
+   mcpStartupPromise?: Promise<McpConnectionSnapshot>;
+   residencyBlockingWorkCount: number;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
+index adc936f95d04637f9ec078e92a5205bfcc65df92..50c67a37366d3f8bfe912c1a5aec8634123ec93e 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
+@@ -1,4 +1,7 @@
+ import { resolveToolSearchMode } from "../../tool/search/exposure.js";
++import { SessionEventType } from "../deps.js";
++import type { SessionResourcesState } from "@zcode/shared/zcode-protocol-v4";
++import type { SkillMetadata } from "@zcode/contracts";
+ import type {
+   CollaborationMode,
+   ExecutionShellSelection,
+@@ -47,6 +50,109 @@ export async function setExecutionState(
+   await applyRuntimeExecutionState(this, input, { source: "command", traceContext });
+ }
+ 
++async function readSessionResources(runtime: AgentRuntimeInternal): Promise<SessionResourcesState> {
++  await runtime.sessionResources.restore();
++  const catalog = await runtime.getSkillCatalog(runtime.rootTraceContext);
++  const statuses = (await runtime.mcpPort?.status()) ?? {};
++  const policy = runtime.sessionResources.snapshot();
++  return {
++    policy,
++    skills: catalog.skills.map((skill) => {
++      const id = skill.qualifiedName ?? skill.name;
++      return {
++        id,
++        label: id,
++        available: true,
++        enabled: !policy.disabledSkills.includes(id),
++        source: resolveSkillSource(skill.source),
++      };
++    }),
++    mcpServers: [
++      ...new Set([...Object.keys(runtime.config.mcp?.servers ?? {}), ...Object.keys(statuses)]),
++    ]
++      .sort()
++      .map((id) => {
++        const available =
++          Boolean(runtime.mcpPort) &&
++          runtime.config.mcp?.enabled !== false &&
++          runtime.config.mcp?.servers?.[id]?.enabled !== false;
++        return {
++          id,
++          label: id,
++          available,
++          enabled: available && !policy.disabledMcpServers.includes(id),
++          source: resolveMcpServerSource(id),
++        };
++      }),
++  };
++}
++
++// 右侧连接器只展示用户自己接入的资源；ZCode 自带与插件提供的连接器不进入该列表。
++// 归类只影响展示过滤，策略所有权与开关语义仍由 SessionResourceController 裁决。
++function resolveSkillSource(source: SkillMetadata["source"]): "builtin" | "plugin" | "user" {
++  if (source === "bundled" || source === "zcode") return "builtin";
++  return source === "plugin" ? "plugin" : "user";
++}
++
++const BUILTIN_MCP_SERVER_NAMES = new Set(["node_repl"]);
++const PLUGIN_MCP_SERVER_PREFIX = "plugin:";
++
++function resolveMcpServerSource(id: string): "builtin" | "plugin" | "user" {
++  if (BUILTIN_MCP_SERVER_NAMES.has(id)) return "builtin";
++  return id.startsWith(PLUGIN_MCP_SERVER_PREFIX) ? "plugin" : "user";
++}
++
++export async function refreshSessionResources(
++  this: AgentRuntimeInternal,
++  traceContext = this.rootTraceContext,
++): Promise<void> {
++  await this.appendEvent(
++    this.createEvent(
++      SessionEventType.SessionResourcesUpdated,
++      await readSessionResources(this),
++      traceContext,
++    ),
++    traceContext,
++  );
++}
++
++export async function setSessionResource(
++  this: AgentRuntimeInternal,
++  input: { kind: "skill" | "mcp"; id: string; enabled: boolean },
++  traceContext = this.rootTraceContext,
++): Promise<void> {
++  const resources = await readSessionResources(this);
++  const items = input.kind === "skill" ? resources.skills : resources.mcpServers;
++  const item = items.find((candidate) => candidate.id === input.id);
++  if (!item || !item.available) throw new Error("Resource is unavailable in this session");
++  await this.sessionResources.set(input.kind, input.id, input.enabled);
++  const policy = this.sessionResources.snapshot();
++  const next = {
++    policy,
++    skills: resources.skills.map((entry) => ({
++      ...entry,
++      enabled: entry.available && !policy.disabledSkills.includes(entry.id),
++    })),
++    mcpServers: resources.mcpServers.map((entry) => ({
++      ...entry,
++      enabled: entry.available && !policy.disabledMcpServers.includes(entry.id),
++    })),
++  };
++  // 保存之后不再查询端口：瞬时状态读取失败不能把已接受策略伪装成保存失败。
++  await this.appendEvent(
++    this.createEvent(SessionEventType.SessionResourcesUpdated, next, traceContext),
++    traceContext,
++  );
++}
++
++export async function assertSessionResourceEnabled(
++  this: AgentRuntimeInternal,
++  kind: "skill" | "mcp",
++  id: string,
++): Promise<void> {
++  await this.sessionResources.assertEnabled(kind, id);
++}
++
+ export function updateConfig(
+   this: AgentRuntimeInternal,
+   patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
+index b4509560520c8df72abe407653a7e7d78a4d044a..9db961876136b685b995cb1995f4f399365631e1 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
+@@ -5,6 +5,9 @@ import {
+   initializeSessionShellEnvironmentIfNeeded,
+   updateConfig,
+   setExecutionState,
++  refreshSessionResources,
++  setSessionResource,
++  assertSessionResourceEnabled,
+ } from "./config.js";
+ import { getMode, getPlanEnabled } from "./config.js";
+ import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
+@@ -280,6 +283,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
+   proto.createDefaultSubagentPort = createDefaultSubagentPort;
+   proto.ensureContextInitialized = ensureContextInitialized;
+   proto.getSkillCatalog = getSkillCatalog;
++  proto.refreshSessionResources = refreshSessionResources;
++  proto.setSessionResource = setSessionResource;
++  proto.assertSessionResourceEnabled = assertSessionResourceEnabled;
+   proto.createContextBuilderFromSnapshot = createContextBuilderFromSnapshot;
+   proto.loadProjectMemoryRoot = loadProjectMemoryRoot;
+   proto.logMemorySkipped = logMemorySkipped;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts b/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts
+index 0687887760539f5b276f923ff03e1672e4ca1c39..1bdd20d7f39c176eda0d3e557d261d3c5df1884f 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts
+@@ -136,16 +136,21 @@ export async function initializeMcp(
+ 
+   try {
+     const snapshot = await startup;
+-    const registered = registerMcpTools(this.registry, mcpPort, snapshot.tools, {
+-      allowedTools: this.config.toolAllowlist,
+-      disallowedTools: this.config.toolDisallowlist,
+-      officialCuaServerNames: computeOfficialCuaServerNames(
+-        this.config.mcp?.servers ?? {},
+-        new Set(this.config.mcp?.trustedOfficialCuaServerNames ?? []),
+-      ),
+-      // 插件 UI：display.ui 需要 server → pluginId 的归属；catalog 是 session 冻结的唯一权威。
+-      pluginIdByServerName: buildPluginIdByServerName(this.config.pluginReferenceCatalog),
+-    });
++    const registered = registerMcpTools(
++      this.registry,
++      this.sessionResources.guardMcpPort(mcpPort),
++      snapshot.tools,
++      {
++        allowedTools: this.config.toolAllowlist,
++        disallowedTools: this.config.toolDisallowlist,
++        officialCuaServerNames: computeOfficialCuaServerNames(
++          this.config.mcp?.servers ?? {},
++          new Set(this.config.mcp?.trustedOfficialCuaServerNames ?? []),
++        ),
++        // 插件 UI：display.ui 需要 server → pluginId 的归属；catalog 是 session 冻结的唯一权威。
++        pluginIdByServerName: buildPluginIdByServerName(this.config.pluginReferenceCatalog),
++      },
++    );
+     if (registered.length > 0) {
+       this.invalidateToolCache();
+     }
+@@ -219,15 +224,20 @@ export async function refreshMcpToolsIfChanged(
+   if (this.mcpToolsSignature === signature) return;
+   const previous = new Set(this.registeredMcpToolNames ?? []);
+   for (const name of previous) this.registry.unregister(name);
+-  const registered = registerMcpTools(this.registry, mcpPort, descriptors, {
+-    allowedTools: this.config.toolAllowlist,
+-    disallowedTools: this.config.toolDisallowlist,
+-    officialCuaServerNames: computeOfficialCuaServerNames(
+-      this.config.mcp?.servers ?? {},
+-      new Set(this.config.mcp?.trustedOfficialCuaServerNames ?? []),
+-    ),
+-    pluginIdByServerName: buildPluginIdByServerName(this.config.pluginReferenceCatalog),
+-  });
++  const registered = registerMcpTools(
++    this.registry,
++    this.sessionResources.guardMcpPort(mcpPort),
++    descriptors,
++    {
++      allowedTools: this.config.toolAllowlist,
++      disallowedTools: this.config.toolDisallowlist,
++      officialCuaServerNames: computeOfficialCuaServerNames(
++        this.config.mcp?.servers ?? {},
++        new Set(this.config.mcp?.trustedOfficialCuaServerNames ?? []),
++      ),
++      pluginIdByServerName: buildPluginIdByServerName(this.config.pluginReferenceCatalog),
++    },
++  );
+   this.registeredMcpToolNames = registered;
+   this.mcpToolsSignature = signature;
+   this.invalidateToolCache();
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts b/apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts
+index 53e0592d0a9b7157079b9931078c4d1c99558ec2..8d7b9f48b4241c97da5f1cb88e7fd9a8b97dd896 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts
+@@ -14,6 +14,7 @@ export function createRefreshRuntimeHeadersBeforeModelAttempt(
+   },
+ ):
+   | ((attemptInput: {
++      requestAuthType?: "codex-oauth";
+       accountAccess?: ZCodeProviderAccountAccess;
+       expectedAccountScope?: string;
+       rejectedProjectTokenFingerprint?: string;
+@@ -45,6 +46,7 @@ export function createRefreshRuntimeHeadersBeforeModelAttempt(
+     // 路由身份：主 runtime 报自己的会话；child runtime 拿到的端口由父 runtime 派生
+     // （helpers/child-client-ports.ts），把 sessionId 改写成客户端认识的根会话。
+     const refreshResult = await runtimeHeadersPort.refreshBeforeModelRequest({
++      requestAuthType: attemptInput.requestAuthType,
+       accountAccess: attemptInput.accountAccess,
+       expectedAccountScope: attemptInput.expectedAccountScope,
+       rejectedProjectTokenFingerprint: attemptInput.rejectedProjectTokenFingerprint,
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/resume.ts b/apps/zcode-cli/packages/core/src/runtime/methods/resume.ts
+index 3e1713984976bcaf7546863c4ef900dde4e28f19..2d5471c9a030e9b4105d5c2f316714a2430e1fe5 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/resume.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/resume.ts
+@@ -72,6 +72,7 @@ export async function resumeFromStore(
+ 
+   const traceContext = options?.traceContext ?? this.rootTraceContext;
+   const persistedSession = await this.sessionStore.getSession(this.sessionId);
++  await this.sessionResources.restore();
+   // 删除 = CLI 软删除（time_deleted）。归档已归 Host 组织态，CLI 不再有归档列；
+   // 旧的 time.archived 判断永远为 false，这里改为拒绝恢复已软删除的会话。
+   if (!persistedSession || persistedSession.time.deleted !== undefined) {
+diff --git a/apps/zcode-cli/packages/core/src/runtime/types.ts b/apps/zcode-cli/packages/core/src/runtime/types.ts
+index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..deb3554e0658b16d0e83506646ba2176640a9d08 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/types.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/types.ts
+@@ -420,6 +420,7 @@ export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
+ export interface ProviderRuntimeHeadersPort {
+   shouldRefreshBeforeModelRequest?(input: { providerId: string; modelId: string }): boolean;
+   refreshBeforeModelRequest(input: {
++    requestAuthType?: "codex-oauth";
+     accountAccess?: ZCodeProviderAccountAccess;
+     expectedAccountScope?: string;
+     rejectedProjectTokenFingerprint?: string;
+diff --git a/apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md b/apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d7290bf17de39510af9dc92fac2385077a9cd774
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md
+@@ -0,0 +1,5 @@
++# 会话资源策略
++
++SessionResourceController 是单 runtime 的禁用策略 owner。显式设值经串行队列，持久化成功后发布；读取返回副本。恢复严格校验，失败不放行。Skill 守卫检查实际解析身份；MCP 守卫在进入路由端口前检查 serverName，不使用展示字段判断。原端口不修改、不共享策略给其他 runtime。调用已进入上游后不撤销。
++
++公开 `contract.ts` 与 `module.ts`。持久化经注入函数；不拥有连接、配置或权限。完整产品合同见根 `docs/session-resource-controls.md`。
+diff --git a/apps/zcode-cli/packages/core/src/session-resources/contract.example.ts b/apps/zcode-cli/packages/core/src/session-resources/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c06b1b413e457fcc9493c0752f06ca11b0cb2fe0
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/session-resources/contract.example.ts
+@@ -0,0 +1,7 @@
++import { SessionResourceController } from "./module.js";
++
++export async function sessionResourceExample() {
++  const owner = new SessionResourceController();
++  await owner.set("mcp", "example", false);
++  return owner.snapshot();
++}
+diff --git a/apps/zcode-cli/packages/core/src/session-resources/contract.ts b/apps/zcode-cli/packages/core/src/session-resources/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e312774eb5798e0729d462be0ec699db6d39c7f2
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/session-resources/contract.ts
+@@ -0,0 +1,16 @@
++import type { McpPort, SkillPort } from "@zcode/contracts";
++import type { SessionResourcePolicy } from "@zcode/shared/zcode-protocol-v4";
++
++export type SessionResourceKind = "skill" | "mcp";
++export interface SessionResourcePersistence {
++  load(): Promise<unknown>;
++  save(policy: SessionResourcePolicy): Promise<void>;
++}
++export interface SessionResourceControl {
++  restore(): Promise<void>;
++  snapshot(): SessionResourcePolicy;
++  set(kind: SessionResourceKind, id: string, enabled: boolean): Promise<void>;
++  assertEnabled(kind: SessionResourceKind, id: string): Promise<void>;
++  guardSkillPort(port: SkillPort): SkillPort;
++  guardMcpPort(port: McpPort): McpPort;
++}
+diff --git a/apps/zcode-cli/packages/core/src/session-resources/module.ts b/apps/zcode-cli/packages/core/src/session-resources/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3607144e75ebfe0397d6784d214867c5466f1e6f
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/session-resources/module.ts
+@@ -0,0 +1,106 @@
++import { CoreErrorType, createCoreError, type McpPort, type SkillPort } from "@zcode/contracts";
++import {
++  sessionResourcePolicySchema,
++  type SessionResourcePolicy,
++} from "@zcode/shared/zcode-protocol-v4";
++import type {
++  SessionResourceControl,
++  SessionResourceKind,
++  SessionResourcePersistence,
++} from "./contract.js";
++
++/** 只拥有本会话 deny 策略；配置、连接、授权和其他 runtime 不属于这里。 */
++export class SessionResourceController implements SessionResourceControl {
++  private policy: SessionResourcePolicy = {
++    revision: 0,
++    disabledSkills: [],
++    disabledMcpServers: [],
++  };
++  private restoring?: Promise<void>;
++  private mutation: Promise<void> = Promise.resolve();
++
++  constructor(private readonly persistence?: SessionResourcePersistence) {}
++
++  restore(): Promise<void> {
++    this.restoring ??= (async () => {
++      const stored = await this.persistence?.load();
++      // 损坏配置不能被当作空 denylist，否则冷恢复会静默恢复用户已禁用的资源。
++      if (stored !== undefined) this.policy = sessionResourcePolicySchema.parse(stored);
++    })().catch((error) => {
++      // 读取失败仍保持 fail-closed，但允许下一次明确重试，不把一次临时 IO 故障永久缓存。
++      this.restoring = undefined;
++      throw error;
++    });
++    return this.restoring;
++  }
++
++  snapshot(): SessionResourcePolicy {
++    return {
++      ...this.policy,
++      disabledSkills: [...this.policy.disabledSkills],
++      disabledMcpServers: [...this.policy.disabledMcpServers],
++    };
++  }
++
++  set(kind: SessionResourceKind, id: string, enabled: boolean): Promise<void> {
++    const operation = this.mutation.then(async () => {
++      await this.restore();
++      const key = kind === "skill" ? "disabledSkills" : "disabledMcpServers";
++      const disabled = new Set(this.policy[key]);
++      if (disabled.has(id) === !enabled) return;
++      if (enabled) disabled.delete(id);
++      else disabled.add(id);
++      const next = {
++        ...this.policy,
++        revision: this.policy.revision + 1,
++        [key]: [...disabled].sort(),
++      };
++      // 先存后发布：失败时不能让 UI/执行层接受一份重启即丢失的“成功”状态。
++      await this.persistence?.save(next);
++      this.policy = next;
++    });
++    this.mutation = operation.catch(() => {});
++    return operation;
++  }
++
++  async assertEnabled(kind: SessionResourceKind, id: string): Promise<void> {
++    await this.restore();
++    const disabled = kind === "skill" ? this.policy.disabledSkills : this.policy.disabledMcpServers;
++    if (disabled.includes(id)) {
++      throw createCoreError(
++        CoreErrorType.PermissionDenied,
++        "Resource is disabled in this session",
++        { recoverable: true },
++      );
++    }
++  }
++
++  guardSkillPort(port: SkillPort): SkillPort {
++    return {
++      discoverSkills: port.discoverSkills.bind(port),
++      loadSkill: async (request, options) => {
++        await this.restore();
++        const loaded = await port.loadSkill(request, options);
++        // 只认解析后的稳定身份，不能用请求中的短名/别名误伤同名插件或绕过禁用。
++        await this.assertEnabled("skill", loaded.metadata.qualifiedName ?? loaded.metadata.name);
++        return loaded;
++      },
++    };
++  }
++
++  guardMcpPort(port: McpPort): McpPort {
++    return new Proxy(port, {
++      get: (target, property) => {
++        const value = Reflect.get(target, property);
++        if (typeof value !== "function") return value;
++        if (property === "callTool") {
++          return async (...args: Parameters<McpPort["callTool"]>) => {
++            await this.assertEnabled("mcp", args[0].serverName);
++            return value.apply(target, args);
++          };
++        }
++        return value.bind(target);
++      },
++    });
++  }
++}
+diff --git a/apps/zcode-cli/packages/core/tests/context-builder.test.ts b/apps/zcode-cli/packages/core/tests/context-builder.test.ts
+index ccfd346e97fc2b45c7096f794ce4bd8865afa60d..b421d93846bf5e982d8831a5e9582b9b70f18acb 100644
+--- a/apps/zcode-cli/packages/core/tests/context-builder.test.ts
++++ b/apps/zcode-cli/packages/core/tests/context-builder.test.ts
+@@ -1383,8 +1383,7 @@ describe("ContextBuilder meta user context", () => {
+     expect(section.content).toMatch(/^\n?You are an interactive ZCode agent/);
+     expect(section.content).not.toContain("# Agent Identity");
+     expect(section.content).toContain("# Harness");
+-    expect(section.content).toContain("IMPORTANT:");
+-    expect(section.content).toContain("authorized security testing");
++    expect(section.content).not.toContain("Assist with authorized security testing");
+     expect(section.content).toContain("Tools run behind a user-selected permission mode");
+     expect(section.content).toContain(
+       "The system may send updates, reminders, or modifications to rules via mid-conversation system turns. These are system-controlled, unlike function results. Hooks may intercept tool calls; treat hook output as user feedback.",
+@@ -1488,18 +1487,16 @@ describe("context builder — workflow actor identity", () => {
+       workflowActor: { name: "reviewer", persona: "You are a strict reviewer." },
+     });
+ 
+-    // 开场句 → persona → 安全行 → Harness → 契约，且顺序固定。
++    // 开场句 → persona → Harness → 契约，且顺序固定。
+     const opening = text.indexOf(
+       'You are a subagent inside a dynamic workflow run, named "reviewer".',
+     );
+     const persona = text.indexOf("You are a strict reviewer.");
+-    const security = text.indexOf("IMPORTANT: Assist with authorized security testing");
+     const harness = text.indexOf("# Harness");
+     const contract = text.indexOf("# Working inside a workflow");
+     expect(opening).toBeGreaterThanOrEqual(0);
+     expect(opening).toBeLessThan(persona);
+-    expect(persona).toBeLessThan(security);
+-    expect(security).toBeLessThan(harness);
++    expect(persona).toBeLessThan(harness);
+     expect(harness).toBeLessThan(contract);
+ 
+     // 基座里保住的纪律。
+@@ -1634,7 +1631,7 @@ describe("context builder — workflow actor identity", () => {
+   it("leaves the interactive identity byte-identical after the shared-helper refactor", () => {
+     const text = systemText({ workingDirectory: "/workspace", envInfo });
+     expect(text).toContain(
+-      "\nYou are an interactive ZCode agent that helps users with software engineering tasks.\n\nIMPORTANT: Assist with authorized security testing",
++      "\nYou are an interactive ZCode agent that helps users with software engineering tasks.\n\n# Harness",
+     );
+     expect(text).toContain("\n\n# Harness\n- Text you output outside of tool use");
+   });
+diff --git a/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts b/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..43b136580eaebaaf5b0ef54400219c85d69fcb7d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts
+@@ -0,0 +1,116 @@
++import { describe, expect, it, vi } from "vitest";
++import { SessionResourceController } from "../../src/session-resources/module.js";
++import type { McpPort, SkillPort } from "@zcode/contracts";
++
++describe("session resource policy", () => {
++  it("retries a failed restore without ever substituting an empty policy", async () => {
++    const load = vi
++      .fn()
++      .mockRejectedValueOnce(new Error("temporary IO failure"))
++      .mockResolvedValue({ revision: 1, disabledSkills: [], disabledMcpServers: ["a"] });
++    const owner = new SessionResourceController({ load, save: async () => {} });
++    await expect(owner.assertEnabled("mcp", "a")).rejects.toThrow("IO failure");
++    await expect(owner.assertEnabled("mcp", "a")).rejects.toThrow("disabled in this session");
++  });
++  it("isolates sessions and restores accepted policy without modifying configuration", async () => {
++    let saved: unknown;
++    const persistence = {
++      load: async () => saved,
++      save: async (value: unknown) => {
++        saved = value;
++      },
++    };
++    const owner = new SessionResourceController(persistence);
++    await owner.set("mcp", "one", false);
++    await expect(owner.assertEnabled("mcp", "one")).rejects.toThrow("disabled in this session");
++    await expect(
++      new SessionResourceController().assertEnabled("mcp", "one"),
++    ).resolves.toBeUndefined();
++    const resumed = new SessionResourceController(persistence);
++    await expect(resumed.assertEnabled("mcp", "one")).rejects.toThrow();
++    await resumed.set("mcp", "one", true);
++    await expect(resumed.assertEnabled("mcp", "one")).resolves.toBeUndefined();
++  });
++
++  it("serializes independent updates, treats explicit same values as idempotent", async () => {
++    const save = vi.fn(async () => {});
++    const owner = new SessionResourceController({ load: async () => undefined, save });
++    await Promise.all([owner.set("skill", "plugin:a", false), owner.set("mcp", "a", false)]);
++    await owner.set("skill", "plugin:a", false);
++    expect(owner.snapshot()).toEqual({
++      revision: 2,
++      disabledSkills: ["plugin:a"],
++      disabledMcpServers: ["a"],
++    });
++    expect(save).toHaveBeenCalledTimes(2);
++  });
++
++  it("does not publish a failed write and permits subsequent recovery", async () => {
++    const save = vi.fn().mockRejectedValueOnce(new Error("disk full")).mockResolvedValue(undefined);
++    const owner = new SessionResourceController({ load: async () => undefined, save });
++    await expect(owner.set("mcp", "a", false)).rejects.toThrow("disk full");
++    expect(owner.snapshot().disabledMcpServers).toEqual([]);
++    await owner.set("mcp", "b", false);
++    expect(owner.snapshot().disabledMcpServers).toEqual(["b"]);
++  });
++
++  it("fails closed on corrupt persisted policy", async () => {
++    const owner = new SessionResourceController({
++      load: async () => ({ disabledSkills: "bad" }),
++      save: async () => {},
++    });
++    await expect(owner.assertEnabled("mcp", "a")).rejects.toThrow();
++    await expect(owner.set("mcp", "a", true)).rejects.toThrow();
++  });
++
++  it("checks the resolved Skill identity so aliases cannot return disabled content", async () => {
++    const loadSkill = vi.fn(async () => ({
++      metadata: { name: "a", qualifiedName: "plugin:a" },
++      content: "private instructions",
++    }));
++    const owner = new SessionResourceController();
++    const port = owner.guardSkillPort({
++      loadSkill,
++      discoverSkills: vi.fn(),
++    } as unknown as SkillPort);
++    await owner.set("skill", "plugin:a", false);
++    await expect(port.loadSkill({ name: "a", workingDirectory: "." })).rejects.toThrow();
++    await owner.set("skill", "plugin:a", true);
++    expect((await port.loadSkill({ name: "a", workingDirectory: "." })).content).toBe(
++      "private instructions",
++    );
++  });
++
++  it("blocks the actual MCP route, not a model-visible name, and preserves port binding", async () => {
++    const raw = {
++      marker: 1,
++      callTool: vi.fn(async function (this: { marker: number }) {
++        return { marker: this.marker };
++      }),
++    };
++    const owner = new SessionResourceController();
++    const port = owner.guardMcpPort(raw as unknown as McpPort);
++    await owner.set("mcp", "plugin_one", false);
++    await expect(port.callTool({ serverName: "plugin_one", toolName: "alias" })).rejects.toThrow();
++    expect(raw.callTool).not.toHaveBeenCalled();
++    expect(await port.callTool({ serverName: "other", toolName: "alias" })).toEqual({ marker: 1 });
++  });
++
++  it("does not abort a call that has already entered the upstream port", async () => {
++    let finish!: (value: object) => void;
++    const callTool = vi.fn(
++      () =>
++        new Promise<object>((resolve) => {
++          finish = resolve;
++        }),
++    );
++    const owner = new SessionResourceController();
++    const port = owner.guardMcpPort({ callTool } as unknown as McpPort);
++    const pending = port.callTool({ serverName: "a", toolName: "read" });
++    await vi.waitFor(() => expect(callTool).toHaveBeenCalledOnce());
++    await owner.set("mcp", "a", false);
++    finish({ ok: true });
++    await expect(pending).resolves.toEqual({ ok: true });
++    await expect(port.callTool({ serverName: "a", toolName: "read" })).rejects.toThrow();
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts b/apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cbaf2da6e77e0f3b6d68a290de335306ac69316f
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts
+@@ -0,0 +1,165 @@
++import { describe, expect, it, vi } from "vitest";
++import {
++  createRootTraceContext,
++  createSessionId,
++  SessionEventType,
++  type McpPort,
++  type SessionEntryInfo,
++  type SessionStorePort,
++  type SkillMetadata,
++  type SkillPort,
++} from "@zcode/contracts";
++import { createTestAgentRuntime } from "../test-agent-runtime.js";
++import { createTestSessionEventStore } from "../test-event-store.js";
++
++function fixture(mode: "build" | "yolo" = "yolo") {
++  const entries = new Map<string, SessionEntryInfo>();
++  const sessionStore = {
++    getSession: vi.fn(async () => null),
++    createSession: vi.fn(async () => ({})),
++    saveSessionEntry: vi.fn(async (entry: SessionEntryInfo) => {
++      entries.set(entry.id, structuredClone(entry));
++    }),
++    sessionEntries: vi.fn(async ({ sessionID, type }: { sessionID: string; type?: string }) =>
++      [...entries.values()].filter(
++        (entry) => entry.sessionID === sessionID && (!type || entry.type === type),
++      ),
++    ),
++  } as unknown as SessionStorePort;
++  const metadata: SkillMetadata = {
++    name: "skill",
++    qualifiedName: "plugin:skill",
++    description: "test",
++    path: "/fixture/SKILL.md",
++    directory: "/fixture",
++    rootPath: "/fixture",
++    source: "plugin",
++    scope: "project",
++    safeToAutoLoad: true,
++    frontmatterKeys: [],
++  };
++  const skillPort: SkillPort = {
++    discoverSkills: vi.fn(async () => ({
++      skills: [metadata],
++      diagnostics: [],
++      totalDiscovered: 1,
++    })),
++    loadSkill: vi.fn(async () => ({
++      metadata,
++      content: "skill body",
++      baseDirectory: "/fixture",
++      bytesRead: 10,
++      sizeBytes: 10,
++      truncated: false,
++    })),
++  };
++  const descriptor = {
++    serverName: "fixture",
++    toolName: "read",
++    inputSchema: { type: "object", properties: {} },
++    annotations: { readOnlyHint: true },
++  };
++  const mcpPort = {
++    connectConfiguredServers: vi.fn(async () => ({ statuses: {}, tools: [descriptor] })),
++    status: vi.fn(async () => ({})),
++    listTools: vi.fn(async () => [descriptor]),
++    callTool: vi.fn(async () => ({ content: [{ type: "text", text: "upstream" }] })),
++  } as unknown as McpPort;
++  const eventStore = createTestSessionEventStore();
++  const sessionId = createSessionId("resource-runtime");
++  const runtime = createTestAgentRuntime(
++    sessionId,
++    {
++      mode,
++      workingDirectory: "/fixture",
++      toolSearch: { mode: "local" },
++      mcp: { enabled: true, servers: { fixture: { type: "stdio", command: "node" } } },
++    },
++    { eventStore, sessionStore, skillPort, mcpPort },
++  );
++  return { runtime, sessionId, eventStore, sessionStore, skillPort, mcpPort };
++}
++
++describe("runtime session resource controls", () => {
++  it("tags each resource with its source so the UI can hide built-in and plugin entries", async () => {
++    const f = fixture();
++    await f.runtime.refreshSessionResources();
++    const events = await f.eventStore.getEvents(f.sessionId);
++    const resources = events
++      .filter((event) => event.type === SessionEventType.SessionResourcesUpdated)
++      .at(-1)?.payload as {
++      skills: { id: string; source?: string }[];
++      mcpServers: { id: string; source?: string }[];
++    };
++    // plugin 来源的 Skill 归为 plugin，用户配置的 MCP 归为 user。
++    expect(resources.skills.find((skill) => skill.id === "plugin:skill")?.source).toBe("plugin");
++    expect(resources.mcpServers.find((server) => server.id === "fixture")?.source).toBe("user");
++  });
++  it("persists current-session settings and guards the real Skill and MCP executors", async () => {
++    const f = fixture();
++    await f.runtime.refreshSessionResources();
++    await f.runtime.initializeMcp(createRootTraceContext({ sessionId: f.sessionId }));
++    await f.runtime.setSessionResource({ kind: "skill", id: "plugin:skill", enabled: false });
++    await f.runtime.setSessionResource({ kind: "mcp", id: "fixture", enabled: false });
++    const execute = f.runtime.getToolExecutor();
++    const skill = await execute.execute({ id: "skill", name: "Skill", input: { skill: "skill" } });
++    expect(skill.success).toBe(false);
++    expect(skill.error?.message).toContain("disabled in this session");
++    expect(JSON.stringify(skill)).not.toContain("skill body");
++    const mcp = await execute.execute({ id: "mcp", name: "mcp__fixture__read", input: {} });
++    expect(mcp.success).toBe(false);
++    expect(mcp.error?.message).toContain("disabled in this session");
++    const deferred = await execute.execute(
++      {
++        id: "deferred",
++        name: "DeferredToolCall",
++        input: { name: "mcp__fixture__read", input: {} },
++      },
++      {
++        toolSearch: {
++          mode: "local",
++          enabled: true,
++          catalog: [
++            { name: "DeferredToolCall", deferred: false },
++            { name: "mcp__fixture__read", deferred: true },
++          ],
++          discovered: new Set(["mcp__fixture__read"]),
++        },
++      },
++    );
++    expect(deferred.error?.message).toContain("disabled in this session");
++    expect(f.mcpPort.callTool).not.toHaveBeenCalled();
++    await f.runtime.setSessionResource({ kind: "mcp", id: "fixture", enabled: true });
++    const enabledResult = await execute.execute({
++      id: "mcp-again",
++      name: "mcp__fixture__read",
++      input: {},
++    });
++    expect(enabledResult.success, JSON.stringify(enabledResult)).toBe(true);
++    expect(f.mcpPort.connectConfiguredServers).toHaveBeenCalledTimes(1);
++    const events = await f.eventStore.getEvents(f.sessionId);
++    expect(
++      events.filter((event) => event.type === SessionEventType.SessionResourcesUpdated).at(-1)
++        ?.payload,
++    ).toMatchObject({ policy: { disabledSkills: ["plugin:skill"], disabledMcpServers: [] } });
++    expect(f.sessionStore.saveSessionEntry).toHaveBeenCalledWith(
++      expect.objectContaining({ type: "session/resource-policy", touchSession: false }),
++    );
++    const restored = createTestAgentRuntime(
++      f.sessionId,
++      { workingDirectory: "/fixture" },
++      { eventStore: createTestSessionEventStore(), sessionStore: f.sessionStore },
++    );
++    await expect(restored.assertSessionResourceEnabled("skill", "plugin:skill")).rejects.toThrow(
++      "disabled in this session",
++    );
++  });
++
++  it("rejects unknown identities without writing policy", async () => {
++    const f = fixture();
++    await expect(
++      f.runtime.setSessionResource({ kind: "mcp", id: "not-configured", enabled: true }),
++    ).rejects.toThrow("unavailable");
++    expect(f.sessionStore.saveSessionEntry).not.toHaveBeenCalled();
++  });
++});

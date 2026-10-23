@@ -1,0 +1,509 @@
+diff --git a/docs/assistant-message-markdown-type-scale.md b/docs/assistant-message-markdown-type-scale.md
+index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80b80413cc 100644
+--- a/docs/assistant-message-markdown-type-scale.md
++++ b/docs/assistant-message-markdown-type-scale.md
+@@ -6,19 +6,37 @@ Assistant message Markdown uses a reading-oriented type scale while the surround
+ 
+ ## Type Scale
+ 
+-| Surface | Standard |
+-|---|---|
+-| User and assistant message containers | `text-ui-lg` |
+-| Markdown body | `text-ui-base` |
+-| h1 | `text-ui-xl` (`--ui-font-size + 4px`) |
+-| h2 | `text-ui-lg` (`--ui-font-size + 2px`) |
+-| h3 | `text-ui-base` |
+-| h4-h6 | `text-ui-base` |
+-| Normal and file links | `text-ui-base` |
+-| Inline code | `font-mono text-ui-sm` |
+-| Code block body | default `14px` |
+-| Code block header | `text-ui-base` |
+-| Tables | `text-ui-base` |
++| Surface                               | Standard                              |
++| ------------------------------------- | ------------------------------------- |
++| User and assistant message containers | `text-ui-lg`                          |
++| Markdown body                         | `text-ui-base`                        |
++| h1                                    | `text-ui-xl` (`--ui-font-size + 4px`) |
++| h2                                    | `text-ui-lg` (`--ui-font-size + 2px`) |
++| h3                                    | `text-ui-base`                        |
++| h4-h6                                 | `text-ui-base`                        |
++| Normal and file links                 | `text-ui-base`                        |
++| Inline code                           | `font-mono text-ui-sm`                |
++| Code block body                       | default `14px`                        |
++| Code block header                     | `text-ui-base`                        |
++| Tables                                | `text-ui-base`                        |
++
++## Spacing
++
++Assistant Markdown uses a reading rhythm that is tighter than a document layout while still separating blocks:
++
++| Element                  | Spacing                                        |
++| ------------------------ | ---------------------------------------------- |
++| Between top-level blocks | `12px` (`space-y-3`)                           |
++| Body line height         | `1.65`                                         |
++| Body letter spacing      | font default (no `tracking-wide`)              |
++| `h1`-`h6`                | `mt-4 mb-2`                                    |
++| Lists                    | `my-2`; items `space-y-1`; nested lists `my-1` |
++| Code block, blockquote   | `my-3`                                         |
++
++- Block separation is owned solely by the Markdown root's `space-y-*`; paragraphs carry no vertical margin of their own, so the two rhythms cannot stack.
++- Body text keeps the font's default letter spacing. `tracking-wide` widens every glyph, and CJK paragraphs read noticeably looser because of it; readability is carried by the line height instead.
++- The first and last blocks stay flush with the container (`[&>*:first-child]:mt-0`, `[&>*:last-child]:mb-0`). The action footer's `mt-1` remains the only gap between body text and the toolbar.
++- Desktop and remote-control mobile share this density; narrow viewports are not compressed further, so body text never touches the edges.
+ 
+ ## Implementation Contract
+ 
+diff --git a/docs/chat/assistant-latest-part-actions.md b/docs/chat/assistant-latest-part-actions.md
+index e21952d2888511b00b92b43f552a8dd06708d471..6c1c12b7845922494d0063f91f5c1c42351101f4 100644
+--- a/docs/chat/assistant-latest-part-actions.md
++++ b/docs/chat/assistant-latest-part-actions.md
+@@ -33,7 +33,7 @@ cold message.info.time.created ───────┤
+                                       |
+                     completed assistant action toolbar
+                          /                         \
+-          desktop hover/focus          mobile /remote 常显
++       desktop 完成后常显（不再 hover 显现）   mobile /remote 常显
+ ```
+ 
+ live continuous 直接使用 CLI 事件时间；cold hydration 必须把 transcript assistant message 的
+@@ -61,9 +61,12 @@ desktop / mobile assistant action toolbar
+ 
+ - UI 复用 `MessageAction` 的紧凑 ghost/icon 样式和语义色 token；选中态保留清晰背景反馈。
+ - 使用 `aria-pressed`、本地化 label 和可见 focus 状态。
+-- 桌面端随 assistant turn hover/focus 显示；手机 `/remote` 没有 hover，动作区直接可见且
+-  不用 Tooltip 包裹按钮，避免触屏首次 tap 被 hover/portal 吞掉。
+-- 时间跟随动作区一起显隐，排列在所有可用动作之后；它是只读元数据，不增加可点击区域。
++- 桌面端在轮次完成后常显，不随 hover 显隐；运行中仍不渲染整条工具栏，避免半成品轮出现
++  可复制的残缺结果。
++- 手机 `/remote` 没有 hover，动作区直接可见且不用 Tooltip 包裹按钮，避免触屏首次 tap 被
++  hover/portal 吞掉。两端差别只剩 Tooltip 与紧凑程度，显隐规则一致。
++- 时间与速率跟随动作区一起显隐，排列在所有可用动作之后；两者都是只读元数据，不增加
++  可点击区域。
+ - 点按选中动画尊重 `prefers-reduced-motion`。
+ 
+ 实现入口：`ConversationRowView.tsx` 和共享 test id。
+diff --git a/docs/chat/conversation-turn-view-model.md b/docs/chat/conversation-turn-view-model.md
+index 140afb0e43ec375e6ef73cd25a372a974a71680e..c605a20dde092d52f7de430ce3112e1e283528fa 100644
+--- a/docs/chat/conversation-turn-view-model.md
++++ b/docs/chat/conversation-turn-view-model.md
+@@ -162,12 +162,12 @@ interface TimelineRenderRow {
+ }
+ ```
+ 
+-| Timeline | placement | foldPolicy | 说明 |
+-| --- | --- | --- | --- |
+-| context compact | `inside_turn_worklog` | `worklog` 或 running 时可见 | assistant worklog，不切 turn |
+-| goal verification | `after_turn` | `never` | 被验证 turn 的 post-turn 裁判事件 |
+-| session fork | `session_lineage` | `never` | conversation lineage event，不属于 assistant worklog |
+-| model change | `session_lineage` 或 `after_turn` | `never` | 取决于是否锚定某个 turn；新数据必须显式 placement |
++| Timeline          | placement                         | foldPolicy                  | 说明                                                 |
++| ----------------- | --------------------------------- | --------------------------- | ---------------------------------------------------- |
++| context compact   | `inside_turn_worklog`             | `worklog` 或 running 时可见 | assistant worklog，不切 turn                         |
++| goal verification | `after_turn`                      | `never`                     | 被验证 turn 的 post-turn 裁判事件                    |
++| session fork      | `session_lineage`                 | `never`                     | conversation lineage event，不属于 assistant worklog |
++| model change      | `session_lineage` 或 `after_turn` | `never`                     | 取决于是否锚定某个 turn；新数据必须显式 placement    |
+ 
+ ### Compact
+ 
+@@ -218,6 +218,27 @@ fork 是 conversation lineage event，不属于 assistant worklog：
+ - 一条 row 只能有一个明确 placement；同一个 timeline identity 的 started/completed/failed/cancelled 更新必须落到同一 row。
+ - background work 不阻塞当前 turn completion；background result 回 main 后开启新的 foreground turn。
+ 
++## 轮次间距
++
++相邻两轮之间的视觉间距由**同一条流水线**给出：上一轮 `section` 的 `pb-*` 加下一轮的 `pt-*`，
++两者是相加的，不是取大值。
++
++| 位置             | 间距           |
++| ---------------- | -------------- |
++| 常规轮顶 `pt`    | `pt-7`（28px） |
++| 轮底 `pb`        | `pb-4`（16px） |
++| 相邻两轮实际间距 | `44px`         |
++
++- 轮顶曾为 `pt-14`（56px），叠上一轮 `pb-5`（20px）在轮与轮之间堆出 `76px` 空白，远超
++  [DESIGN.md](../../DESIGN.md)「larger sections or dialog interiors」的 `20px`–`24px` 上限。
++  轮次间距取 `44px` 而非一个节奏内的小值，是因为它同时承担「一条回复结束」的分段感与用户气泡
++  下沿的呼吸；再小会让相邻轮读成连续段落。
++- 轮顶 padding 的判据是**这一轮有没有用户气泡**，不是「有没有轮」。没有气泡的轮（workflow 通知卡
++  开头、中枢直接启动轮、设置轮）取 `pt-0`，只保留上一轮的 `pb-4`；否则这 28px 会落在紧贴上一轮
++  的卡片或单行上，凭空多出一段空白。
++- 轮底 padding 由每一轮自己给出，因此最后一轮之后到时间线容器底部的距离也来自同一个 `pb-4`；
++  时间线容器不再叠加自己的底部留白。
++
+ ## 多端边界
+ 
+ 本模型不改变 task realtime 所有权：
+diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..148563f7a74e2e30b24faaf7805385ddb143ea7c
+--- /dev/null
++++ b/docs/provider-codex-device.md
+@@ -0,0 +1,49 @@
++# Codex 设备码登录
++
++## 产品规则
++
++- 在 Codex 详情保留“使用 ChatGPT 登录”（Token Sharing），新增显式“设备码登录（兼容）”；两者不是自动回退关系。
++- 未连接时不再常驻显示“使用 ChatGPT 账号授权连接，无需填写 OpenAI API Key……”描述；两个登录按钮仍在原位，等待授权、设备码安全提醒、连接结果和错误信息保留。
++- 用户主动点击后才向 OpenAI 申请设备码。界面展示固定官方验证网址、一次性用户码与过期时间，支持复制用户码、打开网页和取消；禁止自动提交设备码或代替用户确认授权。
++- 提醒只使用本人刚在 ZCode 发起的设备码，不分享给他人。失败、拒绝、过期、取消后立即隐藏用户码；错误不暴露上游正文。
++- 第一版沿用拥有本地 Host 的桌面授权范围，不扩大手机 Web / 远程 Host 的登录权限。
++- 一个 Provider 同时只有一个登录尝试；切换方式会取消旧尝试。失败不覆盖原先已连接的凭据，成功才替换，不能把网页登录令牌发送给设备码后端或反过来。
++
++## 协议依据与边界
++
++参照 MIT 的 OpenCode `c93aaae37157d785f76a8e9a9243a6560e286468` 的
++`packages/core/src/plugin/provider/openai.ts`：`Codex device code (legacy)`。
++同时核对 OpenAI Codex 的设备码登录与 Responses / models 协议文档。
++
++- 使用其公开的 Codex OAuth client ID `app_EMoamEEZ73f0CkXaXp7hrann`（不是 Token Sharing 动态注册身份）；User-Agent / originator 标识 ZCode，不冒充 OpenCode。
++- `POST https://auth.openai.com/api/accounts/deviceauth/usercode` 申请码。
++- `POST https://auth.openai.com/api/accounts/deviceauth/token` 轮询；等待 403/404，识别 pending/slow_down/拒绝/过期，不通过缩短间隔规避限流。每次网络 20 秒预算，默认间隔 5 秒加 3 秒余量；登录最多 15 分钟。
++- 返回的 authorization_code / code_verifier 仅发至 `https://auth.openai.com/oauth/token`，redirect_uri 固定 `https://auth.openai.com/deviceauth/callback`；刷新同端点，不携带 Token Sharing resource。
++- 通过 JWKS 校验 ID token 签名、issuer、audience、exp、sub，读取签名内的 ChatGPT account ID；设备码协议无 nonce，不伪造浏览器回调或 sharing scope。
++- 凭据仍归原 CredentialService 加密保存；device_auth_id、授权码、verifier 不进入 Settings、RPC 状态、Provider 配置或日志。用户码只在对应活动尝试的 UI 投影中出现。
++- 模型配置仍保持固定逻辑 OpenAI Responses 身份。Host 单次鉴权材料新增严格枚举 `codexMode=device`，仅 Codex access 可消费；Adapter 将这一明确身份映射到固定 `https://chatgpt.com/backend-api/codex/responses`，不接受任意 endpoint。
++- 两种路由都经过既有网络代理、证书和请求安全边界，不经过 Coding Plan 网关、不跟随重定向。设备码请求使用真实账号头、store=false、stream=true，省略后端不接受的输出上限与采样参数；非流式调用从有界 SSE 的 response.completed 还原最终 JSON，保持原业务调用合同。
++- 模型发现按当前凭据模式访问各自固定 models 端点。设备码目录附 ZCode client_version；只接纳 visibility=list，supported_in_api 不作为 Codex 后端的 API 可用性门槛。目录失败保留手动与既有模型，不用 legacy token 调用 Token Sharing 目录。
++
++## 所有者和时序
++
++```text
++主动点击 → 既有 Codex Host owner → 取消旧 flow / 发现任务 → 保存尝试 revision
++  → 官方取码 → UI 展示 user_code → Host 有界轮询 → 官方换证 / ID 验证
++  → 同一凭据锁内复核 revision 和 flow → 原子保存成功身份 → onConnected → 模型发现
++
++Agent 每个 attempt → 既有 runtime-header RPC → Host 解析 / 刷新当前模式
++  → 严格 codexMode 与本次 token / headers → Adapter 固定路由 → 网络安全边界
++```
++
++- UI 只投影；卸载、取消、重新登录、删除与 Host dispose 中止轮询，迟到响应不能提交；原子写期间取消采用已有回滚语义。
++- 浏览器动态 client ID 单独保留，不把固定 device client ID 填进动态注册字段；旧凭据缺少模式时仍按 Token Sharing 读取。
++- 不自动启动真实授权或读取其他应用凭据；实际账号能否启用设备码、套餐权益和模型可用性需本人授权验收。
++
++## 验收
++
++1. 两个登录入口并存；取码仅在点击后进行；用户码和网址可复制/打开；取消和过期立即清除展示。
++2. 轮询间隔、pending、拒绝、过期、慢轮询、网络失败与 Host dispose 有自动化覆盖；并发登录、删除和迟到换证不可提交。
++3. 成功、重启读取和刷新使用独立模式；错误账号或 ID token 不可保存；失败保留旧连接。
++4. 请求与目录分别验证固定 route / 账号头 / zstd / store / 流式及非流式；Token Sharing 和普通 API Key 行为不变，令牌不进入套餐路由。
++5. UI UT 与浏览器 E2E 覆盖两个入口、显示码、取消、重复切换不残留及中英文/深浅色/窄宽屏；桌面 E2E 验证两个入口并存，不发起真实设备授权。真实账号与 Windows/macOS 不以 mock 或 Linux 结果冒充通过。
+diff --git a/docs/provider-codex.md b/docs/provider-codex.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c7f14caeda521236dcd8e836b6eb5a023c2b874
+--- /dev/null
++++ b/docs/provider-codex.md
+@@ -0,0 +1,58 @@
++# Codex（ChatGPT 登录）供应商
++
++## 产品边界
++
++新增的设备码登录是显式兼容选项，协议、模式隔离和验收见 [设备码登录](provider-codex-device.md)；下文 Token Sharing 的固定端点规则仍适用于原浏览器登录。
++
++- 模型设置“添加供应商 / 其他”增加 Codex（ChatGPT 登录），与 OpenAI API Key 模板并存。
++- 点击模板创建独立个人供应商；详情提供登录、取消、重新登录、断开连接、模型编辑和连接测试。
++- Codex 不显示 API Key 输入，不允许更改协议、端点或鉴权方式；使用 OpenAI Responses HTTP。
++- 第一版只允许在拥有本地 Host 的桌面界面发起浏览器登录。Web、手机远控和远程工作区不得将远端 loopback URL 当成本机回调。
++- 不读取或导入 `~/.codex`、OpenCode 或其他应用的凭据。用户在浏览器中自行授权。
++
++## 源码依据
++
++参照 anomalyco/opencode 提交 `c93aaae37157d785f76a8e9a9243a6560e286468`：
++`packages/core/src/plugin/provider/chatgpt.ts`。该文件与旧 `openai.ts` 的固定客户端 Codex 流程不同，不能混用端点、客户端和 token。
++
++- 首次 `client_id=dynamic_agent_client`，`agent_name_hint=ZCode`；保存本机 host ID 与授权回调签发的 client ID。
++- `https://auth.openai.com/api/accounts/authorize`，随机 loopback 端口，路径 `/auth/callback`，PKCE S256、state、nonce。
++- scope 为 `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`，resource 为 `https://api.openai.com/v1`。
++- 授权码和刷新请求仅发至 `https://auth.openai.com/api/accounts/oauth/token`，均携带 resource。
++- 必须获得 token-sharing scope 和有效 ID token；JWKS 校验 RS256 签名、issuer、audience、exp、sub、nonce。首次缺失 client ID、重新授权返回不同 client ID 均失败。
++- 当前参照版本的远端模型发现被注释，第一版使用其白名单中本项目已支持的模型，不声称在线发现已启用。
++- Codex 卡片由客户端本地能力提供，创建自包含个人配置（不依赖远端模板）；默认模型为 gpt-6-astra、gpt-5.6-sol、gpt-5.6-terra、gpt-5.6-luna。远端模板刷新不能移除此入口。
++- 参考实现 MIT 许可见 `docs/third-party/opencode-codex-MIT.txt`。
++
++## 所有者和时序
++
++```text
++设置卡片 → UI hook → Host Codex OAuth service（唯一登录/刷新 owner）
++                       ├─ loopback listener → 浏览器授权 → state/client/ID-token 校验
++                       ├─ encrypted CredentialService → 保存 token 与动态 clientID
++                       └─ Registry / Settings → 展示模型；绝不写入 token
++
++Agent 每次 attempt → 现有 runtime-headers RPC → Host 校验当前 Codex provider
++                                             → 锁内读取/刷新 token
++                                             → 仅本次请求 auth → Responses / zstd
++```
++
++- 每个 provider 只允许一个活动登录；flow ID 区分尝试。取消、超时、断连、Host dispose 后禁止迟到回调写入。
++- 回调只监听 `127.0.0.1`，先校验 state 再处理 error；限制一次有效回调，不把 provider 错误文本注入 HTML。
++- token 加密存储，刷新在跨进程锁内完成，防止多窗口轮换同一 refresh token；保存前复核登录代次。刷新失败不循环重试，不记录 token、code、授权 URL 或完整响应。
++- 供应商配置只保存 `codex-oauth` 类型，不能保存 access/refresh token。未登录和失效状态必须给出重新登录提示。
++- 请求目标固定为 `https://api.openai.com/v1/responses`，禁止重定向携带 token；原有代理、证书和请求安全边界保留。
++- 请求体在模型 option 映射后进行 zstd 压缩，设置 Content-Encoding，普通 API Key 供应商保持原行为。session/thread/request ID 来自会话，不伪造 OpenCode 客户端身份。
++- 断开连接取消活动 flow 并清除 token；保留注册 client/host identity 供显式重新授权复用。删除 provider 后不能再解析 token。
++- Provider Settings 的删除边界先调用 Host 凭据失效 hook，删除该实例的 token 和注册身份，再移除配置；不能只在 UI 清理。否则自动生成 ID 被新供应商复用时会继承旧登录。清理失败时停止删除并向调用方报错。
++- RPC 仅登记 status/start/startDevice/cancel/disconnect 五个方法；request-auth 解析、实例凭据删除和 dispose 只交给 Host 装配层，不因 TypeScript 接口隐藏而假定运行时不可调用。
++
++## 验收
++
++1. 其他分组存在 Codex 卡片，原 OpenAI 卡片不变；Codex 详情无 API Key 输入，未登录显示“使用 ChatGPT 登录”。
++2. 正确 PKCE/动态 client/state/nonce/JWKS/scope 后才显示已连接；缺失或不匹配时不保存 token。
++3. 拒绝授权、错误 state、重复回调、网络失败、取消、超时和迟到回调可重试，listener 被释放。
++4. 重启后可读取已连接状态；每个物理请求前检查有效期；并发刷新只轮换一次，退出登录不能被旧刷新复活。
++5. 无凭据、非 Codex provider、任意自定义端点不能获取 ChatGPT token；代理和原请求安全行为不变。
++6. Responses 流式文本、工具调用、思考档位与压缩请求有自动化覆盖；账号不具备 token sharing 资格时明确失败，不回退其他应用凭据。
++7. 桌面 E2E 覆盖卡片、详情、取消与错误恢复；真实 OpenAI 登录及模型调用由用户授权后另验，不把 mock 测试当实测成功。
+diff --git a/docs/provider-model-discovery.md b/docs/provider-model-discovery.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b564e6e3d
+--- /dev/null
++++ b/docs/provider-model-discovery.md
+@@ -0,0 +1,57 @@
++# 登录 / API Key 保存后的模型自动发现
++
++## 行为
++
++- Codex 登录完成并安全保存凭据后，按凭据模式自动读取对应目录：浏览器 Token Sharing 为 `/v1/models`，设备码为固定 Codex 后端 `/models`（携带 ZCode client_version 和经验证的账号头），不得混用令牌。
++- 普通 API Key / Coding Plan API Key 供应商在有效 Key、协议、地址或请求头改变并保存后自动读取模型；Key 只在输入草稿中变化时不发请求。创建时已提供 Key 同样触发。
++- 账号型 zhipu-account 继续由原 Account Source 同步，不走通用 Key 发现链路。
++- 模型设置提供“重新获取模型”及 idle/loading/ready/error/unsupported 状态；UI 切换或关闭不拥有、也不重复启动 Host 任务。
++- 每个非账号供应商详情只显示一个模型发现区域。发现区域和模型列表使用不同的组件身份；切换供应商时同时重建，不残留旧区域或模型编辑草稿。
++- “重新获取模型”放在模型列表标题右侧，与“添加模型”并排，窄屏可换行但不横向溢出。状态与参数来源说明放入悬浮/键盘焦点提示，不再常驻占两行；加载禁用按钮，失败时按钮明确显示可重试状态，无障碍状态继续播报。
++- 读取模型列表不发聊天请求，不测额度，不自动切换当前模型或默认模型。
++- 成功后按 ID 去重并追加新模型，接口明确提供的参数作为独立来源更新；保留现有模型、顺序、启停、手动固定参数与个人覆盖。失败、空列表、分页不完整均不提交。
++- 模型名称使用供应商返回的可调用 ID。Codex 返回的 slug 对应 ID；不把 display_name 当成调用名。
++
++## 参数来源
++
++- Codex：参照 OpenCode `c93aaae` 的 `fetchModels/deriveModels`，只接纳 visibility=list 且 supported_in_api=true 的目录；读取 context_window、input_modalities、supported_reasoning_levels。
++- 显式设备码登录使用 Codex 后端目录，只要求 visibility=list；supported_in_api 不代表 Codex 后端授权。能力字段仍只读取接口返回值，失败保留已有配置。路由与身份见 `provider-codex-device.md`。
++- Codex 的离线窗口由统一 Provider Model Resolver 提供，不依赖登录、目录请求或启动时写盘；Registry、模型选择和模型编辑预览使用同一规则。仅作用于 `codex-oauth`，不修改 API Key 模型。已核实型号按官方 Codex 目录登记默认工作窗口（当前 Astra、6/6.1 Sol、6 Luna、5.6 系列为 `272000`）；Spark 的历史窗口单列为 `128000`。日期快照继承同型号默认；未知型号不猜 272k/1M，没有接口或手动窗口时不进入可执行 Registry。
++- 窗口优先级为：手动固定/个人覆盖 > 最新接口字段 > Codex 离线默认 > 普通推荐。`max_context_window` 是可配置上限，不等于已启用工作窗口，不自动升级到该值。窗口沿用现有 compact 预留策略，不用总窗口减输出推算所有型号。
++- 每条个人模型规则的可选 `discoveredConfig` 只保存接口明确返回的稀疏能力，不含 enabled、凭据或本地兜底。刷新替换该来源（包含字段消失），而 `config` 仍只保存用户覆盖；手动模式下也可更新来源，但不得修改其最终固定值。禁用不复制接口字段，切回智能推荐清除个人字段但保留接口来源；重命名清除旧型号的接口来源，删除同时清除两者。
++- 旧配置没有来源标记的字段继续视为个人覆盖，不按数值猜测并清除，以免损坏用户设置。切回智能推荐可解除旧冻结值；新增接口数据均写入 `discoveredConfig`，文件编解码必须保留它。
++- OpenAI / 兼容 API：`GET <base>/models`，标准列表通常只有 id；如网关明确返回 context_window/context_length、max_output_tokens、input_modalities 等则读取，不根据模型名伪造参数。
++- Anthropic：`GET <base>/v1/models`，按 after_id/limit 读取完整分页；如有 max_input_tokens/max_tokens 则作为上下文预算 / 输出上限。
++- 未报告字段不生成个人覆盖；状态中的“包含接口参数”只统计真实接口字段，本地窗口兜底不计入。界面说明接口字段会更新、个人覆盖优先，以及 Codex 离线兜底与未知窗口的区别。
++
++## 所有者 / 时序
++
++```text
++Key 保存 → ProviderSettings Service → 比较有效鉴权配置 → 取消旧目录任务 → 保存配置 → schedule
++Codex 登录完成 → CredentialService 提交 → Codex owner 的 onConnected → schedule
++                                                            ↓
++Host Model Discovery owner（每 Provider 单一任务、重复触发合并）
++  → 捕获 Settings revision 与鉴权配置 → GET 完整目录 → 校验/归一化
++  → 复核 revision / 身份 / 取消代次 → Facade / Config Service 单次事务追加与补齐
++  → Registry 发布 → Settings 与模型选择器更新
++```
++
++- 新 Key、地址、协议、退出登录、删除供应商会取消旧任务并等待其退出；旧请求不得写入新身份或复活删除对象。
++- 合并经 Facade 的 Provider 队列，Repository 锁内复核 Personal revision、发布快照和任务代次；并发手动编辑造成冲突时停止，不覆盖、不自动重放旧结果。
++- 发现状态只保存进程内进度；唯一模型事实仍是原 Provider Config / Registry，不建第二份模型目录或凭据库。
++- Host 关闭时中断请求，不制造未处理 rejection；不记录 token、Key、完整请求头、响应正文或带秘密的 URL。
++- 端点只由当前 Provider 的协议与 baseUrl 构造，禁止 URL 用户名密码、query/hash 和重定向。Codex 严格固定 OpenAI origin，复用原 Host 代理/证书传输，不经过套餐端点路由。
++- 每次任务 20 秒预算、响应累计最多 4 MiB、最多 10 页 / 1000 个模型；全部分页完成后才提交。
++
++## 验收
++
++1. Key 保存及 Codex 登录成功只触发一次发现；编辑名称或模型参数不重复请求；无 Key、未登录和 zhipu-account 不触发。
++2. Codex / OpenAI / Anthropic 的列表、分页、ID 去重和参数归一化正确；ID 不得替换为显示名。
++3. 追加与参数补齐是一次事务；保留手动覆盖、禁用、既有成员和排序，智能推荐继续有效。
++4. HTTP 401/403、404/405、不合法响应、空列表、分页循环、超限、超时均可见且不损坏原配置。
++5. 换 Key、退出登录、删除、并发编辑、Host dispose 下的旧结果不能提交。
++6. 桌面 E2E 使用本地目录 fixture 覆盖保存 Key 后出现模型与参数、失败保留和手动刷新；真实供应商授权与目录权限需用户账户另验。
++7. 反复切换 API Key / Codex 供应商时，发现区域始终只有一个，模型列表没有残留；切到账号型供应商时不显示发现区域，且不因切换自动发起发现。
++8. 获取模型和添加模型属于同一标题操作区；说明默认折叠，刷新功能、失败反馈、键盘提示和切换后单实例语义不变。
++9. 已有 Codex 配置离线解析即可得到已知工作窗口；目录失败/缺字段不退回 API 的 1.05M。连续刷新窗口增大或减小均更新，个人覆盖与禁用保持，切回智能、重命名、删除和文件重读后来源仍正确。
++10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
+diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..09d74e5f569e4ef19e2e1c87def63cbc98345ea4
+--- /dev/null
++++ b/docs/session-context-and-mcp-diagnostics.md
+@@ -0,0 +1,49 @@
++# 会话上下文来源与 MCP 诊断
++
++## 范围与所有者
++
++- 上下文配置值和来源由 ProviderConfigResolver 唯一解析，SettingsFacade 仅投影。优先级仍为个人覆盖 > 接口发现 > Codex 已核实离线兜底 > 内置推荐。来源按参与覆盖的字段判定，不按数值相等猜测；旧个人字段仍标个人覆盖，未知型号没有窗口时不伪造来源。
++- 会话窗口、用量、自动压缩阈值只消费 SessionUsageState。当前选择模型的配置与会话窗口是两个事实，分别展示，不宣称当前配置就是历史会话窗口来源。
++- MCP 配置和状态仍归 mcpStore/现有 MCP 服务；诊断模块只有纯展示投影。展开状态和复制反馈属于 renderer-local，不持久化。
++
++```text
++Provider rules → Resolver（值 + 来源）→ SettingsFacade → 当前模型配置说明
++Runtime → SessionUsageState → 会话窗口 / 已用量 / 压缩阈值说明
++用户刷新 → 现有 mcp/list(mode=status) → 同一 mcpStore → 诊断详情
++用户连接检查 → 现有 mcp/list(mode=connect) → 同一 mcpStore
++```
++
++## 上下文展示
++
++- 显示配置窗口数值，下方保留“模型名 · 简短来源”（个人覆盖、接口发现、Codex 离线兜底、内置推荐、未知）。只使用正的有限窗口。
++- 会话用量沿用现有仪表、分项比例和缓存口径；没有会话用量时不额外显示提示，也不编造 0% 用量。
++- 只在会话确实上报正的有限且不超过会话窗口的阈值时展示自动压缩阈值和距阈值剩余量；后者为 max(0, threshold-used)，标签标明估算，不等同保证可发送预算。阈值缺失/异常时隐藏该区域，不反推固定比例。
++- 不显示运行时来源、阈值缺失或历史窗口差异的解释段落；界面只保留模型名、配置窗口、简短来源和有效阈值数据。
++- 切换模型/供应商、配置刷新或来源字段消失后使用当前投影；不保存一份可能过期的来源状态。保留压缩命令的既有运行/排队保护。
++
++## MCP 诊断
++
++- 每个服务器可展开查看配置来源、作用范围、工具数（含零）、最后连接时间、故障分类、请求 ID 和脱敏错误。未提供字段明确未知，不伪造测试延迟或工具名单。
++- 打开及“刷新状态”只请求 status，不启动新连接；旧运行时不支持 status 时提示使用显式“连接检查”，不暗中回退到 connect。连接检查沿用现有权限/OAuth 行为，不自动打开浏览器。
++- 请求完成前关闭面板、切换 workspace/identity/authority 或启动较新请求后，旧请求不得写入当前展示；mcpStore 原有 epoch 合并保护继续有效。Desktop continuous 与 Web replayable 都只消费同一状态所有者，不增加协议事件。
++- 诊断正文用白名单构造，不序列化 config、命令参数、环境变量、headers、OAuth URL 或配置路径。错误文本先移除配置中已知敏感值，再用现有反馈脱敏器过滤。显示与复制使用同一脱敏正文；复制失败给出提示，不记录原始错误内容。
++- “打开 MCP 设置”先关闭面板，再复用现有设置导航；完整编辑、工具管理、授权仍由原设置页承载。
++
++## 右侧会话信息栏
++
++- 复用 ConversationStatusPanel 的唯一展开/收起状态和会话容器断点，不新增平行侧栏。宽屏显示紧凑卡片，窄屏保留可展开摘要；不挤掉输入区，不改变 Browser/Side Pane 的生命周期。
++- 卡片顺序为上下文、连接器、改动，独立折叠。原有 Goal、计划、终端、工作流和子代理入口保留。
++- 上下文总量来自当前 SessionUsageState.contextWindow，显示已用/窗口、占用率、剩余空间及真实压缩阈值。无有效用量显示“尚无上下文用量”，不伪装成 0%。配置窗口及来源复用 Resolver 投影，不能拿本机配置解释远程模型。
++- 缓存命中率直接取运行时上报的 `cache.hitRate`；信息栏是诊断视图，不套用工具栏 78% 的展示阈值。未上报或非有限值时不显示该项，不显示 0%。
++- 轮尾时间旁显示本轮的 token 速率：`turnHeader.outputTokens ÷ turnHeader.modelDurationMs`（输出 token / 模型耗时，不含工具执行与等待）。任一字段缺失、为 0 或非有限值时整段不显示，不用总耗时或字符数推算。两个字段都由 CLI 投影对**每个主轮**聚合，不限于高速轮：`outputTokens` 在 ModelComplete 累计，`modelDurationMs` 在 ModelNetworkStatus 的主链路请求完成/失败时累计 `durationMs`；高速轮额外带 `toolDurationMs`/`otherDurationMs` 供加速节省计算。
++- 分项沿用现有 breakdown 的字符占比，明确标注口径；不能按字符数推算精确 token 数，不展示没有上报的 memory files、since-last-update 等字段。总占用条只编码已用容量，不把字符占比冒充窗口分项 token。
++- 连接器嵌入既有 SessionResourceControls（Skills/MCP 当前会话开关），不新增连接、不改配置或授权。分组顺序固定为 MCP 在前、Skills 在后：MCP 服务器数量少且多为 0，先显示能让「暂无可用资源」的短分组先收口，避免它被一长串 Skills 挤到折叠区底部而看不见。分组默认折叠，标题行只给数量（`已启用/总数`），避免长列表一进来就把卡片撑满；展开是 renderer 局部状态。列表项与分组标题左对齐：开关行的左侧内边距等于标题行内边距加上 chevron 与其间距，读起来才是同一列的层级，而不是比标题更靠左。改动显示同一工作区 Git 摘要，复用现有 review、分支切换及提交对话框，不自动执行提交。
++- 展示数据直接来自当前 pane 的 props/snapshot；切换会话、工作区和远程 scope 后不保存旧数据副本。折叠状态仅属 renderer 展示状态。
++
++## 验收
++
++1. Resolver 验证等值但不同来源、个人覆盖、接口字段增减/消失、已知/未知 Codex 型号与普通 API 推荐。
++2. UI 验证来源标识、当前配置与旧会话窗口不同、无用量、阈值有效/缺失/异常/已越过。
++3. MCP 验证展开、零工具、脱敏复制、复制失败、设置导航、status/connect 参数、关闭/切换后的迟到结果和 status 不支持。
++4. 桌面定向 E2E 覆盖真实页面的上下文说明和 `/mcp` 诊断交互；不把 mock 结果表述为真实外部授权成功。窄窗口、深浅主题验证不溢出。
++5. `session-inspector.test.mjs` 用真实状态面板与信息栏组件覆盖中英文、Zai 深浅主题、320/1200/1280/1440 容器宽度、键盘折叠、资源命令与首选 Git review source、只读和未知状态；fixture 回调不代替真实连接/提交验证。
+diff --git a/docs/session-resource-controls.md b/docs/session-resource-controls.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d96224eb818762120d1663c78645537ec84e9b4b
+--- /dev/null
++++ b/docs/session-resource-controls.md
+@@ -0,0 +1,33 @@
++# 当前会话 Skills / MCP 快捷管理
++
++## 范围与所有者
++
++聊天右侧复用 ConversationStatusPanel，增加可折叠的 Skills 和 MCP 分组，逐项一键启停，标注“当前会话”。窄屏沿用现有 mini/panel 行为，不增加第二条侧栏。首条消息前的草稿不提供开关。
++
++Core runtime 的 SessionResourceController 是禁用策略唯一所有者；UI 只展示 V4 快照及请求中的忙碌状态。配置级禁用资源不因会话开关重新启用。不开关连接、不修改用户/工作区配置、不删除资源、不撤销 OAuth 或权限。其他会话（含独立子会话）策略不变；此功能不是阻止任意文件/网络访问的安全沙箱。
++
++```text
++UI → 现有 V4 命令/owner/lease → runtime 串行资源变更
++  → 持久化 session entry → 发布策略 → session_resources_updated → snapshot/delta → UI
++desktop: continuous ───────────┐
++mobile: snapshot + gap repair ─┴─ 同一 runtime、同一序列
++```
++
++会话内按资源 kind + 稳定 id 幂等设值，不发送 toggle。Skill 使用实际解析的 qualifiedName（缺省 name），不按显示名或路径子串匹配；MCP 使用实际端口路由 serverName，不把展示元数据或工具名前缀当授权身份。
++
++资源读取/单项设值不要求整条会话 baseRevision CAS（无关聊天事件不能使一次资源点击失效），仍复用信封 commandId 去重与现有 owner/epoch 路由。单项写入只更新该 id，避免多端覆盖整份名单。
++
++## 执行与持久化
++
++- 策略保存到当前 session 的 `session/resource-policy` 稳定 entry；只存 revision 和禁用 id，不存工具参数、Skill 正文、连接地址或凭据。不改 SQLite 结构。
++- 冷恢复先恢复并严格校验策略，再允许工具使用；损坏策略报错，不静默放行。持久化失败不发布成功，不改变已接受策略。并发修改串行，失败不毒化后续命令。
++- 禁用只影响提交成功之后新进入的 Skill 加载/MCP 调用，已经发出的调用不强停。权限等待后、进入真实 MCP 端口前重新读取策略；重新启用仍经过原权限、hook、schema 和配置约束。
++- Skill 真实解析完成后、正文进入模型前校验，别名不能绕过。已进入历史的 Skill 内容和工具结果不会被撤回。
++- MCP 直接、DeferredToolCall、MCP App 工具回调及资源读取/订阅共用同一会话守卫；清理退订仍允许。状态刷新不主动连接服务器。
++- 资源目录从该 runtime 的 Skill 冻结目录和 MCP 配置/现有状态派生；关闭项目配置的资源不伪装成可启用。runtime 不支持命令、读取失败、会话未就绪时显示可重试错误/禁用操作，不以全局设置降级。
++- 每个资源带 `source`（`builtin` / `plugin` / `user`）。Skill 按解析来源归类：`bundled`、`zcode` 为 builtin，`plugin` 为 plugin，其余（agents / project / user 安装）为 user；MCP 中 `node_repl` 为 builtin，`plugin:` 前缀为 plugin，其余为用户配置。右侧连接器卡片只列 `user` 资源，ZCode 自带与插件提供的连接器不进入列表；这不改变 runtime 的策略所有权或开关语义，被隐藏的资源仍按配置与会话策略生效。
++- 会话/工作区/连接代际切换后丢弃迟到 UI 结果；多端状态经权威 snapshot/delta 更新。只读共享视图不提供变更。
++
++## 验收
++
++覆盖单项关闭/恢复、其他会话隔离、重启恢复、并发修改、保存失败、损坏策略、Skill 别名、权限等待期间关闭、DeferredToolCall/MCP App、配置不写入、旧 runtime 不支持。UI 覆盖折叠、键盘开关、忙碌/错误/空列表、中英文、深浅主题、320px/1200px，保留原 Git/任务状态栏与上下文诊断。
+diff --git a/docs/third-party/opencode-codex-MIT.txt b/docs/third-party/opencode-codex-MIT.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e983f8ef5b6b3990fb508771b16b3b7b2cd6a06b
+--- /dev/null
++++ b/docs/third-party/opencode-codex-MIT.txt
+@@ -0,0 +1,25 @@
++Protocol implementation reference: anomalyco/opencode
++Commit: c93aaae37157d785f76a8e9a9243a6560e286468
++File: packages/core/src/plugin/provider/chatgpt.ts
++
++MIT License
++
++Copyright (c) 2025 opencode
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/docs/ui/login-page.md b/docs/ui/login-page.md
+index 38c6010a7a0b8e00d5640aa5623de8ee38139ae7..e68084389f64cb6c20fb1d5e0e53b253b1dbd03a 100644
+--- a/docs/ui/login-page.md
++++ b/docs/ui/login-page.md
+@@ -1,10 +1,10 @@
+ # Login Page
+ 
+-启动阶段如果没有恢复到 OAuth 用户，且没有可用模型供应商配置，Root 会展示 `WelcomeScreen`。
++启动阶段不再自动展示登录页：如果没有恢复到 OAuth 用户，且没有可用模型供应商配置，Root 直接进入主界面，并在没有已打开 workspace 时兜底创建默认 workspace。登录页只由手动登录、模型供应商连接或会话过期打开。
+ 
+ 所有应用内登录入口都收敛到 `WelcomeScreen`，并复用 `LoginPanel` 的 OAuth 和 API Key 流程，避免手动登录、启动引导、模型供应商连接出现多套状态机：
+ 
+-- 启动自动引导：`WelcomeScreen`，由 provider 可用性守卫打开
++- 启动引导：不自动打开登录页；Root 直接进入主界面
+ - 手动登录入口：`WelcomeScreen`，从设置页或 workspace shell 的登录操作打开
+ - 模型供应商连接：`loginEntryRequest` 会打开 `WelcomeScreen` 并自动启动指定 provider 的 OAuth
+ - 登录内容容器：使用 `bg-background`、`border-popover-border`、`shadow-md`
+@@ -26,6 +26,6 @@ API Key 登录表单在输入框为空时于右侧展示 `Get API Key` 外链入
+ 
+ API Key 登录表单的取消按钮底部展示“跳过”链接按钮。跳过只写入当前选择 provider 对应的 `providerFamilyDomain`、`providerFamilyDomainUpdatedAt` 和 `providerFamilyDomainMigrated`，用于确认 Z.ai / BigModel 运行域；它不保存 API Key、不触发 API Key 登录成功事件，也不修改 `modelProviderFamilyModes`。
+ 
+-启动自动引导完成后有一个新用户直达路径：如果当前没有已打开 workspace，Root 使用 Main 注入的 conversation descriptor，必要时通过 `fileService.ensureConversationWorkspace()` 幂等确保 `<dataBaseDir>/.zcode/workspace/default` 存在。该 workspace 提供真实 cwd，但 UI 保持“未选择项目”，用户无需经过项目选择页即可直接对话。若用户跳过登录且仍没有可用模型，该草稿首页按上一条规则显示 `modelConfigMissing` 横幅。
++启动未打开登录页时有一个新用户直达路径：如果当前没有已打开 workspace，Root 使用 Main 注入的 conversation descriptor，必要时通过 `fileService.ensureConversationWorkspace()` 幂等确保 `<dataBaseDir>/.zcode/workspace/default` 存在。该 workspace 提供真实 cwd，但 UI 保持“未选择项目”，用户无需经过项目选择页即可直接对话。若用户跳过登录且仍没有可用模型，该草稿首页按上一条规则显示 `modelConfigMissing` 横幅。
+ 
+ 手动登录和模型供应商连接完成后只关闭 `WelcomeScreen` 并回到原界面，不会创建默认 workspace。
+diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080f9de2638
+--- /dev/null
++++ b/docs/ui/navigation-entry-removals.md
+@@ -0,0 +1,10 @@
++# Navigation entry removals
++
++This fork intentionally hides entries that do not lead to a supported product flow:
++
++- The Settings sidebar does not show `computerUse` / 「电脑控制」 on any platform. The section id, history preference and old navigation intents are retained for compatibility; any remaining intent resolves to `general`. The underlying Computer Use implementation is not deleted, so the entry can be restored by removing `computerUse` from `HIDDEN_SETTINGS_SECTIONS`.
++- The desktop sidebar footer does not render the phone / Web remote-control trigger. The remote-control dialog, host services and mobile `/remote` flow are unchanged; only this desktop entry is removed.
++- The account entry (avatar plus 「连接使用」 / "Connect") is not rendered in either sidebar footer. `WorkspaceSidebarFooter` takes `hideAccountEntry`, and both the project sidebar and the Settings sidebar set it, so the Settings page keeps only its navigation and the back button. The footer account menu was the only place that grouped account identity, logout, locale, theme and zoom; with it gone those controls come from the sections that own the state — model settings owns coding-plan login, and app appearance/language live in 「外观」 and 「常规」. The onboarding flow is unchanged.
++- The sidebar activity slot does not render marketing banners (the seasonal claim-token card). `SidebarBottomActivity` now shows only the highspeed share notice from `GlobalNoticeSurface`. Marketing popups, delivery queries, reporting and the `/mcp`-style surfaces are untouched; restore the banner by rendering `<MarketingBanner />` when `useMarketingBannerVisible()` is true.
++
++Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger and that `hideAccountEntry` drops the account trigger while keeping the settings button; `sidebarBottomActivity.test.ts` checks the slot never renders the marketing banner but still arbitrates highspeed notices.
+diff --git a/docs/ui/tool-inline-diff.md b/docs/ui/tool-inline-diff.md
+index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..926f37a644a7c40a9b7302d1aff064731b16f541 100644
+--- a/docs/ui/tool-inline-diff.md
++++ b/docs/ui/tool-inline-diff.md
+@@ -21,7 +21,7 @@
+ 
+ - 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
+ - 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
+-- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
++- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write` 与 `execute`（命令输出）在**运行中默认展开**，实时显示 diff / 输出，完成后不单独收起，由整条 assistant 消息的默认折叠边界统一收口（用户手动折叠优先，`autoOpen` 只展开一次）
+ - 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
+ - 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
+ - “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现
+diff --git a/docs/zai-start-plan-provider.md b/docs/zai-start-plan-provider.md
+index 18c931bc74ed7c922034e8ebf8130c89f38f22fb..e725ca65affa52831500a365b06a4c8479a09693 100644
+--- a/docs/zai-start-plan-provider.md
++++ b/docs/zai-start-plan-provider.md
+@@ -22,7 +22,7 @@ Start 余额查询与个人 Coding Plan 查询独立；Team 需要具体组织/
+ 
+ Start 跟随当前 App 登录，无需单独连接。`current` 表示匹配账号访问上下文：同一品牌的 Start 与当前个人／团队可以同时为 true；Start 的 connectionKey 不包含付费套餐选择。到期、未知、模型禁用等仍按原权益及 Registry 校验，登录不代表自动领取。
+ 
+-设置页在“智谱”分组并列显示独立 `Start Plan`，两家共用用户提供的 Z 字图标（`model-provider-start-plan.png`，深浅主题使用同一原图），保留原 `account:*` ID；个人／团队套餐继续使用各自品牌图标。Start 详情保留权益、额度、领取和模型管理，移除连接／断开以及付费连接下拉；浏览和领取不改变付费连接。
++设置页“智谱”分组只显示 `Z.ai` 与 `BigModel` 两个预置入口，不再并列显示两个同名独立 `Start Plan` 入口；侧栏隐藏后不再提供 Start 详情直达入口。Start 继续使用原 `account:*` ID 与同一 Provider 承载权益、额度、领取和模型成员，模型选择、推荐和领取链路不因此改变，个人／团队套餐继续使用各自品牌图标。Start 详情保留权益、额度、领取和模型管理，移除连接／断开以及付费连接下拉；浏览和领取不改变付费连接。
+ 
+ 模型选择菜单中，两家体验套餐分组标题统一为 `Start Plan`，胶囊标签中文显示“免费”、英文显示“Free”；聊天、定时任务、子智能体和 Wiki 使用同一展示规则。分组内保留实际模型列表和原有能力标签，不改变 Provider／模型选择值。
+ 

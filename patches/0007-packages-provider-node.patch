@@ -1,0 +1,45 @@
+diff --git a/packages/provider-node/test/config-file-codec.test.ts b/packages/provider-node/test/config-file-codec.test.ts
+index bfb762b063baeb2242be21fc1a711afb80f889a9..1bd0981d912add1adf383ac14227857b8e381a0c 100644
+--- a/packages/provider-node/test/config-file-codec.test.ts
++++ b/packages/provider-node/test/config-file-codec.test.ts
+@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
+ import {
+   ApiKeyAccessConfig,
+   ModelConfigRules,
++  ModelConfig,
+   ProviderConfig,
+   ProviderConfigMap,
+   extractManualModelConfig,
+@@ -13,6 +14,32 @@ import {
+ } from "../src/provider-config-file-codec.js";
+ 
+ describe("provider-node private config codecs", () => {
++  it("round-trips API metadata separately from personal fields and rejects generated enabled", () => {
++    const models = ModelConfigRules.empty()
++      .setExact(
++        "p",
++        "gpt-6-astra",
++        ModelConfig.fromData({ enabled: false, properties: { contextWindow: 512000 } }),
++      )
++      .setDiscoveredExact(
++        "p",
++        "gpt-6-astra",
++        ModelConfig.fromData({ properties: { contextWindow: 872000 } }),
++      );
++    const encoded = encodeProviderConfigFile({ providers: ProviderConfigMap.empty(), models });
++    const decoded = decodeProviderConfigFile(encoded);
++    expect(decoded.models.getExact("p", "gpt-6-astra")?.toJSON()).toEqual({
++      enabled: false,
++      properties: { contextWindow: 512000 },
++    });
++    expect(decoded.models.getDiscoveredExact("p", "gpt-6-astra")?.properties?.contextWindow).toBe(
++      872000,
++    );
++    expect(encodeProviderConfigFile(decoded)).toEqual(encoded);
++    expect(() =>
++      models.setDiscoveredExact("p", "gpt-6-astra", new ModelConfig({ enabled: true })),
++    ).toThrow();
++  });
+   it.each([true, false])("Todo134：旧手动 MFJS=%s 可读取，但不继续固化隐藏字段", (value) => {
+     const config = {
+       properties: {

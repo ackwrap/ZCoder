@@ -1,0 +1,1090 @@
+diff --git a/packages/provider/src/config-service.ts b/packages/provider/src/config-service.ts
+index 5ae36c696cf780473589daa044d8f64f404a92c5..867597d093f4ca1cf38f882d149d1e9a0f549f62 100644
+--- a/packages/provider/src/config-service.ts
++++ b/packages/provider/src/config-service.ts
+@@ -365,6 +365,46 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
+     });
+   }
+ 
++  /** Host 目录导入：成员与接口来源一次提交；不能把自动字段写成永久个人覆盖。 */
++  async mergeDiscoveredModels(
++    providerId: ProviderId,
++    discovered: readonly { readonly modelId: ModelId; readonly config: ModelConfig }[],
++    membership: ProviderModelMembership,
++  ): Promise<ProviderConfigLayerSnapshot> {
++    const builtin = await this.#zcodeBuiltinSource.read();
++    return this.#updatePersonal((current) => {
++      assertMembershipCurrent(membership, providerId, current);
++      const provider = writableProviderOverlay(builtin, current, providerId);
++      const inherited = membership.inheritedModelIds;
++      const personal = [...(provider.personalModelIds ?? [])];
++      let models = current.models;
++      for (const { modelId, config } of discovered) {
++        assertNonEmptyId("modelId", modelId);
++        const exists = inherited.includes(modelId) || personal.includes(modelId);
++        if (!exists) personal.push(modelId);
++        if (!exists)
++          models = models.setExact(
++            providerId,
++            modelId,
++            new ModelConfig({ enabled: true }).overlay(
++              models.getExact(providerId, modelId) ?? ModelConfig.empty(),
++            ),
++          );
++        models = models.setDiscoveredExact(providerId, modelId, config);
++      }
++      return {
++        providers: current.providers.set(
++          providerId,
++          provider
++            .withPersonalModelIds(personal)
++            .withModelOrder(normalizeModelOrder(inherited, personal, provider.modelOrder ?? [])),
++        ),
++        models,
++        providerOrder: current.providerOrder,
++      };
++    });
++  }
++
+   async renamePersonalModel(
+     providerId: ProviderId,
+     currentModelId: ModelId,
+@@ -512,7 +552,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
+       }
+       models =
+         recommended && isStructurallyEmpty(config.toJSON())
+-          ? models.deleteExact(normalizedProviderId, nextId)
++          ? models.clearExactOverride(normalizedProviderId, nextId)
+           : models.setExact(normalizedProviderId, nextId, config, recommended);
+       return { providers, models, providerOrder: current.providerOrder };
+     });
+diff --git a/packages/provider/src/config/model-config.ts b/packages/provider/src/config/model-config.ts
+index beb7e9a57340768591de3aab07d6cf60eaf9dfbb..4891394a677e4ea18fcd1c4ef37700520f8f1147 100644
+--- a/packages/provider/src/config/model-config.ts
++++ b/packages/provider/src/config/model-config.ts
+@@ -384,12 +384,14 @@ export class ModelConfigRules {
+     return this.#rules;
+   }
+ 
+-  resolve(input: ModelConfigRuleResolutionInput): ModelConfig {
+-    let result = ModelConfig.empty();
++  resolve(input: ModelConfigRuleResolutionInput, initial = ModelConfig.empty()): ModelConfig {
++    let result = initial;
+     const baseUrl = input.baseUrl == null ? undefined : normalizeBaseURLForRuleMatch(input.baseUrl);
+     for (const rule of this.#rules) {
+       if (isExactModelRule(rule)) {
+         if (rule.providerId !== input.providerId || rule.modelId !== input.modelId) continue;
++        if (rule.discoveredConfig)
++          result = result.overlay(ModelConfig.fromData(rule.discoveredConfig));
+         // 手动规则要求所有可编辑叶子齐全，因此可直接覆盖；系统叶子继续来自当前身份的规则。
+         // 清空整份基线会既丢失系统映射，也迫使 UI 把旧模型的隐藏配置复制进个人规则。
+         result = (
+@@ -441,6 +443,9 @@ export class ModelConfigRules {
+       providerId,
+       modelId,
+       config,
++      ...(previous?.discoveredConfig === undefined
++        ? {}
++        : { discoveredConfig: previous.discoveredConfig }),
+     };
+     const result: ModelConfigRule[] = [];
+     let replaced = false;
+@@ -456,6 +461,39 @@ export class ModelConfigRules {
+     return new ModelConfigRules(result);
+   }
+ 
++  /** 目录每次替换自己的完整稀疏快照，不改写任何用户字段（包括手动模式）。 */
++  setDiscoveredExact(providerId: string, modelId: string, config: ModelConfig): ModelConfigRules {
++    const discoveredConfig = config.toJSON();
++    providerModelConfigRuleSchema.shape.discoveredConfig.parse(discoveredConfig);
++    // 历史文件可能有重复的稀疏精确规则，收敛来源时也必须保留它们叠加后的用户叶子。
++    const prepared = this.setExact(
++      providerId,
++      modelId,
++      this.getExact(providerId, modelId) ?? ModelConfig.empty(),
++    );
++    return new ModelConfigRules(
++      prepared
++        .rules()
++        .map((rule) =>
++          isExactModelRule(rule) && rule.providerId === providerId && rule.modelId === modelId
++            ? { ...rule, discoveredConfig }
++            : rule,
++        ),
++    );
++  }
++
++  getDiscoveredExact(providerId: string, modelId: string): ModelConfig | undefined {
++    const config = this.getExactRule(providerId, modelId)?.discoveredConfig;
++    return config === undefined ? undefined : ModelConfig.fromData(config);
++  }
++
++  /** 恢复推荐只清用户覆盖；否则一次编辑会把最新接口能力一并删掉。 */
++  clearExactOverride(providerId: string, modelId: string): ModelConfigRules {
++    if (this.getDiscoveredExact(providerId, modelId) === undefined)
++      return this.deleteExact(providerId, modelId);
++    return this.setExact(providerId, modelId, ModelConfig.empty(), true);
++  }
++
+   deleteExact(providerId: string, modelId: string): ModelConfigRules {
+     return new ModelConfigRules(
+       this.#rules.filter(
+@@ -474,7 +512,7 @@ export class ModelConfigRules {
+     return new ModelConfigRules(
+       this.#rules.map((rule) =>
+         isExactModelRule(rule) && rule.providerId === providerId && rule.modelId === currentModelId
+-          ? { ...rule, modelId: nextModelId }
++          ? { type: rule.type, providerId, modelId: nextModelId, config: rule.config }
+           : rule,
+       ),
+     );
+diff --git a/packages/provider/src/config/provider-config.ts b/packages/provider/src/config/provider-config.ts
+index a566b1333d3cb111af73171610789600b5cb4c91..171ba1281e8647e0332418426977f06565446616 100644
+--- a/packages/provider/src/config/provider-config.ts
++++ b/packages/provider/src/config/provider-config.ts
+@@ -111,7 +111,27 @@ export class ZhipuAccountAccessConfig extends ConfigOverlay<ZhipuAccountAccessCo
+   }
+ }
+ 
+-export type ProviderAccessConfig = ApiKeyAccessConfig | ZhipuAccountAccessConfig;
++export class CodexOAuthAccessConfig extends ConfigOverlay<CodexOAuthAccessConfig> {
++  readonly type = "codex-oauth" as const;
++  constructor() {
++    super();
++    Object.freeze(this);
++  }
++  overlay(next: CodexOAuthAccessConfig): CodexOAuthAccessConfig {
++    return next;
++  }
++  validateComplete(): readonly ConfigValidationIssue[] {
++    return [];
++  }
++  toJSON(): { type: "codex-oauth" } {
++    return { type: this.type };
++  }
++}
++
++export type ProviderAccessConfig =
++  | ApiKeyAccessConfig
++  | ZhipuAccountAccessConfig
++  | CodexOAuthAccessConfig;
+ 
+ export type ProviderAccessConfigObject = Readonly<z.infer<typeof providerAccessDataSchema>>;
+ 
+@@ -505,6 +525,8 @@ function overlayProviderAccess(
+       return current.overlay(next as ApiKeyAccessConfig);
+     case "zhipu-account":
+       return current.overlay(next as ZhipuAccountAccessConfig);
++    case "codex-oauth":
++      return next;
+   }
+ }
+ 
+diff --git a/packages/provider/src/config/provider-data-schema.ts b/packages/provider/src/config/provider-data-schema.ts
+index 273bd346ecfc8c4329cd53efcad0f477204fa094..614d764b4ed6e74d63e88deb4e36e75db57196f4 100644
+--- a/packages/provider/src/config/provider-data-schema.ts
++++ b/packages/provider/src/config/provider-data-schema.ts
+@@ -57,10 +57,12 @@ export const zhipuAccountAccessDataSchema = z
+ export const providerAccessDataSchema = z.discriminatedUnion("type", [
+   apiKeyAccessDataSchema,
+   zhipuAccountAccessDataSchema,
++  z.object({ type: z.literal("codex-oauth") }).strict(),
+ ]);
+ export const completeProviderAccessDataSchema = z.discriminatedUnion("type", [
+   completeApiKeyAccessDataSchema,
+   completeZhipuAccountAccessDataSchema,
++  z.object({ type: z.literal("codex-oauth") }).strict(),
+ ]);
+ 
+ export const completeProviderApiDataSchema = z
+diff --git a/packages/provider/src/config/rule-data-schema.ts b/packages/provider/src/config/rule-data-schema.ts
+index 509b55491902c4850e743dff1d141a1f9833e024..2c77d40fedc840034015be114c410933deac5ea1 100644
+--- a/packages/provider/src/config/rule-data-schema.ts
++++ b/packages/provider/src/config/rule-data-schema.ts
+@@ -47,6 +47,8 @@ export const providerModelConfigRuleSchema = templateModelConfigRuleSchema
+   .omit({ templateId: true })
+   .extend({
+     providerId: idSchema,
++    // 自动发现属于独立来源，不能伪装成用户字段或拥有模型启停。
++    discoveredConfig: modelConfigDataSchema.omit({ enabled: true }).optional(),
+   });
+ export const manualProviderModelConfigRuleSchema = providerModelConfigRuleSchema.extend({
+   config: manualModelConfigSchema,
+diff --git a/packages/provider/src/config/schema.ts b/packages/provider/src/config/schema.ts
+index 509ec1e0ecc8089f50c0472c43b7ec4f6344179c..c11ee5795d198614fcadf77255070b65a8cf3598 100644
+--- a/packages/provider/src/config/schema.ts
++++ b/packages/provider/src/config/schema.ts
+@@ -3,6 +3,7 @@ import { modelConfigDataSchema } from "@zcode/shared/model-config";
+ import { providerConfigDataSchema, zhipuAccountAccessDataSchema } from "./provider-data-schema.js";
+ import { ModelConfig, ModelConfigRules } from "./model-config.js";
+ import {
++  CodexOAuthAccessConfig,
+   ApiKeyAccessConfig,
+   ProviderApiConfig,
+   ProviderConfig,
+@@ -148,9 +149,11 @@ function createProviderConfig(config: z.infer<typeof providerConfigDataSchema>):
+     access:
+       config.access == null
+         ? config.access
+-        : config.access.type !== "zhipu-account"
+-          ? new ApiKeyAccessConfig(config.access)
+-          : new ZhipuAccountAccessConfig(config.access),
++        : config.access.type === "codex-oauth"
++          ? new CodexOAuthAccessConfig()
++          : config.access.type !== "zhipu-account"
++            ? new ApiKeyAccessConfig(config.access)
++            : new ZhipuAccountAccessConfig(config.access),
+     api: config.api == null ? config.api : new ProviderApiConfig(config.api),
+   });
+ }
+diff --git a/packages/provider/src/facades.ts b/packages/provider/src/facades.ts
+index 015acca61b3c258193fead748a75ce7ca2f34931..3e9cfbbc7a8faeb9c7bab2fcb19e9ad5ec8bfaf6 100644
+--- a/packages/provider/src/facades.ts
++++ b/packages/provider/src/facades.ts
+@@ -11,7 +11,6 @@ import type {
+   ProviderTemplateId,
+ } from "./config/index.js";
+ import {
+-  ModelConfigRules,
+   ProviderTemplateMap,
+   type ProviderConfigRule,
+   type ProviderTemplateNameMap,
+@@ -21,6 +20,7 @@ import {
+ } from "./config/index.js";
+ import type { ProviderRegistryView } from "./registry.js";
+ import {
++  resolveProviderModelConfig,
+   serializeRegistryModelConfig,
+   serializeRegistryProviderConfig,
+   type ProviderConfigResolution,
+@@ -46,6 +46,11 @@ export interface ProviderRegistryFacadeSource {
+ }
+ 
+ export interface ProviderSettingsMutationTarget {
++  mergeDiscoveredModels?(
++    providerId: ProviderId,
++    models: readonly { readonly modelId: ModelId; readonly config: ModelConfig }[],
++    membership: ProviderModelMembership,
++  ): Promise<unknown>;
+   createPersonalProvider(input?: {
+     readonly templateId?: ProviderTemplateId;
+     readonly providerName?: string;
+@@ -108,6 +113,8 @@ export interface ProviderSettingsModelCandidateView {
+   readonly modelId: ModelId;
+   readonly builtin: boolean;
+   readonly effectiveBuiltinConfig: ModelConfigObject;
++  /** additive 展示元数据；旧投影缺失时 UI 显示未知，不按数值猜来源。 */
++  readonly contextWindowSource?: import("./resolver.js").ContextWindowSource;
+   readonly personalExactConfig?: ModelConfigObject;
+   readonly useRecommendedConfig?: boolean;
+   readonly effectiveConfig: RegistryModelConfigObject | ModelConfigObject;
+@@ -239,17 +246,19 @@ export class ProviderSettingsFacade {
+   resolveModelConfig(input: ResolveModelConfigInput): ModelConfigResolution {
+     const snapshot = requireSnapshot(this.#source);
+     const provider = requireEffectiveProvider(snapshot, input.providerId);
++    const resolutionInput = {
++      providerId: input.providerId,
++      templateId: provider.templateId,
++      modelId: input.modelId,
++      apiType: provider.config.api?.type,
++      baseUrl: provider.config.api?.baseUrl,
++      accessType: provider.config.access?.type,
++      builtinRules: snapshot.config.zcodeBuiltinModelRules,
++    };
+     if (!("personalConfig" in input)) {
+-      const modelRules = ModelConfigRules.composeEffective(
+-        snapshot.config.zcodeBuiltinModelRules,
+-        snapshot.config.personalModels,
+-      );
+-      const config = modelRules.resolve({
+-        providerId: input.providerId,
+-        templateId: provider.templateId,
+-        modelId: input.modelId,
+-        apiType: provider.config.api?.type,
+-        baseUrl: provider.config.api?.baseUrl,
++      const { config } = resolveProviderModelConfig({
++        ...resolutionInput,
++        personalRules: snapshot.config.personalModels,
+       });
+       return Object.freeze({
+         inheritedConfig: config.toJSON(),
+@@ -261,13 +270,6 @@ export class ProviderSettingsFacade {
+     }
+ 
+     const personalConfig = parseModelConfig(input.personalConfig);
+-    const inheritedConfig = snapshot.config.zcodeBuiltinModelRules.resolve({
+-      providerId: input.providerId,
+-      templateId: provider.templateId,
+-      modelId: input.modelId,
+-      apiType: provider.config.api?.type,
+-      baseUrl: provider.config.api?.baseUrl,
+-    });
+     let personalRules = snapshot.config.personalModels;
+     if (input.originalModelId !== input.modelId) {
+       personalRules = personalRules.renameExactModel(
+@@ -278,15 +280,9 @@ export class ProviderSettingsFacade {
+     }
+     // 此入口预览智能配置草稿；固定模式不请求推荐，重新开启时不能沿用旧固定标记。
+     personalRules = personalRules.setExact(input.providerId, input.modelId, personalConfig, true);
+-    const config = ModelConfigRules.composeEffective(
+-      snapshot.config.zcodeBuiltinModelRules,
++    const { config, inheritedConfig } = resolveProviderModelConfig({
++      ...resolutionInput,
+       personalRules,
+-    ).resolve({
+-      providerId: input.providerId,
+-      templateId: provider.templateId,
+-      modelId: input.modelId,
+-      apiType: provider.config.api?.type,
+-      baseUrl: provider.config.api?.baseUrl,
+     });
+     return Object.freeze({
+       inheritedConfig: inheritedConfig.toJSON(),
+@@ -334,6 +330,37 @@ export class ProviderSettingsFacade {
+     );
+   }
+ 
++  /** Host-private import; never project this write capability onto the Settings RPC. */
++  mergeDiscoveredModels(input: {
++    readonly providerId: ProviderId;
++    readonly basedOnRevision: number;
++    readonly models: readonly { readonly modelId: ModelId; readonly config: ModelConfigObject }[];
++    readonly assertCurrent: () => void;
++  }): Promise<ProviderSettingsView> {
++    return this.#mutateProvider(input.providerId, "discover-models", async (target) => {
++      input.assertCurrent();
++      const snapshot = requireSnapshot(this.#source);
++      if (snapshot.registry.revision !== input.basedOnRevision)
++        throw new Error("Provider Settings revision conflict");
++      if (!target.mergeDiscoveredModels) throw new Error("Model discovery not configured");
++      const membership = this.#modelMembership(input.providerId, snapshot);
++      await target.mergeDiscoveredModels(
++        input.providerId,
++        input.models.map((model) => ({
++          modelId: model.modelId,
++          config: parseModelConfig(model.config),
++        })),
++        {
++          ...membership,
++          assertCurrent: () => {
++            input.assertCurrent();
++            membership.assertCurrent();
++          },
++        },
++      );
++    });
++  }
++
+   deletePersonalProvider(providerId: ProviderId): Promise<ProviderSettingsView> {
+     return this.#mutateProvider(providerId, "delete-provider", (target) =>
+       target.deletePersonalProvider(providerId),
+@@ -647,6 +674,7 @@ function createProviderSettingsView(input: {
+             modelId: model.modelId,
+             builtin: model.source === "builtin",
+             effectiveBuiltinConfig: model.effectiveBuiltinConfig.toJSON(),
++            contextWindowSource: model.contextWindowSource,
+             ...(personalModelConfig ? { personalExactConfig: personalModelConfig.toJSON() } : {}),
+             ...(personalModelRule
+               ? { useRecommendedConfig: personalModelRule.type !== "manual-provider-model" }
+diff --git a/packages/provider/src/resolver.ts b/packages/provider/src/resolver.ts
+index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d0f6932e4 100644
+--- a/packages/provider/src/resolver.ts
++++ b/packages/provider/src/resolver.ts
+@@ -9,10 +9,12 @@ import type {
+ import type { ConfigValidationIssue } from "./config-overlay.js";
+ import {
+   type ApiKeyAccessConfig,
++  type CodexOAuthAccessConfig,
+   ModelConfig,
+   ModelConfigRules,
+   type ZhipuAccountAccessConfig,
+   type ModelId,
++  type ModelConfigRuleResolutionInput,
+   type ProviderConfig,
+   type ProviderConfigRule,
+   ProviderConfigMap,
+@@ -27,7 +29,8 @@ export type RegistryZhipuAccountAccessConfig = ZhipuAccountAccessConfig &
+ 
+ export type RegistryProviderAccessConfig =
+   | (ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>)
+-  | RegistryZhipuAccountAccessConfig;
++  | RegistryZhipuAccountAccessConfig
++  | CodexOAuthAccessConfig;
+ 
+ export type RegistryProviderConfig = ProviderConfig &
+   z.infer<typeof completeProviderConfigDataSchema> & {
+@@ -43,20 +46,22 @@ export function serializeRegistryProviderConfig(
+     group: config.group,
+     ...(config.logo === undefined ? {} : { logo: config.logo }),
+     access:
+-      config.access.type !== "zhipu-account"
+-        ? {
+-            type: config.access.type,
+-            apiKey: config.access.apiKey,
+-            ...(config.access.apiKeyManagementUrl === undefined
+-              ? {}
+-              : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
+-          }
+-        : {
+-            type: config.access.type,
+-            accountType: config.access.accountType,
+-            mode: config.access.mode,
+-            entitled: config.access.entitled,
+-          },
++      config.access.type === "codex-oauth"
++        ? { type: "codex-oauth" }
++        : config.access.type !== "zhipu-account"
++          ? {
++              type: config.access.type,
++              apiKey: config.access.apiKey,
++              ...(config.access.apiKeyManagementUrl === undefined
++                ? {}
++                : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
++            }
++          : {
++              type: config.access.type,
++              accountType: config.access.accountType,
++              mode: config.access.mode,
++              entitled: config.access.entitled,
++            },
+     api: {
+       type: config.api.type,
+       baseUrl: config.api.baseUrl,
+@@ -136,12 +141,20 @@ export interface ProviderConfigResolverInput {
+   readonly personalProviderOrder?: readonly ProviderId[];
+ }
+ 
++export type ContextWindowSource =
++  | "personal"
++  | "discovered"
++  | "codex-fallback"
++  | "builtin"
++  | "unknown";
++
+ export interface ResolvedProviderModelCandidate {
+   readonly kind: "candidate";
+   readonly modelId: ModelId;
+   readonly source: "builtin" | "personal";
+   readonly config: ModelConfig;
+   readonly effectiveBuiltinConfig: ModelConfig;
++  readonly contextWindowSource: ContextWindowSource;
+   readonly issues: readonly ConfigValidationIssue[];
+   readonly enabled: boolean;
+   readonly executable: boolean;
+@@ -179,6 +192,77 @@ export interface ProviderConfigResolution {
+   readonly issues: readonly ConfigValidationIssue[];
+ }
+ 
++// 官方 Codex 当前/历史目录的默认工作窗口，不是 API 总窗口或 max_context_window；
++// Spark 的历史 128k 来自官方发布说明。只登记核实过的型号，不推断未来型号。
++// https://github.com/openai/codex/blob/d63a9b8344cfe58bc78bbe319b560378fc8756ef/codex-rs/models-manager/models.json
++// https://github.com/openai/codex/blob/770616414a51fa179ce4cef10f7f8df838d3f46f/codex-rs/core/models.json
++// https://openai.com/index/introducing-gpt-5-3-codex-spark/
++const CODEX_CONTEXT_WINDOWS = new Map<string, number>([
++  ["gpt-6-astra", 272_000],
++  ["gpt-6.1-sol", 272_000],
++  ["gpt-6-sol", 272_000],
++  ["gpt-6-luna", 272_000],
++  ["gpt-5.6-sol", 272_000],
++  ["gpt-5.6-terra", 272_000],
++  ["gpt-5.6-luna", 272_000],
++  ["gpt-5.5", 272_000],
++  ["gpt-5.4", 272_000],
++  ["gpt-5.3-codex", 272_000],
++  ["gpt-5.2-codex", 272_000],
++  ["gpt-5.1-codex-max", 272_000],
++  ["gpt-5.1-codex", 272_000],
++  ["gpt-5.1-codex-mini", 272_000],
++  ["gpt-5-codex", 272_000],
++  ["gpt-5-codex-mini", 272_000],
++  ["gpt-5.3-codex-spark", 128_000],
++]);
++
++/** Registry 与设置草稿共用一次分层解析，离线兜底不能依赖目录写盘。 */
++export function resolveProviderModelConfig(
++  input: ModelConfigRuleResolutionInput & {
++    readonly accessType?: string;
++    readonly builtinRules: ModelConfigRules;
++    readonly personalRules: ModelConfigRules;
++  },
++): { inheritedConfig: ModelConfig; config: ModelConfig; contextWindowSource: ContextWindowSource } {
++  let base = input.builtinRules.resolve(input);
++  let contextWindowSource: ContextWindowSource = "builtin";
++  if (input.accessType === "codex-oauth") {
++    const modelId = input.modelId.toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/u, "");
++    // 未知型号必须显式获得窗口；沿用 API 的泛用 1M 推荐可能推迟 compact 到溢出。
++    base = base.overlay(
++      ModelConfig.fromData({
++        properties: { contextWindow: CODEX_CONTEXT_WINDOWS.get(modelId) ?? null },
++      }),
++    );
++    contextWindowSource = CODEX_CONTEXT_WINDOWS.has(modelId) ? "codex-fallback" : "unknown";
++  }
++  const inheritedConfig = base.overlay(
++    input.personalRules.getDiscoveredExact(input.providerId, input.modelId) ?? ModelConfig.empty(),
++  );
++  const config = ModelConfigRules.composeEffective(
++    ModelConfigRules.empty(),
++    input.personalRules,
++  ).resolve(input, base);
++  // 来源跟随同一精确规则的覆盖顺序；等值覆盖也会改变来源，不能比较数值反推。
++  for (const rule of input.personalRules.rules()) {
++    if (
++      (rule.type !== "provider-model" && rule.type !== "manual-provider-model") ||
++      rule.providerId !== input.providerId ||
++      rule.modelId !== input.modelId
++    )
++      continue;
++    if (rule.discoveredConfig?.properties?.contextWindow !== undefined)
++      contextWindowSource = "discovered";
++    if (rule.type === "manual-provider-model") contextWindowSource = "unknown";
++    if (rule.config.properties?.contextWindow !== undefined) contextWindowSource = "personal";
++  }
++  const window = config.properties?.contextWindow;
++  if (typeof window !== "number" || !Number.isFinite(window) || window <= 0)
++    contextWindowSource = "unknown";
++  return { inheritedConfig, config, contextWindowSource };
++}
++
+ export class ProviderConfigResolver {
+   resolve(input: ProviderConfigResolverInput): ProviderConfigResolution {
+     const accountProviders = new ProviderConfigMap(
+@@ -206,10 +290,6 @@ export class ProviderConfigResolver {
+       return template ? template.overlay(personal) : personal;
+     });
+     const effectiveProviders = effectiveBuiltinProviders.overlay(templatePersonalProviders);
+-    const effectiveModelRules = ModelConfigRules.composeEffective(
+-      input.zcodeBuiltinModelRules,
+-      input.personalModels,
+-    );
+     const issues: ConfigValidationIssue[] = [];
+     const resolvedProviders: ResolvedProvider[] = [];
+     const registryProviders: Provider[] = [];
+@@ -254,19 +334,19 @@ export class ProviderConfigResolver {
+       const providerExecutable =
+         enabled && accessEntitled && accountCurrent && providerIssues.length === 0;
+       const models = orderedModelIds.map((modelId): ResolvedProviderModel => {
+-        const modelConfig = effectiveModelRules.resolve({
+-          providerId,
+-          templateId,
+-          modelId,
+-          apiType: config.api?.type,
+-          baseUrl: config.api?.baseUrl,
+-        });
+-        const effectiveBuiltinConfig = input.zcodeBuiltinModelRules.resolve({
++        const {
++          config: modelConfig,
++          inheritedConfig: effectiveBuiltinConfig,
++          contextWindowSource,
++        } = resolveProviderModelConfig({
+           providerId,
+           templateId,
+           modelId,
+           apiType: config.api?.type,
+           baseUrl: config.api?.baseUrl,
++          accessType: config.access?.type,
++          builtinRules: input.zcodeBuiltinModelRules,
++          personalRules: input.personalModels,
+         });
+         const registryModelResult = createRegistryModelConfig(modelConfig, [
+           ...providerPath,
+@@ -284,6 +364,7 @@ export class ProviderConfigResolver {
+           source: builtinIds.has(modelId) ? "builtin" : "personal",
+           config: modelConfig,
+           effectiveBuiltinConfig,
++          contextWindowSource,
+           issues: Object.freeze(modelIssues),
+           enabled: modelEnabled,
+           executable,
+diff --git a/packages/provider/test/config-service.test.ts b/packages/provider/test/config-service.test.ts
+index bf653bb21aad405126001296369fef4db74f24fe..2f12cebe368b09f903160943592507570a62759f 100644
+--- a/packages/provider/test/config-service.test.ts
++++ b/packages/provider/test/config-service.test.ts
+@@ -73,6 +73,232 @@ function layerSnapshot(
+   return { revision, providers, models, providerOrder };
+ }
+ 
++describe("discovered model merge", () => {
++  it("preserves orphaned and duplicate sparse personal rules when discovering membership", async () => {
++    const repository = new MemoryPersonalRepository(
++      layerSnapshot(
++        "personal-1",
++        ProviderConfigMap.empty().set("p", personalProvider([])),
++        new ModelConfigRules([
++          {
++            type: "provider-model",
++            providerId: "p",
++            modelId: "m",
++            config: ModelConfig.fromData({ enabled: false, properties: { contextWindow: 123 } }),
++          },
++          {
++            type: "provider-model",
++            providerId: "p",
++            modelId: "m",
++            config: ModelConfig.fromData({ properties: { supportsNativeWebSearch: true } }),
++          },
++        ]),
++      ),
++    );
++    const service = new ProviderConfigService({
++      zcodeBuiltinSource: new MutableSource(layerSnapshot("builtin-1")),
++      personalRepository: repository,
++    });
++    try {
++      await service.mergeDiscoveredModels(
++        "p",
++        [{ modelId: "m", config: ModelConfig.fromData({ properties: { contextWindow: 999 } }) }],
++        {
++          providerId: "p",
++          inheritedModelIds: [],
++          personalRevision: repository.current.revision,
++          assertCurrent: () => {},
++        },
++      );
++      expect(repository.current.models.getExact("p", "m")?.toJSON()).toEqual({
++        enabled: false,
++        properties: { contextWindow: 123, supportsNativeWebSearch: true },
++      });
++      expect(
++        repository.current.models.getDiscoveredExact("p", "m")?.properties?.contextWindow,
++      ).toBe(999);
++    } finally {
++      service.dispose();
++    }
++  });
++  it("refreshes generated fields without freezing them as personal overrides", async () => {
++    const repository = new MemoryPersonalRepository(
++      layerSnapshot("personal-1", ProviderConfigMap.empty().set("p", personalProvider([]))),
++    );
++    const service = new ProviderConfigService({
++      zcodeBuiltinSource: new MutableSource(layerSnapshot("builtin-1")),
++      personalRepository: repository,
++    });
++    const refresh = (config: ModelConfig) =>
++      service.mergeDiscoveredModels("p", [{ modelId: "gpt-6-astra", config }], {
++        providerId: "p",
++        inheritedModelIds: [],
++        personalRevision: repository.current.revision,
++        assertCurrent: () => {},
++      });
++    for (const contextWindow of [272000, 872000, 128000]) {
++      await refresh(ModelConfig.fromData({ properties: { contextWindow } }));
++      expect(repository.current.models.getExact("p", "gpt-6-astra")?.toJSON()).toEqual({
++        enabled: true,
++      });
++      expect(
++        repository.current.models.getDiscoveredExact("p", "gpt-6-astra")?.properties?.contextWindow,
++      ).toBe(contextWindow);
++    }
++    await service.setPersonalModelEnabled("p", "gpt-6-astra", false);
++    await refresh(ModelConfig.fromData({ properties: { contextWindow: 64000 } }));
++    expect(repository.current.models.getExact("p", "gpt-6-astra")?.toJSON()).toEqual({
++      enabled: false,
++    });
++    await refresh(ModelConfig.empty());
++    expect(repository.current.models.getDiscoveredExact("p", "gpt-6-astra")?.toJSON()).toEqual({});
++    service.dispose();
++  });
++  it("keeps personal values separate across manual mode, reset, rename and deletion", async () => {
++    const manual = ModelConfig.fromData(extractManualModelConfig(completeModelConfig().toJSON()));
++    const repository = new MemoryPersonalRepository(
++      layerSnapshot(
++        "personal-1",
++        ProviderConfigMap.empty().set("p", personalProvider(["m"])),
++        ModelConfigRules.empty().setExact("p", "m", manual, false),
++      ),
++    );
++    const service = new ProviderConfigService({
++      zcodeBuiltinSource: new MutableSource(layerSnapshot("builtin-1")),
++      personalRepository: repository,
++    });
++    await service.mergeDiscoveredModels(
++      "p",
++      [{ modelId: "m", config: ModelConfig.fromData({ properties: { contextWindow: 872000 } }) }],
++      {
++        providerId: "p",
++        inheritedModelIds: [],
++        personalRevision: repository.current.revision,
++        assertCurrent: () => {},
++      },
++    );
++    expect(repository.current.models.getExact("p", "m")?.toJSON()).toEqual(manual.toJSON());
++    expect(repository.current.models.getDiscoveredExact("p", "m")?.properties?.contextWindow).toBe(
++      872000,
++    );
++    await service.savePersonalModelDraft(
++      "p",
++      "m",
++      "m",
++      ModelConfig.empty(),
++      repository.current.revision,
++      true,
++    );
++    expect(repository.current.models.getExact("p", "m")?.toJSON()).toEqual({});
++    expect(repository.current.models.getDiscoveredExact("p", "m")?.properties?.contextWindow).toBe(
++      872000,
++    );
++    await service.renamePersonalModel("p", "m", "renamed");
++    expect(repository.current.models.getDiscoveredExact("p", "renamed")).toBeUndefined();
++    await service.deletePersonalModel("p", "renamed");
++    expect(repository.current.models.getExactRule("p", "renamed")).toBeUndefined();
++    service.dispose();
++  });
++  it("atomically appends IDs, preserves ordering, disabled values and personal parameters", async () => {
++    const repository = new MemoryPersonalRepository(
++      layerSnapshot(
++        "personal-1",
++        ProviderConfigMap.empty().set(
++          "p",
++          personalProvider(["old"]).withModelOrder(["old", "builtin"]),
++        ),
++        ModelConfigRules.empty().setExact(
++          "p",
++          "old",
++          ModelConfig.fromData({ enabled: false, properties: { contextWindow: 123 } }),
++        ),
++      ),
++    );
++    const builtin = new MutableSource(
++      layerSnapshot("builtin-1", ProviderConfigMap.empty().set("p", localProvider(["builtin"]))),
++    );
++    const service = new ProviderConfigService({
++      zcodeBuiltinSource: builtin,
++      personalRepository: repository,
++    });
++    const guard = vi.fn();
++    const next = await service.mergeDiscoveredModels(
++      "p",
++      [
++        {
++          modelId: "old",
++          config: ModelConfig.fromData({
++            properties: { contextWindow: 999, supportsToolCall: true },
++          }),
++        },
++        { modelId: "new", config: ModelConfig.fromData({ properties: { contextWindow: 456 } }) },
++      ],
++      {
++        providerId: "p",
++        inheritedModelIds: ["builtin"],
++        personalRevision: "personal-1",
++        assertCurrent: guard,
++      },
++    );
++    expect(repository.revision).toBe(2);
++    expect(guard).toHaveBeenCalledOnce();
++    expect(next.providers.get("p")?.modelOrder).toEqual(["old", "builtin", "new"]);
++    expect(next.providers.get("p")?.personalModelIds).toEqual(["old", "new"]);
++    expect(next.models.getExact("p", "old")?.toJSON()).toMatchObject({
++      enabled: false,
++      properties: { contextWindow: 123 },
++    });
++    expect(
++      next.models.resolve({ providerId: "p", modelId: "old" }).properties?.supportsToolCall,
++    ).toBe(true);
++    expect(next.models.getExact("p", "new")?.toJSON()).toMatchObject({
++      enabled: true,
++    });
++    expect(next.models.getDiscoveredExact("p", "new")?.properties?.contextWindow).toBe(456);
++    service.dispose();
++  });
++  it("does not touch fixed manual mode and refuses stale revisions or cancelled work", async () => {
++    const manual = ModelConfig.fromData(extractManualModelConfig(completeModelConfig().toJSON()));
++    const repository = new MemoryPersonalRepository(
++      layerSnapshot(
++        "personal-1",
++        ProviderConfigMap.empty().set("p", personalProvider(["manual"])),
++        ModelConfigRules.empty().setExact("p", "manual", manual, false),
++      ),
++    );
++    const service = new ProviderConfigService({
++      zcodeBuiltinSource: new MutableSource(layerSnapshot("builtin-1")),
++      personalRepository: repository,
++    });
++    const membership = {
++      providerId: "p",
++      inheritedModelIds: [],
++      personalRevision: "personal-1",
++      assertCurrent: () => {},
++    };
++    const models = [
++      { modelId: "manual", config: ModelConfig.fromData({ properties: { contextWindow: 1 } }) },
++    ];
++    const next = await service.mergeDiscoveredModels("p", models, membership);
++    expect(next.models.getExact("p", "manual")?.toJSON()).toEqual(manual.toJSON());
++    expect(next.models.getExactRule("p", "manual")?.type).toBe("manual-provider-model");
++    await expect(service.mergeDiscoveredModels("p", models, membership)).rejects.toThrow(
++      "revision",
++    );
++    await expect(
++      service.mergeDiscoveredModels("p", models, {
++        ...membership,
++        personalRevision: next.revision,
++        assertCurrent: () => {
++          throw new Error("cancelled");
++        },
++      }),
++    ).rejects.toThrow("cancelled");
++    expect(repository.revision).toBe(2);
++    service.dispose();
++  });
++});
++
+ function localProvider(modelIds: readonly string[]): ProviderConfig {
+   return createApiKeyProviderConfig({
+     apiFormat: "anthropic-messages",
+diff --git a/packages/provider/test/facades.test.ts b/packages/provider/test/facades.test.ts
+index 83a96de5de7a52a65a6d3c2d8fc6733212eaa2fc..7f7a61081d9ac7e0f1a8903e5b96c9420a38f66f 100644
+--- a/packages/provider/test/facades.test.ts
++++ b/packages/provider/test/facades.test.ts
+@@ -8,6 +8,7 @@ import {
+   ProviderConfigMap,
+   ProviderRegistryService,
+   ProviderSettingsFacade,
++  parseProviderConfig,
+   type AccountProviderConfigSnapshot,
+   type ProviderConfigSnapshot,
+   type ProviderSource,
+@@ -137,6 +138,69 @@ async function createService(): Promise<ProviderRegistryService> {
+ }
+ 
+ describe("Provider Facades", () => {
++  it("uses the same offline and API windows in Registry, Settings and editor previews", async () => {
++    const config: ProviderConfigSnapshot = {
++      revision: "config-1",
++      personalRevision: "personal-1",
++      zcodeBuiltinRevision: "builtin-1",
++      zcodeBuiltinProviders: ProviderConfigMap.empty(),
++      personalProviders: ProviderConfigMap.empty().set(
++        "p",
++        parseProviderConfig({
++          group: "standard-personal",
++          access: { type: "codex-oauth" },
++          api: { type: "openai-responses", baseUrl: "https://api.openai.com/v1" },
++          personalModelIds: ["gpt-6-astra", "gpt-6.1-sol"],
++        }),
++      ),
++      zcodeBuiltinModelRules: new ModelConfigRules([
++        { type: "model", modelMatch: ".*", config: completeModelConfig() },
++      ]),
++      personalModels: ModelConfigRules.empty().setDiscoveredExact(
++        "p",
++        "gpt-6-astra",
++        ModelConfig.fromData({ properties: { contextWindow: 872000 } }),
++      ),
++    };
++    const registry = new ProviderRegistryService({
++      configSource: new StaticSource(config),
++      accountSource: new StaticSource({
++        revision: "account-1",
++        basedOnZCodeBuiltinRevision: "builtin-1",
++        providers: ProviderConfigMap.empty(),
++      }),
++    });
++    try {
++      await registry.start();
++      const facade = new ProviderSettingsFacade(registry);
++      for (const [modelId, contextWindow] of [
++        ["gpt-6-astra", 872000],
++        ["gpt-6.1-sol", 272000],
++      ] as const) {
++        expect(
++          facade.getView().providers[0]?.models.find((m) => m.modelId === modelId)?.effectiveConfig
++            .properties?.contextWindow,
++        ).toBe(contextWindow);
++        expect(
++          facade.resolveModelConfig({ providerId: "p", modelId }).effectiveConfig.properties
++            ?.contextWindow,
++        ).toBe(contextWindow);
++        expect(
++          facade.resolveModelConfig({
++            providerId: "p",
++            originalModelId: modelId,
++            modelId,
++            personalConfig: {},
++          }),
++        ).toMatchObject({
++          inheritedConfig: { properties: { contextWindow } },
++          effectiveConfig: { properties: { contextWindow } },
++        });
++      }
++    } finally {
++      registry.dispose();
++    }
++  });
+   it("Settings View 同时投影 Personal、Effective、问题和调序能力", async () => {
+     const service = await createService();
+     const view = new ProviderSettingsFacade(service).getView();
+diff --git a/packages/provider/test/provider-template.test.ts b/packages/provider/test/provider-template.test.ts
+index e23493ef15ad174500f002b2226f1192dc89db86..d6d5821dde618a389cd7fd88fb1001aa0d463aeb 100644
+--- a/packages/provider/test/provider-template.test.ts
++++ b/packages/provider/test/provider-template.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, it } from "vitest";
+ import {
+   ApiKeyAccessConfig,
++  parsePersonalProviderConfigMap,
+   ModelConfig,
+   ModelConfigRules,
+   ModelOptionSpecsConfig,
+@@ -16,6 +17,31 @@ import {
+ } from "../src/index.js";
+ 
+ describe("Provider Template", () => {
++  it("Codex access round-trips without credentials and rejects token/API-key persistence", () => {
++    const config = {
++      group: "standard-personal",
++      access: { type: "codex-oauth" },
++      api: { type: "openai-responses", baseUrl: "https://api.openai.com/v1" },
++      personalModelIds: ["gpt-5.6-sol"],
++    };
++    const parsed = parsePersonalProviderConfigMap({
++      providerRules: [{ providerId: "codex-test", config }],
++    });
++    expect(parsed.get("codex-test")?.toJSON()).toEqual(config);
++    expect(parsed.get("codex-test")?.validateComplete()).toEqual([]);
++    for (const secret of ["apiKey", "access_token", "refresh_token"]) {
++      expect(() =>
++        parsePersonalProviderConfigMap({
++          providerRules: [
++            {
++              providerId: "codex-test",
++              config: { ...config, access: { type: "codex-oauth", [secret]: "fixture" } },
++            },
++          ],
++        }),
++      ).toThrow();
++    }
++  });
+   it("只接受可复用基线字段，拒绝凭据、身份和运行状态", () => {
+     expect(
+       parseProviderTemplateMap([
+diff --git a/packages/provider/test/resolver.test.ts b/packages/provider/test/resolver.test.ts
+index ead71a280d1b4f461f0e049d54f4c97b6aadddf8..800cdaad76928e39c26b7077252a08a9dc1fe477 100644
+--- a/packages/provider/test/resolver.test.ts
++++ b/packages/provider/test/resolver.test.ts
+@@ -14,6 +14,7 @@ import {
+   createRegistryProviderConfig,
+   parsePersonalProviderConfigMap,
+   parseProviderConfigMap,
++  parseProviderConfig,
+   ZhipuAccountAccessConfig,
+   resolveAccountProviderConfigs,
+ } from "../src/index.js";
+@@ -56,6 +57,116 @@ function completeModelConfig(
+ }
+ 
+ describe("ProviderConfigResolver", () => {
++  function codexModel(
++    modelId: string,
++    personalModels = ModelConfigRules.empty(),
++    access = "codex-oauth",
++  ) {
++    return new ProviderConfigResolver().resolve({
++      zcodeBuiltinProviders: ProviderConfigMap.empty(),
++      accountProviders: ProviderConfigMap.empty(),
++      personalProviders: ProviderConfigMap.empty().set(
++        "p",
++        parseProviderConfig({
++          group: "standard-personal",
++          access:
++            access === "codex-oauth" ? { type: access } : { type: "api-key", apiKey: "fixture" },
++          api: { type: "openai-responses", baseUrl: "https://api.openai.com/v1" },
++          personalModelIds: [modelId],
++        }),
++      ),
++      personalModels,
++      zcodeBuiltinModelRules: new ModelConfigRules([
++        {
++          type: "model",
++          modelMatch: ".*",
++          config: completeModelConfig({ contextWindow: 1_050_000 }),
++        },
++      ]),
++    }).resolvedProviders[0]!.models[0]!;
++  }
++  it.each([
++    ["gpt-6-astra", 272000],
++    ["gpt-6.1-sol", 272000],
++    ["gpt-6-sol", 272000],
++    ["gpt-6-luna", 272000],
++    ["gpt-5.6-sol", 272000],
++    ["gpt-5.6-terra", 272000],
++    ["gpt-5.6-luna", 272000],
++    ["gpt-5.3-codex-2026-02-05", 272000],
++    ["gpt-5.3-codex-spark", 128000],
++    ["gpt-5.4", 272000],
++    ["gpt-5.1-codex-mini", 272000],
++    ["gpt-5-codex", 272000],
++  ])("resolves the offline Codex window for %s without discovery", (modelId, contextWindow) => {
++    const model = codexModel(String(modelId));
++    expect(model.config.properties?.contextWindow).toBe(contextWindow);
++    expect(model.executable).toBe(true);
++  });
++  it("does not invent an unknown Codex window or alter API-key recommendations", () => {
++    expect(codexModel("unlisted-codex-model").executable).toBe(false);
++    expect(codexModel("constructor").executable).toBe(false);
++    expect(
++      codexModel("gpt-6-astra", ModelConfigRules.empty(), "api-key").config.properties
++        ?.contextWindow,
++    ).toBe(1_050_000);
++  });
++  it("applies API data above offline defaults and below personal overrides", () => {
++    const discovered = ModelConfigRules.empty().setDiscoveredExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({ properties: { contextWindow: 872000 } }),
++    );
++    expect(codexModel("gpt-6-astra", discovered).config.properties?.contextWindow).toBe(872000);
++    expect(
++      codexModel("gpt-6-astra", discovered).effectiveBuiltinConfig.properties?.contextWindow,
++    ).toBe(872000);
++    const overridden = discovered.setExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({ properties: { contextWindow: 512000 } }),
++    );
++    expect(codexModel("gpt-6-astra", overridden).config.properties?.contextWindow).toBe(512000);
++    expect(
++      codexModel(
++        "unlisted-codex-model",
++        ModelConfigRules.empty().setDiscoveredExact(
++          "p",
++          "unlisted-codex-model",
++          ModelConfig.fromData({ properties: { contextWindow: 64000 } }),
++        ),
++      ).executable,
++    ).toBe(true);
++  });
++  it("projects context provenance by the winning field, even when values are equal", () => {
++    const discovered = ModelConfigRules.empty().setDiscoveredExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({ properties: { contextWindow: 272000 } }),
++    );
++    expect(codexModel("gpt-6-astra").contextWindowSource).toBe("codex-fallback");
++    expect(codexModel("gpt-6-astra", discovered).contextWindowSource).toBe("discovered");
++    const personal = discovered.setExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({ properties: { contextWindow: 272000 } }),
++    );
++    expect(codexModel("gpt-6-astra", personal).contextWindowSource).toBe("personal");
++    expect(
++      codexModel("gpt-6-astra", personal.clearExactOverride("p", "gpt-6-astra"))
++        .contextWindowSource,
++    ).toBe("discovered");
++    expect(
++      codexModel(
++        "gpt-6-astra",
++        discovered.setDiscoveredExact("p", "gpt-6-astra", ModelConfig.empty()),
++      ).contextWindowSource,
++    ).toBe("codex-fallback");
++    expect(codexModel("unlisted-codex-model").contextWindowSource).toBe("unknown");
++    expect(codexModel("gpt-6-astra", ModelConfigRules.empty(), "api-key").contextWindowSource).toBe(
++      "builtin",
++    );
++  });
+   it.each([
+     [true, true, true, true],
+     [false, true, true, true],

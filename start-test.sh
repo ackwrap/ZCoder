@@ -14,8 +14,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZCODE="$ROOT/ZCode"
-PATCHES="$ROOT/patches"
-SERIES="$PATCHES/series"
 TOOLS="${ZCODE_PLUS_TOOLS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/zcode-plus}"
 NODE_VERSION="24.14.0"
 DESKTOP_PKG="$ZCODE/packages/desktop/package.json"
@@ -105,24 +103,8 @@ command -v pnpm >/dev/null 2>&1 || die "pnpm 不可用"
 log "pnpm: $(pnpm --version)"
 
 # ---------- 补丁队列 ----------
-if [[ -f "$SERIES" ]]; then
-  while IFS= read -r raw || [[ -n "$raw" ]]; do
-    line="${raw%%#*}"
-    name="$(printf '%s' "$line" | xargs)"
-    [[ -z "$name" ]] && continue
-    patch="$PATCHES/$name"
-    [[ -f "$patch" ]] || die "补丁不存在：$patch"
-    if (cd "$ZCODE" && git apply --reverse --check "$patch" >/dev/null 2>&1); then
-      log "已应用：$name"
-      continue
-    fi
-    (cd "$ZCODE" && git apply --check "$patch") || die "补丁无法应用（可能有冲突）：$name"
-    (cd "$ZCODE" && git apply --index "$patch")
-    log "已应用：$name"
-  done < "$SERIES"
-else
-  log "没有 patches/series，跳过补丁"
-fi
+# 日常直接开发，不以单个补丁能否反向应用猜测版本，也不覆盖未导出的工作区改动。
+node "$ROOT/scripts/prepare-patches.mjs" --source "$ZCODE"
 
 # ---------- 依赖 ----------
 if [[ ! -d "$ZCODE/node_modules" ]]; then

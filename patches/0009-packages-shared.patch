@@ -1,0 +1,208 @@
+diff --git a/packages/shared/src/channels.ts b/packages/shared/src/channels.ts
+index cab3a0a7b9f757747d5cb77374748325541cb2da..90f64d0c844f14035189665bbd5dfb32a5f63717 100644
+--- a/packages/shared/src/channels.ts
++++ b/packages/shared/src/channels.ts
+@@ -129,6 +129,7 @@ export const ServiceChannels = {
+   OAuth: "oauth",
+   /** 新 Provider Config 的设置读写 Facade */
+   ProviderSettings: "provider-settings",
++  CodexProvider: "codex-provider",
+   /** 新 Provider Registry 的模型选择 Facade */
+   ModelSelection: "model-selection",
+   /** 远端 Environment 内部 Provider Provisioning target */
+diff --git a/packages/shared/src/zcode-protocol-v4/command.ts b/packages/shared/src/zcode-protocol-v4/command.ts
+index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..e0e89f82118dde2fa38ec90f6a7ebc6d4a5bd3e7 100644
+--- a/packages/shared/src/zcode-protocol-v4/command.ts
++++ b/packages/shared/src/zcode-protocol-v4/command.ts
+@@ -170,17 +170,17 @@ export const commandPayloadSchemas = {
+   applyFileRewind: z.object({ target: conversationRowTargetSchema }),
+   editUserQuery: z
+     .object({
+-    target: conversationRowTargetSchema,
+-    newText: z.string(),
++      target: conversationRowTargetSchema,
++      newText: z.string(),
+       conversationQuotes: conversationQuotesSchema.optional(),
+-    attachments: z.array(attachmentRefSchema).optional(),
++      attachments: z.array(attachmentRefSchema).optional(),
+       // 编辑重发按新的主动发送处理：只接受本次重新 prepare 得到的卡与执行材料，
+       // 不从被 rewind 的历史消息复用旧凭据。
+       modelSelection: modelSelectionSchema.optional(),
+       modelExecution: modelExecutionSchema.optional(),
+       highspeedMeta: highspeedMessageMetaSchema.optional(),
+-    // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
+-    workspaceMode: z.enum(["preserve", "rewind"]).optional(),
++      // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
++      workspaceMode: z.enum(["preserve", "rewind"]).optional(),
+     })
+     .superRefine(requireModelSelectionForExecution),
+   retryTurn: z.object({ target: conversationRowTargetSchema }),
+@@ -262,6 +262,12 @@ export const commandPayloadSchemas = {
+     mode: z.enum(["build", "edit", "plan", "yolo", "guarded"]),
+   }),
+   setFollowupMode: z.object({ mode: z.enum(["queue", "guide"]) }),
++  getSessionResources: z.object({}),
++  setSessionResource: z.object({
++    kind: z.enum(["skill", "mcp"]),
++    id: z.string().min(1),
++    enabled: z.boolean(),
++  }),
+   pauseGoal: z.object({}),
+   resumeGoal: z.object({}),
+   cancelBackgroundWork: z.object({ workId: z.string() }),
+diff --git a/packages/shared/src/zcode-protocol-v4/delta.ts b/packages/shared/src/zcode-protocol-v4/delta.ts
+index 6856a363b7bb089be59dbcdeaf4c3e641cac798e..4b4624bde7b017536b6f3b4f38bd2773e4906ac6 100644
+--- a/packages/shared/src/zcode-protocol-v4/delta.ts
++++ b/packages/shared/src/zcode-protocol-v4/delta.ts
+@@ -20,6 +20,7 @@ import {
+   planStateSchema,
+   queueStateSchema,
+   runtimeInitializationSchema,
++  sessionResourcesStateSchema,
+   sessionActionAvailabilitySchema,
+   sessionConfigStateSchema,
+   sessionControlSchema,
+@@ -39,6 +40,7 @@ import {
+ 
+ // StatePatch：键级整体替换（Object.assign），键集合封闭。键内绝不深合并。
+ export const statePatchSchema = z.object({
++  sessionResources: sessionResourcesStateSchema.optional(),
+   runtimeInitialization: runtimeInitializationSchema.optional(),
+   revision: z.number().optional(),
+   control: sessionControlSchema.optional(),
+diff --git a/packages/shared/src/zcode-protocol-v4/snapshot.ts b/packages/shared/src/zcode-protocol-v4/snapshot.ts
+index 6d5c07185fc54624d875a6685b4a16b0064f5ff5..66ce4318a8f0dfbf88cd0c722566d0af6cebc0f2 100644
+--- a/packages/shared/src/zcode-protocol-v4/snapshot.ts
++++ b/packages/shared/src/zcode-protocol-v4/snapshot.ts
+@@ -485,7 +485,31 @@ export const runtimeInitializationSchema = z.discriminatedUnion("status", [
+ ]);
+ export type RuntimeInitialization = z.infer<typeof runtimeInitializationSchema>;
+ 
++export const sessionResourcePolicySchema = z
++  .object({
++    revision: z.number().int().nonnegative(),
++    disabledSkills: z.array(z.string().min(1)),
++    disabledMcpServers: z.array(z.string().min(1)),
++  })
++  .strict();
++export type SessionResourcePolicy = z.infer<typeof sessionResourcePolicySchema>;
++export const sessionResourceItemSchema = z.object({
++  id: z.string().min(1),
++  label: z.string(),
++  available: z.boolean(),
++  enabled: z.boolean(),
++  // 资源来源：ZCode 自带、插件提供、用户配置。optional 兼容旧快照。
++  source: z.enum(["builtin", "plugin", "user"]).optional(),
++});
++export const sessionResourcesStateSchema = z.object({
++  policy: sessionResourcePolicySchema,
++  skills: z.array(sessionResourceItemSchema),
++  mcpServers: z.array(sessionResourceItemSchema),
++});
++export type SessionResourcesState = z.infer<typeof sessionResourcesStateSchema>;
++
+ export const conversationSnapshotSchema = z.object({
++  sessionResources: sessionResourcesStateSchema.optional(),
+   runtimeInitialization: runtimeInitializationSchema.optional(),
+   protocolVersion: z.literal(1),
+   sessionId: z.string(),
+diff --git a/packages/shared/src/zcode-protocol/index.ts b/packages/shared/src/zcode-protocol/index.ts
+index e606fa59fa5992bc11d4b92d63dc20fb291910c4..5e35ccafac9768882d88628524d1e221d3c76c67 100644
+--- a/packages/shared/src/zcode-protocol/index.ts
++++ b/packages/shared/src/zcode-protocol/index.ts
+@@ -2790,6 +2790,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
+     modelSelection: modelSelectionSchema,
+     providerId: nonEmptyString,
+     accountAccess: zcodeProviderAccountAccessSchema.optional(),
++    requestAuthType: z.literal("codex-oauth").optional(),
+     expectedAccountScope: z
+       .string()
+       .regex(/^[a-f0-9]{64}$/)
+@@ -2826,6 +2827,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
+         .object({
+           apiKey: nonEmptyString.optional(),
+           apiKeyId: z.string().trim().min(1).optional(),
++          codexMode: z.literal("device").optional(),
+           accountScope: z
+             .string()
+             .regex(/^[a-f0-9]{64}$/)
+diff --git a/packages/shared/test/zcodeProtocol.test.ts b/packages/shared/test/zcodeProtocol.test.ts
+index db6aa538b5db57579d6245c3e97277a9fb4b30b4..3a67f58b3bca85a985f3fc848df6526daa281240 100644
+--- a/packages/shared/test/zcodeProtocol.test.ts
++++ b/packages/shared/test/zcodeProtocol.test.ts
+@@ -1020,6 +1020,47 @@ describe("ZCode Protocol", () => {
+     ).toThrow();
+   });
+ 
++  it("accepts an explicit Codex OAuth request kind but rejects unknown auth kinds", () => {
++    const input = {
++      requestId: "codex-auth",
++      sessionId: "sess_1",
++      workspace,
++      modelSelection: model,
++      providerId: "codex-test",
++      reason: "model-request",
++    };
++    expect(
++      zcodeProviderRuntimeHeadersRequestParamsSchema.parse({
++        ...input,
++        requestAuthType: "codex-oauth",
++      }).requestAuthType,
++    ).toBe("codex-oauth");
++    expect(() =>
++      zcodeProviderRuntimeHeadersRequestParamsSchema.parse({
++        ...input,
++        requestAuthType: "unknown",
++      }),
++    ).toThrow();
++  });
++
++  it("runtime auth accepts only the fixed Codex device identity, not arbitrary routes", () => {
++    expect(
++      zcodeProviderRuntimeHeadersResponseSchema.parse({
++        headersApplied: true,
++        requestAuth: { apiKey: "fixture-token", codexMode: "device" },
++      }),
++    ).toMatchObject({ requestAuth: { codexMode: "device" } });
++    for (const requestAuth of [
++      { codexMode: "unknown" },
++      { codexMode: "device", baseURL: "https://example.test" },
++    ]) {
++      expect(
++        zcodeProviderRuntimeHeadersResponseSchema.safeParse({ headersApplied: true, requestAuth })
++          .success,
++      ).toBe(false);
++    }
++  });
++
+   it.each(["start-plan", "individual-coding-plan", "team-coding-plan", "off-peak"] as const)(
+     "runtime headers 直接接受 Registry zhipu access mode: %s",
+     (mode) => {
+diff --git a/packages/shared/test/zcodeProtocolV4Command.test.ts b/packages/shared/test/zcodeProtocolV4Command.test.ts
+index 69dd0ab88970f5e25e2a92a5ee03e9fee4ba54cd..f73a6cc9fe04b1a4f401495bc078ca307662dcfc 100644
+--- a/packages/shared/test/zcodeProtocolV4Command.test.ts
++++ b/packages/shared/test/zcodeProtocolV4Command.test.ts
+@@ -15,6 +15,23 @@ import {
+ } from "../src/zcode-protocol-v4/index.js";
+ 
+ describe("zcode-protocol-v4 command", () => {
++  it("accepts explicit session resource settings and rejects incomplete or invalid identities", () => {
++    expect(commandPayloadSchemas.getSessionResources.parse({})).toEqual({});
++    expect(
++      commandPayloadSchemas.setSessionResource.parse({
++        kind: "skill",
++        id: "plugin:skill",
++        enabled: false,
++      }),
++    ).toEqual({ kind: "skill", id: "plugin:skill", enabled: false });
++    for (const payload of [
++      { kind: "global", id: "a", enabled: true },
++      { kind: "mcp", id: "", enabled: false },
++      { kind: "mcp", id: "a" },
++    ]) {
++      expect(commandPayloadSchemas.setSessionResource.safeParse(payload).success).toBe(false);
++    }
++  });
+   it("parses a valid sendText envelope with typed payload", () => {
+     const result = parseCommandEnvelope({
+       commandId: "018f0000-0000-7000-8000-000000000001",
