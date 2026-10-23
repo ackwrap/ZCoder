@@ -42,7 +42,8 @@
 在源码 worktree 根目录执行；版本按 `mise.toml`（当前 Node 24.14.0、pnpm 10.33.2），用 pnpm 而非 npm。
 
 - 首次完整初始化：`pnpm bootstrap`（含构建，非每次测试）。
-- 源码验收：`pnpm architecture:check --changed`、`pnpm test:architecture`、`pnpm typecheck`、`pnpm lint`；格式检查用 `pnpm exec oxfmt --check <修改文件...>`。
+- 开发中不跑全量：只对改动文件/包跑定向单测和格式检查，不跑 `pnpm test`、`test:unit`、根/CLI 全量 `typecheck`、全量桌面 E2E，也不跑 `pnpm build` / `build:bootstrap`。
+- **提交前一次性验收**：`pnpm architecture:check --changed`、`pnpm test:architecture`、`pnpm typecheck`、`pnpm lint`；格式检查用 `pnpm exec oxfmt --check <修改文件...>`。同一提交内容未变时不重复跑。
 - 单个根单测：`pnpm exec vitest run packages/services/test/codexDeviceLogin.test.ts`。
 - CLI 另跑 `pnpm --dir apps/zcode-cli typecheck`、`pnpm --dir apps/zcode-cli lint`；根 Vitest/Lint **不覆盖 CLI**。包测试例：`pnpm --dir apps/zcode-cli/packages/adapters exec vitest run tests/model-execution.test.ts`。找不到 `turbo` 先将源码根 `node_modules/.bin` 加入 PATH。
 - 定向桌面 E2E：`pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/settings/manual-review/pending/provider-codex.test.ts`。模型 replay 配置 `E2E_PROVIDER_HTTP_MODE=replay` 和 `E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/common.json`。
@@ -52,8 +53,9 @@
 
 ## 预览与启动陷阱
 
-- 开发目录用 `ZCODE_DATA_BASE_DIR=<测试数据基目录> pnpm dev:desktop:test`；沿用用户指定数据目录，不擅自换库。`dev:desktop` 默认生产环境。UI 热更新，Host watch 可能重启；CLI 改动需 `node scripts/build-desktop-agent-cli.mjs` 后重启，确保更新 `bundled-agents/`，不只 `cli/dist/`。
-- dev 每次启动清理 `packages/desktop/out`，反复重启会重建。保留预览、依赖、`.turbo` 及构建缓存；冷 worktree 不代表每次测试必须全量编译。
+- 开发目录用 `ZCODE_DATA_BASE_DIR=<测试数据基目录> pnpm dev:desktop:test`；沿用用户指定数据目录，不擅自换库。`dev:desktop` 默认生产环境。
+- **Electron 实时渲染，保持预览常驻**：renderer 走 Vite HMR，保存即更新；main/host/preload 走 tsup `--watch` 增量重建并自动重启 Electron；只有 CLI 或 `bundled-agents/` 改动需要 `node scripts/build-desktop-agent-cli.mjs` 后重启。不要为查看 UI 改版反复重启 dev。
+- dev 每次启动都会清理 `packages/desktop/out` 并重建 agent CLI，属于冷启动成本；这不是“改动需要全量编译”。保留预览、依赖、`.turbo` 及构建缓存；冷 worktree 不代表每次测试必须全量编译。`pnpm build` / `build:bootstrap` 只在正式构建或明确需要时执行。
 - `./start-test.sh` 固定操作当前 `ZCode/`，复用 `node scripts/prepare-patches.mjs` 的基准/完整性检查；只对完全干净的固定基准首次应用队列。**`--check` 非只读**：仍可能恢复版本备份、下载工具、首次应用补丁、安装依赖或修改沙箱权限。
 - 启动脚本默认数据在外层 `.zcode-dev-data/`；Linux 临时补桌面 `package.json` 版本，退出恢复。隔离目录缺 Electron 可用 `ELECTRON_OVERRIDE_DIST_PATH=<已有 electron/dist>`，不因此改源码或关闭沙箱。
 
