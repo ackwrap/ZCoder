@@ -317,10 +317,10 @@ index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..09d74e5f569e4ef19e2e1c87def63cbc98345ea4
+index 0000000000000000000000000000000000000000..b46ed82bffb3e944ea1535d3ec790ab757166e14
 --- /dev/null
 +++ b/docs/session-context-and-mcp-diagnostics.md
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,53 @@
 +# 会话上下文来源与 MCP 诊断
 +
 +## 范围与所有者
@@ -355,7 +355,11 @@ index 0000000000000000000000000000000000000000..09d74e5f569e4ef19e2e1c87def63cbc
 +## 右侧会话信息栏
 +
 +- 复用 ConversationStatusPanel 的唯一展开/收起状态和会话容器断点，不新增平行侧栏。宽屏显示紧凑卡片，窄屏保留可展开摘要；不挤掉输入区，不改变 Browser/Side Pane 的生命周期。
-+- 卡片顺序为上下文、连接器、改动，独立折叠。原有 Goal、计划、终端、工作流和子代理入口保留。
++- 卡片顺序为上下文、连接器、改动、后台任务，独立折叠。原有 Goal、计划、终端、工作流和子代理入口保留。
++- 后台任务卡片固定在「改动」之后，聚合同一会话里仍在跑的后台工作：终端后台命令（`kind: "bash"`）与子代理（`kind: "subagent"`）。它不新开数据源，直接消费 `ConversationStatusPanelModel.runningBashWorks` 与 `runningSubagentWorks`；`resultPending`/`failed`/`cancelled` 仍按各自既有区块语义处理，不在本卡重复计数。
++- 卡片标题行给折叠箭头与总数；每行是一行式：类型图标（终端/子代理）、单行截断标题、耗时、可取消时的停止按钮。列表按 `startedAt` 升序，最老的在最前，滚动上限沿用 `max-h-48`。
++- 已完成数量来自子代理目录的权威投影 `endedTotal`（`subagents.endedTotal`），在卡片底部以「N 已完成」展示；该计数覆盖已结束的子代理，不代表已结束的后台终端命令——后台终端跑完即从 `backgroundWorks` 移除，投影不保留历史，因此不臆造一个合并后的「全部已完成」数字。
++- 卡片在没有运行中后台工作且已完成数为 0 时整体不渲染，避免常驻一个空壳。
 +- 上下文总量来自当前 SessionUsageState.contextWindow，显示已用/窗口、占用率、剩余空间及真实压缩阈值。无有效用量显示“尚无上下文用量”，不伪装成 0%。配置窗口及来源复用 Resolver 投影，不能拿本机配置解释远程模型。
 +- 缓存命中率直接取运行时上报的 `cache.hitRate`；信息栏是诊断视图，不套用工具栏 78% 的展示阈值。未上报或非有限值时不显示该项，不显示 0%。
 +- 轮尾时间旁显示本轮的 token 速率：`turnHeader.outputTokens ÷ turnHeader.modelDurationMs`（输出 token / 模型耗时，不含工具执行与等待）。任一字段缺失、为 0 或非有限值时整段不显示，不用总耗时或字符数推算。两个字段都由 CLI 投影对**每个主轮**聚合，不限于高速轮：`outputTokens` 在 ModelComplete 累计，`modelDurationMs` 在 ModelNetworkStatus 的主链路请求完成/失败时累计 `durationMs`；高速轮额外带 `toolDurationMs`/`otherDurationMs` 供加速节省计算。

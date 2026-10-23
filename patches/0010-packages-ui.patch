@@ -2089,7 +2089,7 @@ index 0000000000000000000000000000000000000000..234d8a51a7d6296387e04fe6e2b1e579
 +  return { state, refresh };
 +}
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..e53ef9de2875ac97651acabe7db629a81acb7f3d 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6f6558047 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,62 @@
@@ -2177,7 +2177,16 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..e53ef9de2875ac97651acabe7db629a8
    "chat.summaryPanel.duration.hours": "h",
    "chat.summaryPanel.duration.minutes": "m",
    "chat.summaryPanel.duration.seconds": "s",
-@@ -5905,6 +5969,39 @@ const enUS: Record<string, string> = {
+@@ -5871,6 +5935,8 @@ const enUS: Record<string, string> = {
+   "chat.statusPanel.todoWaitingFold": "{count} waiting",
+   "chat.statusPanel.terminals": "Terminals",
+   "chat.statusPanel.agents": "Agents",
++  "chat.statusPanel.backgroundTasks": "Background tasks",
++  "chat.statusPanel.backgroundTasksFinished": "{count} finished",
+   "chat.statusPanel.workflows": "Workflows",
+   "chat.statusPanel.runningStatusValue": "{count} in background",
+   "chat.statusPanel.runningStatusValuePlural": "{count} in background",
+@@ -5905,6 +5971,39 @@ const enUS: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
    "chat.slash.app.plan.label": "Plan mode",
    "chat.slash.app.plan.description": "Enable Plan mode",
@@ -2218,7 +2227,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..e53ef9de2875ac97651acabe7db629a8
    "chat.compact.queued": "Compaction queued and will run in order.",
    "chat.compact.duplicateBlocked": "A compaction is already running or queued.",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..542cf1f51f647f75884e29710ddfa46b66bc192d 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf803fb25a7 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,56 @@
@@ -2300,7 +2309,17 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..542cf1f51f647f75884e29710ddfa46b
    "chat.summaryPanel.duration.hours": "小时",
    "chat.summaryPanel.duration.minutes": "分",
    "chat.summaryPanel.duration.seconds": "秒",
-@@ -5530,6 +5588,37 @@ const zhCN: Record<string, string> = {
+@@ -5496,6 +5554,9 @@ const zhCN: Record<string, string> = {
+   "chat.statusPanel.todoWaitingFold": "待处理 {count} 项",
+   "chat.statusPanel.terminals": "终端",
+   "chat.statusPanel.agents": "智能体",
++  // 后台任务卡：把终端后台命令与子代理合成一张跟随「改动」之后的一行式列表。
++  "chat.statusPanel.backgroundTasks": "后台任务",
++  "chat.statusPanel.backgroundTasksFinished": "已完成 {count} 项",
+   // Workflows 分区：与 Terminals / Agents 并列的
+   // 第三类实时活动。行内的状态词与步数复用 chat.toolCall.workflow.* 那一组，不另造词汇。
+   "chat.statusPanel.workflows": "工作流",
+@@ -5530,6 +5591,37 @@ const zhCN: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal 无法在 Plan 模式下使用，请切换模式。",
    "chat.slash.app.plan.label": "计划模式",
    "chat.slash.app.plan.description": "开启计划模式",
@@ -4812,10 +4831,18 @@ index a367bba0009b0e7d593b5b6095559b6577e1cf80..374834281b150b7bcaddbe0e6b722e07
        {unit.leadingBoundaryRows.map((row) =>
          renderReadonlyRow(
 diff --git a/packages/ui/src/v4/ConversationStatusPanel.tsx b/packages/ui/src/v4/ConversationStatusPanel.tsx
-index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc5b142c24 100644
+index f272d19a838855802d46294f16ab4f03afd1d04d..900fff1696f1ffd1c5bb237afe057e557db3b8d9 100644
 --- a/packages/ui/src/v4/ConversationStatusPanel.tsx
 +++ b/packages/ui/src/v4/ConversationStatusPanel.tsx
-@@ -151,6 +151,8 @@ export interface ConversationStatusPanelProps {
+@@ -24,6 +24,7 @@ import {
+   EllipsisIcon,
+   FileDiffIcon,
+   GoalIcon,
++  LayersIcon,
+   ListChecksIcon,
+   Maximize2Icon,
+   Minimize2Icon,
+@@ -151,6 +152,8 @@ export interface ConversationStatusPanelProps {
    onOpenWorkflowRun?: (target: ConversationStatusPanelWorkflowRunTarget) => void;
    onOpenWorkflowRunDirectory?: (request: OpenWorkflowRunDirectorySideTabRequest) => void;
    className?: string;
@@ -4824,7 +4851,169 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
  }
  
  // memo 组件默认 props 不内联创建数组，避免每次渲染生成新引用触发稳定引用边界测试。
-@@ -1720,12 +1722,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
+@@ -234,7 +237,8 @@ type StatusSectionKind =
+   | "plan"
+   | "terminal"
+   | "workflow"
+-  | "agent";
++  | "agent"
++  | "backgroundTasks";
+ 
+ const STATUS_SECTION_SCROLL_POLICY = {
+   environment: null,
+@@ -246,6 +250,7 @@ const STATUS_SECTION_SCROLL_POLICY = {
+   // workflow 行定高 56px，列表滚到三行半（196px）：露出的半行告诉人下面还有。
+   workflow: "max-h-[12.25rem]",
+   agent: "max-h-48",
++  backgroundTasks: "max-h-48",
+ } as const satisfies Record<StatusSectionKind, string | null>;
+ 
+ function StatusSectionHeader({
+@@ -1430,6 +1435,143 @@ function WorkflowStatusSection({
+   );
+ }
+ 
++function BackgroundTasksSection({
++  bashWorks,
++  endedCount,
++  onCancelBackgroundWork,
++  onOpenBackgroundBash,
++  onOpenChange,
++  open,
++  separated,
++  subagents,
++  title,
++}: {
++  bashWorks: readonly BackgroundWorkSummary[];
++  endedCount: number;
++  onCancelBackgroundWork?: (workId: string) => void;
++  onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
++  onOpenChange?: (open: boolean) => void;
++  open?: boolean;
++  separated: boolean;
++  subagents: readonly ConversationStatusPanelRunningSubagent[];
++  title: string;
++}) {
++  const { intl } = useZCodeIntl();
++  const [now, setNow] = useState(() => Date.now());
++  const running = bashWorks.length + subagents.length;
++  useEffect(() => {
++    if (running === 0) return;
++    const timer = window.setInterval(() => setNow(Date.now()), 1000);
++    return () => window.clearInterval(timer);
++  }, [running]);
++  // 没有运行中工作、也没有已结束记录时整卡不渲染，避免常驻空壳。
++  if (running === 0 && endedCount <= 0) return null;
++  const orderedBash = [...bashWorks].sort((left, right) => left.startedAt - right.startedAt);
++  const orderedSubagents = [...subagents].sort(
++    (left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0),
++  );
++
++  return (
++    <StatusSection
++      section="backgroundTasks"
++      defaultOpen
++      open={open}
++      onOpenChange={onOpenChange}
++      separated={separated}
++      title={title}
++      trailing={() => (running > 0 ? <span>{running}</span> : null)}
++      footer={
++        endedCount > 0 ? (
++          <div
++            data-testid="background-tasks-finished"
++            className="flex items-center gap-1.5 px-2 py-1 text-ui-sm text-[var(--color-foreground-subtlest)]"
++          >
++            <LayersIcon className="size-3.5 shrink-0" />
++            <span>
++              {intl.formatMessage(
++                { id: "chat.statusPanel.backgroundTasksFinished" },
++                { count: String(endedCount) },
++              )}
++            </span>
++          </div>
++        ) : null
++      }
++    >
++      <ul className="space-y-0" data-testid="background-tasks-list">
++        {orderedBash.map((work) => (
++          <li
++            key={`bash:${work.workId}`}
++            data-testid={testId(TID_V4_BACKGROUND_WORK_ITEM, work.workId)}
++            data-background-task-kind="bash"
++            data-work-id={work.workId}
++            data-work-status={work.status}
++            className="group relative flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--color-hover)]"
++          >
++            {onOpenBackgroundBash ? (
++              <button
++                type="button"
++                className="absolute inset-0 rounded-lg focus-visible:outline-ring"
++                aria-label={intl.formatMessage({ id: "bashOutput.open" }, { title: work.title })}
++                data-testid="background-bash-open"
++                onClick={() => onOpenBackgroundBash(work)}
++              />
++            ) : null}
++            <SquareTerminalIcon className="pointer-events-none relative z-[1] size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
++            <span className="pointer-events-none relative z-[1] min-w-0 flex-1 truncate text-ui-base text-[var(--color-foreground)]">
++              {work.title}
++            </span>
++            <span className="pointer-events-none relative z-[1] shrink-0 tabular-nums text-ui-sm text-[var(--color-foreground-subtle)]">
++              {formatBackgroundTaskElapsedLabel(
++                getBackgroundWorkElapsedMs(work, now),
++                intl.formatMessage,
++              )}
++            </span>
++            {work.cancellable !== false && onCancelBackgroundWork ? (
++              <span className="relative z-[1] shrink-0">
++                <RunningWorkCancelButton workId={work.workId} onCancel={onCancelBackgroundWork} />
++              </span>
++            ) : null}
++          </li>
++        ))}
++        {orderedSubagents.map((subagent) => (
++          <li
++            key={`agent:${subagent.childSessionId}`}
++            data-testid={
++              subagent.controlWorkId
++                ? testId(TID_V4_BACKGROUND_WORK_ITEM, subagent.controlWorkId)
++                : undefined
++            }
++            data-background-task-kind="agent"
++            data-child-session-id={subagent.childSessionId}
++            data-work-id={subagent.controlWorkId}
++            data-work-status="running"
++            className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--color-hover)]"
++          >
++            <BotIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
++            <span className="min-w-0 flex-1 truncate text-ui-base text-[var(--color-foreground)]">
++              {subagent.title}
++            </span>
++            <span className="shrink-0 tabular-nums text-ui-sm text-[var(--color-foreground-subtle)]">
++              {formatBackgroundTaskElapsedLabel(
++                Math.max(0, now - (subagent.startedAt ?? now)),
++                intl.formatMessage,
++              )}
++            </span>
++            {subagent.controlWorkId && subagent.cancellable !== false && onCancelBackgroundWork ? (
++              <span className="shrink-0">
++                <RunningWorkCancelButton
++                  workId={subagent.controlWorkId}
++                  onCancel={onCancelBackgroundWork}
++                />
++              </span>
++            ) : null}
++          </li>
++        ))}
++      </ul>
++    </StatusSection>
++  );
++}
++
+ function SubagentStatusSection({
+   endedSubagentCount,
+   onCancelBackgroundWork,
+@@ -1720,12 +1862,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
  }
  
  function StatusSummaryRow({
@@ -4841,7 +5030,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
    /** 已结束 run 的目录计数；宿主给 0 表示目录入口不可渲染（缺会话或缺回调）。 */
    endedWorkflowRunCount: number;
    gitWorktreeChangeSummary?: { added: number; removed: number } | null;
-@@ -1845,6 +1851,14 @@ function StatusSummaryRow({
+@@ -1845,6 +1991,14 @@ function StatusSummaryRow({
          {endedWorkflowRunCount}
        </span>
      </StatusSummaryMetric>
@@ -4856,7 +5045,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
    ) : null;
  
    if (!summaryMetric) {
-@@ -1871,6 +1885,8 @@ function StatusSummaryRow({
+@@ -1871,6 +2025,8 @@ function StatusSummaryRow({
  }
  
  function ConversationStatusPanelImpl({
@@ -4865,7 +5054,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
    workspacePath,
    workspaceIdentity,
    gitSummary,
-@@ -1955,7 +1971,7 @@ function ConversationStatusPanelImpl({
+@@ -1955,11 +2111,16 @@ function ConversationStatusPanelImpl({
    const panelMenuLabel = intl.formatMessage({
      id: "chat.summaryPanel.displayMode",
    });
@@ -4874,7 +5063,16 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
    const canRenderGoal = Boolean(model.goal);
    const canRenderSessionPlans = Boolean(model.sessionPlans);
    const canRenderPlan = Boolean(model.plan);
-@@ -1995,7 +2011,7 @@ function ConversationStatusPanelImpl({
+   const canRenderTerminals = model.runningBashWorks.length > 0;
++  // 后台任务卡聚合终端后台命令与子代理；与终端/智能体区块并行存在，不替代它们。
++  const canRenderBackgroundTasks =
++    model.runningBashWorks.length > 0 ||
++    model.runningSubagentWorks.length > 0 ||
++    endedSubagentCount > 0;
+   // 已结束的 run 也开门（与 canRenderAgents 同判断）：重启后活动数为零，若只按它开门，
+   // 通往 run 目录的唯一入口会连带消失。
+   const canRenderEndedWorkflows = Boolean(
+@@ -1995,7 +2156,7 @@ function ConversationStatusPanelImpl({
    // 会话会连整个胶囊一起消失——而那正是重启后打开一条旧对话的样子，run 目录的入口于是又没了。
    // 已结束的 run 因此单独开这道门。（Agents 的已结束行有同一个洞：`endedSubagentCount` 也
    // 没进 `hasContent`。那是既有行为，不在本轮一起翻。）
@@ -4883,7 +5081,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
      return null;
    }
  
-@@ -2020,6 +2036,7 @@ function ConversationStatusPanelImpl({
+@@ -2020,6 +2181,7 @@ function ConversationStatusPanelImpl({
          data-testid={TID_CHAT_SUMMARY_PANEL}
          data-state={variant === "mini" ? "collapsed" : "expanded"}
          data-display-mode={variant}
@@ -4891,7 +5089,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
          data-goal-status={model.goal?.status}
          data-goal-objective={model.goal?.objective}
          data-running-background-count={
-@@ -2042,6 +2059,12 @@ function ConversationStatusPanelImpl({
+@@ -2042,6 +2204,12 @@ function ConversationStatusPanelImpl({
              : variant === "panel"
                ? "flex max-h-[min(64dvh,32rem)] w-80 max-w-[calc(100cqw-2rem)] flex-col"
                : "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col @min-[1280px]/conversation:max-h-[min(64dvh,32rem)] @min-[1280px]/conversation:w-80",
@@ -4904,7 +5102,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
          )}
        >
          {variant !== "mini" ? (
-@@ -2104,8 +2127,10 @@ function ConversationStatusPanelImpl({
+@@ -2104,8 +2272,10 @@ function ConversationStatusPanelImpl({
              className={cn(
                "min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto p-2",
                variant === "auto" ? "hidden @min-[1280px]/conversation:flex" : "flex",
@@ -4915,7 +5113,80 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
              {canRenderGit ? (
                <GitStatusSection
                  model={model}
-@@ -2197,6 +2222,7 @@ function ConversationStatusPanelImpl({
+@@ -2120,10 +2290,21 @@ function ConversationStatusPanelImpl({
+                 useVerticalFloatingPanels={useVerticalFloatingPanels}
+               />
+             ) : null}
++            {canRenderBackgroundTasks ? (
++              <BackgroundTasksSection
++                bashWorks={model.runningBashWorks}
++                subagents={model.runningSubagentWorks}
++                endedCount={endedSubagentCount}
++                title={intl.formatMessage({ id: "chat.statusPanel.backgroundTasks" })}
++                onOpenBackgroundBash={onOpenBackgroundBash}
++                onCancelBackgroundWork={onCancelBackgroundWork}
++                separated={canRenderGit}
++              />
++            ) : null}
+             {canRenderGoal ? (
+               <GoalStatusSection
+                 model={model}
+-                separated={canRenderGit}
++                separated={canRenderGit || canRenderBackgroundTasks}
+                 onPauseGoal={onPauseGoal}
+                 onResumeGoal={onResumeGoal}
+               />
+@@ -2133,14 +2314,16 @@ function ConversationStatusPanelImpl({
+                 model={model}
+                 parentSessionId={parentSessionId}
+                 onOpenPlanDetail={onOpenPlanDetail}
+-                separated={canRenderGit || canRenderGoal}
++                separated={canRenderGit || canRenderBackgroundTasks || canRenderGoal}
+               />
+             ) : null}
+             {canRenderPlan ? (
+               <PlanStatusSection
+                 model={model}
+                 popoverSide={useVerticalFloatingPanels ? "bottom" : "left"}
+-                separated={canRenderGit || canRenderGoal || canRenderSessionPlans}
++                separated={
++                  canRenderGit || canRenderBackgroundTasks || canRenderGoal || canRenderSessionPlans
++                }
+               />
+             ) : null}
+             {canRenderTerminals ? (
+@@ -2151,7 +2334,13 @@ function ConversationStatusPanelImpl({
+                 works={model.runningBashWorks}
+                 open={terminalSectionOpen}
+                 onOpenChange={onTerminalSectionOpenChange}
+-                separated={canRenderGit || canRenderGoal || canRenderSessionPlans || canRenderPlan}
++                separated={
++                  canRenderGit ||
++                  canRenderBackgroundTasks ||
++                  canRenderGoal ||
++                  canRenderSessionPlans ||
++                  canRenderPlan
++                }
+                 onCancelBackgroundWork={onCancelBackgroundWork}
+               />
+             ) : null}
+@@ -2164,6 +2353,7 @@ function ConversationStatusPanelImpl({
+                 onOpenChange={onWorkflowSectionOpenChange}
+                 separated={
+                   canRenderGit ||
++                  canRenderBackgroundTasks ||
+                   canRenderGoal ||
+                   canRenderSessionPlans ||
+                   canRenderPlan ||
+@@ -2185,6 +2375,7 @@ function ConversationStatusPanelImpl({
+                 onOpenChange={onAgentSectionOpenChange}
+                 separated={
+                   canRenderGit ||
++                  canRenderBackgroundTasks ||
+                   canRenderGoal ||
+                   canRenderSessionPlans ||
+                   canRenderPlan ||
+@@ -2197,6 +2388,7 @@ function ConversationStatusPanelImpl({
                  onOpenSubagentDirectory={onOpenSubagentDirectory}
                />
              ) : null}
@@ -4923,7 +5194,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..74253f80ddad259541576c563b6a7ccc
            </div>
          ) : null}
          <div
-@@ -2211,6 +2237,8 @@ function ConversationStatusPanelImpl({
+@@ -2211,6 +2403,8 @@ function ConversationStatusPanelImpl({
            )}
          >
            <StatusSummaryRow
@@ -8786,6 +9057,62 @@ index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e
 +    expect(completed.container.textContent).not.toContain("latest-line-xyz");
 +  });
 +});
+diff --git a/packages/ui/test/v4ConversationStatusPanel.test.ts b/packages/ui/test/v4ConversationStatusPanel.test.ts
+index 79a0fb4876bc9af54192e6987879540298e1ab02..c14cba62033a183951d63e372fb5e361b55def6c 100644
+--- a/packages/ui/test/v4ConversationStatusPanel.test.ts
++++ b/packages/ui/test/v4ConversationStatusPanel.test.ts
+@@ -1635,6 +1635,51 @@ describe("ConversationStatusPanel", () => {
+     expect(agentSection).not.toContain("启动开发服务器");
+   });
+ 
++  it("renders the background task card right after git changes with one-line rows", async () => {
++    // 规格见 docs/session-context-and-mcp-diagnostics.md「右侧会话信息栏」。
++    const html = await renderStatusPanel({
++      summaryPanelVariantOverride: "panel",
++      onCancelBackgroundWork: vi.fn(),
++      endedSubagentCount: 7,
++      backgroundWorks: [
++        backgroundWork({ workId: "bg-older", kind: "bash", title: "构建产物", startedAt: 1_000 }),
++        backgroundWork({ workId: "bg-newer", kind: "bash", title: "跑测试", startedAt: 2_000 }),
++      ],
++      runningSubagents: [
++        runningSubagent({ childSessionId: "child-1", title: "扫描依赖", startedAt: 3_000 }),
++      ],
++    });
++
++    // 卡片存在，且位于改动之后、Goal/Terminal 之前。
++    const cardIndex = html.indexOf('data-status-section="backgroundTasks"');
++    const gitIndex = html.indexOf('data-status-section="environment"');
++    const terminalIndex = html.indexOf('data-status-section="terminal"');
++    expect(cardIndex).toBeGreaterThan(-1);
++    expect(gitIndex).toBeGreaterThan(-1);
++    expect(cardIndex).toBeGreaterThan(gitIndex);
++    if (terminalIndex > -1) expect(terminalIndex).toBeGreaterThan(cardIndex);
++
++    const card = html.slice(cardIndex, terminalIndex > -1 ? terminalIndex : undefined);
++    expect(card).toContain("chat.statusPanel.backgroundTasks");
++    // 三种任务都在同一张卡里出现。
++    expect(card).toContain("构建产物");
++    expect(card).toContain("跑测试");
++    expect(card).toContain("扫描依赖");
++    // 已完成计数来自权威投影的 endedTotal。
++    expect(card).toContain("chat.statusPanel.backgroundTasksFinished");
++    expect(card).toContain('data-testid="background-tasks-finished"');
++  });
++
++  it("hides the background task card when there is nothing to show", async () => {
++    const html = await renderStatusPanel({
++      summaryPanelVariantOverride: "panel",
++      backgroundWorks: [],
++      runningSubagents: [],
++      endedSubagentCount: 0,
++    });
++    expect(html).not.toContain('data-status-section="backgroundTasks"');
++  });
++
+   it("turns projected running Agents into child-session triggers", async () => {
+     const addressableSubagent = runningSubagent({
+       childSessionId: "child-addressable",
 diff --git a/packages/ui/test/v4ConversationStatusPanelGitReview.test.ts b/packages/ui/test/v4ConversationStatusPanelGitReview.test.ts
 index c0cd8c520d83182debdbd1e848b413d5eb4695eb..e0a9f9347d8a22077d096f5b012935224da1dce4 100644
 --- a/packages/ui/test/v4ConversationStatusPanelGitReview.test.ts

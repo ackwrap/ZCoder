@@ -6,7 +6,7 @@
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
   "sourceHead": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
-  "tree": "93ea5335705a6b52c8ae25eeecc071db051e7305",
+  "tree": "a7df178659980faaefb1b3c781d4767bafcec768",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -64,7 +64,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "eea2e29d74aaa8014bd630eab1f7f2e9b36dcafe9d0bf2f88a4b0b685d9e36e0",
+      "sha256": "c3626e8512535f4db69195c08c0d77a61a117b1d6e363f005583ff7850a410c5",
       "paths": [
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
@@ -199,7 +199,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "9533253e00bf89f7c09aaa2503eee922b66515782740a1bdbf8b319902bf14df",
+      "sha256": "53419aefeeb9dd3fc3b4fbf351a1d93a9cb3de246879b3ae62325925b424995b",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -300,6 +300,7 @@
         "packages/ui/test/sidebarBottomActivity.test.ts",
         "packages/ui/test/tokensPerSecond.test.ts",
         "packages/ui/test/toolLiveExpand.test.ts",
+        "packages/ui/test/v4ConversationStatusPanel.test.ts",
         "packages/ui/test/v4ConversationStatusPanelGitReview.test.ts",
         "packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts"
       ]
