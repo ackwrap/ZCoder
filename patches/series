@@ -1,0 +1,9 @@
+0001-remove-security-notice-from-identity-prompt.patch
+0002-skip-startup-login.patch
+0003-remove-coding-plan-upgrade-entry.patch
+0004-add-codex-chatgpt-provider.patch
+0005-auto-discover-provider-models.patch
+0006-fix-duplicate-model-discovery-panel.patch
+0007-compact-model-provider-actions.patch
+0008-expand-work-process-by-default.patch
+0009-remove-phone-and-computer-use-entries.patch

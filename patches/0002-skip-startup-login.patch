@@ -1,0 +1,110 @@
+diff --git a/docs/ui/login-page.md b/docs/ui/login-page.md
+index 38c6010a7a0b8e00d5640aa5623de8ee38139ae7..e68084389f64cb6c20fb1d5e0e53b253b1dbd03a 100644
+--- a/docs/ui/login-page.md
++++ b/docs/ui/login-page.md
+@@ -1,10 +1,10 @@
+ # Login Page
+ 
+-启动阶段如果没有恢复到 OAuth 用户，且没有可用模型供应商配置，Root 会展示 `WelcomeScreen`。
++启动阶段不再自动展示登录页：如果没有恢复到 OAuth 用户，且没有可用模型供应商配置，Root 直接进入主界面，并在没有已打开 workspace 时兜底创建默认 workspace。登录页只由手动登录、模型供应商连接或会话过期打开。
+ 
+ 所有应用内登录入口都收敛到 `WelcomeScreen`，并复用 `LoginPanel` 的 OAuth 和 API Key 流程，避免手动登录、启动引导、模型供应商连接出现多套状态机：
+ 
+-- 启动自动引导：`WelcomeScreen`，由 provider 可用性守卫打开
++- 启动引导：不自动打开登录页；Root 直接进入主界面
+ - 手动登录入口：`WelcomeScreen`，从设置页或 workspace shell 的登录操作打开
+ - 模型供应商连接：`loginEntryRequest` 会打开 `WelcomeScreen` 并自动启动指定 provider 的 OAuth
+ - 登录内容容器：使用 `bg-background`、`border-popover-border`、`shadow-md`
+@@ -26,6 +26,6 @@ API Key 登录表单在输入框为空时于右侧展示 `Get API Key` 外链入
+ 
+ API Key 登录表单的取消按钮底部展示“跳过”链接按钮。跳过只写入当前选择 provider 对应的 `providerFamilyDomain`、`providerFamilyDomainUpdatedAt` 和 `providerFamilyDomainMigrated`，用于确认 Z.ai / BigModel 运行域；它不保存 API Key、不触发 API Key 登录成功事件，也不修改 `modelProviderFamilyModes`。
+ 
+-启动自动引导完成后有一个新用户直达路径：如果当前没有已打开 workspace，Root 使用 Main 注入的 conversation descriptor，必要时通过 `fileService.ensureConversationWorkspace()` 幂等确保 `<dataBaseDir>/.zcode/workspace/default` 存在。该 workspace 提供真实 cwd，但 UI 保持“未选择项目”，用户无需经过项目选择页即可直接对话。若用户跳过登录且仍没有可用模型，该草稿首页按上一条规则显示 `modelConfigMissing` 横幅。
++启动未打开登录页时有一个新用户直达路径：如果当前没有已打开 workspace，Root 使用 Main 注入的 conversation descriptor，必要时通过 `fileService.ensureConversationWorkspace()` 幂等确保 `<dataBaseDir>/.zcode/workspace/default` 存在。该 workspace 提供真实 cwd，但 UI 保持“未选择项目”，用户无需经过项目选择页即可直接对话。若用户跳过登录且仍没有可用模型，该草稿首页按上一条规则显示 `modelConfigMissing` 横幅。
+ 
+ 手动登录和模型供应商连接完成后只关闭 `WelcomeScreen` 并回到原界面，不会创建默认 workspace。
+diff --git a/packages/ui/src/Root.tsx b/packages/ui/src/Root.tsx
+index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..629e92051c4b8351c3d3d2209c3a55cc135027ca 100644
+--- a/packages/ui/src/Root.tsx
++++ b/packages/ui/src/Root.tsx
+@@ -584,6 +584,8 @@ function RootInner({
+   const { startupCheckCompleted: providerAvailabilityStartupCheckCompleted } =
+     useProviderAvailabilityLoginEntryGuard({
+       enabled: providerAvailabilityLoginEntryGuardEnabled,
++      // 二开：启动不再强制登录，直接进入主界面；登录页仍可由手动操作或模型供应商连接打开。
++      autoOpenLoginEntry: false,
+       user,
+       isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
+       providerFamilyDomain: appSettings?.providerFamilyDomain,
+diff --git a/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts b/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts
+index 27c580bef52afa3efb336d1dc0b228815aa46e40..7e8b56f667477d01eedaee8fa4519ebeb7a241d8 100644
+--- a/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts
++++ b/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts
+@@ -12,6 +12,7 @@ export interface ProviderAvailabilityLoginEntryGuardResult {
+ 
+ export function useProviderAvailabilityLoginEntryGuard({
+   enabled = true,
++  autoOpenLoginEntry = true,
+   user,
+   isRestoringOAuthSession,
+   providerFamilyDomain,
+@@ -22,6 +23,8 @@ export function useProviderAvailabilityLoginEntryGuard({
+   setLoginEntryOpen,
+ }: {
+   enabled?: boolean;
++  /** 启动可用性检查是否允许自动打开登录页；关闭后仍保留手动登录入口。 */
++  autoOpenLoginEntry?: boolean;
+   user: UserInfo | null;
+   isRestoringOAuthSession: boolean;
+   providerFamilyDomain: string | null | undefined;
+@@ -54,9 +57,10 @@ export function useProviderAvailabilityLoginEntryGuard({
+         : modelSelectionView;
+       const availability = resolveProviderAvailabilityState({ modelSelectionView: refreshedView });
+       const { hasUsableProvider, providerCount } = availability;
+-      const shouldOpenLoginEntry = !providerFamilyDomain || (!user && !hasUsableProvider);
++      const shouldOpenLoginEntry =
++        autoOpenLoginEntry && (!providerFamilyDomain || (!user && !hasUsableProvider));
+ 
+-      // 未登录且没有可用模型配置时必须引导用户连接账号或填写 API Key。
++      // 未登录且没有可用模型配置时，由调用方决定是否引导连接账号或填写 API Key。
+       // 启动检查、API Key 设置回流等入口统一走这里，避免各处复制判断后语义分叉。
+       logger.info("[Root] provider 可用性登录入口守卫完成检查", {
+         reason: options.reason,
+@@ -75,6 +79,7 @@ export function useProviderAvailabilityLoginEntryGuard({
+       } satisfies ProviderAvailabilityLoginEntryGuardResult;
+     },
+     [
++      autoOpenLoginEntry,
+       enabled,
+       modelSelectionView,
+       providerFamilyDomain,
+diff --git a/packages/ui/test/providerAvailabilityLoginEntryGuard.test.ts b/packages/ui/test/providerAvailabilityLoginEntryGuard.test.ts
+index 6ddda1fbcbf55abfb257ece07dea74e45c29b19c..42234e21f0c2fae421d844ceeea19b62fabe7550 100644
+--- a/packages/ui/test/providerAvailabilityLoginEntryGuard.test.ts
++++ b/packages/ui/test/providerAvailabilityLoginEntryGuard.test.ts
+@@ -58,4 +58,25 @@ describe("useProviderAvailabilityLoginEntryGuard", () => {
+     await waitFor(() => expect(setLoginEntryOpen).toHaveBeenCalledWith(false));
+     expect(refreshProviderState).not.toHaveBeenCalled();
+   });
++
++  it("关闭自动引导后，启动没有可用 Provider 也不打开登录页", async () => {
++    const setLoginEntryOpen = vi.fn();
++    const view = { revision: 1, providers: [] };
++    const { result } = renderHook(() =>
++      useProviderAvailabilityLoginEntryGuard({
++        autoOpenLoginEntry: false,
++        user: null,
++        isRestoringOAuthSession: false,
++        providerFamilyDomain: "zai",
++        modelSelectionView: view,
++        refreshProviderState: vi.fn(async () => {}),
++        readModelSelectionView: async () => view,
++        setLoginEntryOpen,
++      }),
++    );
++
++    await waitFor(() => expect(result.current.startupCheckCompleted).toBe(true));
++    expect(setLoginEntryOpen).toHaveBeenCalledWith(false);
++    expect(setLoginEntryOpen).not.toHaveBeenCalledWith(true);
++  });
+ });

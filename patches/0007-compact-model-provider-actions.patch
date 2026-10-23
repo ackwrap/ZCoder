@@ -1,0 +1,315 @@
+diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
+index e9695fb8908ed0304b5b5aa7cbf580b52538df23..148563f7a74e2e30b24faaf7805385ddb143ea7c 100644
+--- a/docs/provider-codex-device.md
++++ b/docs/provider-codex-device.md
+@@ -3,6 +3,7 @@
+ ## 产品规则
+ 
+ - 在 Codex 详情保留“使用 ChatGPT 登录”（Token Sharing），新增显式“设备码登录（兼容）”；两者不是自动回退关系。
++- 未连接时不再常驻显示“使用 ChatGPT 账号授权连接，无需填写 OpenAI API Key……”描述；两个登录按钮仍在原位，等待授权、设备码安全提醒、连接结果和错误信息保留。
+ - 用户主动点击后才向 OpenAI 申请设备码。界面展示固定官方验证网址、一次性用户码与过期时间，支持复制用户码、打开网页和取消；禁止自动提交设备码或代替用户确认授权。
+ - 提醒只使用本人刚在 ZCode 发起的设备码，不分享给他人。失败、拒绝、过期、取消后立即隐藏用户码；错误不暴露上游正文。
+ - 第一版沿用拥有本地 Host 的桌面授权范围，不扩大手机 Web / 远程 Host 的登录权限。
+diff --git a/docs/provider-model-discovery.md b/docs/provider-model-discovery.md
+index 8f65d4ddf7cfcc040dc0b88a5bf6a45f447aaaa4..007f2bab3a103171ef18698da5932925dfe98963 100644
+--- a/docs/provider-model-discovery.md
++++ b/docs/provider-model-discovery.md
+@@ -7,6 +7,7 @@
+ - 账号型 zhipu-account 继续由原 Account Source 同步，不走通用 Key 发现链路。
+ - 模型设置提供“重新获取模型”及 idle/loading/ready/error/unsupported 状态；UI 切换或关闭不拥有、也不重复启动 Host 任务。
+ - 每个非账号供应商详情只显示一个模型发现区域。发现区域和模型列表使用不同的组件身份；切换供应商时同时重建，不残留旧区域或模型编辑草稿。
++- “重新获取模型”放在模型列表标题右侧，与“添加模型”并排，窄屏可换行但不横向溢出。状态与参数来源说明放入悬浮/键盘焦点提示，不再常驻占两行；加载禁用按钮，失败时按钮明确显示可重试状态，无障碍状态继续播报。
+ - 读取模型列表不发聊天请求，不测额度，不自动切换当前模型或默认模型。
+ - 成功后按 ID 去重，追加新模型并填补接口明确提供的参数；保留现有模型、顺序、启停、手动固定参数与个人覆盖。失败、空列表、分页不完整均不提交。
+ - 模型名称使用供应商返回的可调用 ID。Codex 返回的 slug 对应 ID；不把 display_name 当成调用名。
+@@ -47,3 +48,4 @@ Host Model Discovery owner（每 Provider 单一任务、重复触发合并）
+ 5. 换 Key、退出登录、删除、并发编辑、Host dispose 下的旧结果不能提交。
+ 6. 桌面 E2E 使用本地目录 fixture 覆盖保存 Key 后出现模型与参数、失败保留和手动刷新；真实供应商授权与目录权限需用户账户另验。
+ 7. 反复切换 API Key / Codex 供应商时，发现区域始终只有一个，模型列表没有残留；切到账号型供应商时不显示发现区域，且不因切换自动发起发现。
++8. 获取模型和添加模型属于同一标题操作区；说明默认折叠，刷新功能、失败反馈、键盘提示和切换后单实例语义不变。
+diff --git a/packages/desktop/test/e2e/settings/manual-review/pending/provider-model-discovery.test.ts b/packages/desktop/test/e2e/settings/manual-review/pending/provider-model-discovery.test.ts
+index a261c6f0876e773e27d0e8816b9f90030ad182e9..8c2430bb6e7dcefe71da75088ac878e6117ea0b1 100644
+--- a/packages/desktop/test/e2e/settings/manual-review/pending/provider-model-discovery.test.ts
++++ b/packages/desktop/test/e2e/settings/manual-review/pending/provider-model-discovery.test.ts
+@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
+ import { NodePersonalProviderConfigRepository } from "@zcode/provider-node";
+ import {
+   TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON,
++  TID_MODEL_PROVIDER_ADD_MODEL_BUTTON,
+   TID_MODEL_PROVIDER_TEMPLATE_ITEM,
+   TID_MODEL_PROVIDER_API_KEY_INPUT,
+   TID_MODEL_PROVIDER_BASE_URL_INPUT,
+@@ -75,6 +76,11 @@ describe("Automatic model discovery after saving a key", () => {
+       timeout: 15000,
+     });
+     expect(requests).toEqual(["/v1/models"]);
++    expect(await browser.execute((addId) => {
++      const refresh = document.querySelector('[data-testid="provider-model-discovery-refresh"]');
++      const actions = refresh?.closest("[data-model-provider-actions]");
++      return !!actions && actions.contains(document.querySelector(`[data-testid="${addId}"]`));
++    }, TID_MODEL_PROVIDER_ADD_MODEL_BUTTON)).toBe(true);
+     const repository = new NodePersonalProviderConfigRepository({
+       filePath: getE2EAppDataPaths().configFile,
+       pollingIntervalMs: false,
+diff --git a/packages/ui/src/codex-provider/CodexConnectionCard.tsx b/packages/ui/src/codex-provider/CodexConnectionCard.tsx
+index 25041f1ae16cdef3cd1d4ecbe72fcf3fd7516ede..b0ca7df85dcc16b7d0a4e85b01f56259ff00aa28 100644
+--- a/packages/ui/src/codex-provider/CodexConnectionCard.tsx
++++ b/packages/ui/src/codex-provider/CodexConnectionCard.tsx
+@@ -17,17 +17,11 @@ export function CodexConnectionCard({ providerId }: { providerId: string }) {
+       data-testid="codex-connection"
+     >
+       <h3 className="text-ui-base font-medium">{message("name")}</h3>
+-      <p className="text-ui-base text-foreground-subtle">
+-        {message(
+-          waiting
+-            ? device
+-              ? "deviceWaiting"
+-              : "waiting"
+-            : status?.connected
+-              ? "connected"
+-              : "description",
+-        )}
+-      </p>
++      {waiting || status?.connected ? (
++        <p className="text-ui-base text-foreground-subtle">
++          {message(waiting ? (device ? "deviceWaiting" : "waiting") : "connected")}
++        </p>
++      ) : null}
+       {!connection.available || (status && !status.loginAvailable) ? (
+         <p className="text-ui-caption text-foreground-subtle">{message("desktopOnly")}</p>
+       ) : null}
+diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
+index f17a714647a0ea5c40b3843475eeb4ececc1cc5c..559d4c39c6e18a9b8297c1370b0f467fe253f864 100644
+--- a/packages/ui/src/i18n/locales/en-US.ts
++++ b/packages/ui/src/i18n/locales/en-US.ts
+@@ -2,6 +2,7 @@ import { requestSecurityMessagesEnUS } from "@/request-security-edition/messages
+ /** English translations */
+ const enUS: Record<string, string> = {
+   "settings.modelDiscovery.refresh": "Refresh models",
++  "settings.modelDiscovery.retry": "Fetch failed · Retry",
+   "settings.modelDiscovery.loading": "Fetching models…",
+   "settings.modelDiscovery.idle":
+     "Models and available parameters are fetched after login or saving a key.",
+diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
+index 9f91120e4bfbf324e8e2ab04abcb76fb1b95a243..4eddd650957379757eb6382ff3d974e746080089 100644
+--- a/packages/ui/src/i18n/locales/zh-CN.ts
++++ b/packages/ui/src/i18n/locales/zh-CN.ts
+@@ -2,6 +2,7 @@ import { requestSecurityMessagesZhCN } from "@/request-security-edition/messages
+ /** 中文翻译 */
+ const zhCN: Record<string, string> = {
+   "settings.modelDiscovery.refresh": "重新获取模型",
++  "settings.modelDiscovery.retry": "获取失败，重试",
+   "settings.modelDiscovery.loading": "正在获取模型…",
+   "settings.modelDiscovery.idle": "登录或保存 Key 后自动获取模型与可用参数。",
+   "settings.modelDiscovery.ready": "已获取 {count} 个模型，其中 {parameters} 个包含接口参数。",
+diff --git a/packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx b/packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx
+index 712581d9a94f1f30ab7aa72157e84e00940c9d7a..ad6cdfc613d4e81a643145cd28a5140c97dbca3e 100644
+--- a/packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx
++++ b/packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx
+@@ -1,38 +1,47 @@
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ import { Button } from "@/components/ui/button.js";
+ import { useProviderModelDiscovery } from "@/hooks/provider-model-discovery/index.js";
++import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+ 
+ export function ProviderModelDiscoveryPanel({ providerId }: { providerId: string }) {
+   const { intl } = useZCodeIntl();
+   const { state, refresh } = useProviderModelDiscovery(providerId);
++  const statusText = intl.formatMessage(
++    { id: `settings.modelDiscovery.${state.status}` },
++    { count: state.count ?? 0, parameters: state.reportedParameters ?? 0 },
++  );
+   return (
+     <div
+-      className="flex flex-wrap items-center gap-2 text-ui-caption text-foreground-subtle"
++      className="inline-flex items-center"
+       data-testid="provider-model-discovery"
+       data-status={state.status}
+     >
+-      <Button
+-        variant="secondary"
+-        size="sm"
+-        disabled={state.status === "loading"}
+-        onClick={() => void refresh()}
+-        data-testid="provider-model-discovery-refresh"
++      <ControlHintTooltip
++        standalone
++        title={statusText}
++        description={intl.formatMessage({ id: "settings.modelDiscovery.hint" })}
+       >
+-        {intl.formatMessage({
+-          id:
+-            state.status === "loading"
+-              ? "settings.modelDiscovery.loading"
+-              : "settings.modelDiscovery.refresh",
+-        })}
+-      </Button>
+-      <span role="status" aria-live="polite">
+-        {intl.formatMessage(
+-          { id: `settings.modelDiscovery.${state.status}` },
+-          { count: state.count ?? 0, parameters: state.reportedParameters ?? 0 },
+-        )}
+-      </span>
+-      <span className="basis-full">
+-        {intl.formatMessage({ id: "settings.modelDiscovery.hint" })}
++        <Button
++          type="button"
++          variant="secondary"
++          size="default"
++          className="rounded-lg"
++          disabled={state.status === "loading"}
++          onClick={() => void refresh()}
++          data-testid="provider-model-discovery-refresh"
++        >
++          {intl.formatMessage({
++            id:
++              state.status === "loading"
++                ? "settings.modelDiscovery.loading"
++                : state.status === "error"
++                  ? "settings.modelDiscovery.retry"
++                  : "settings.modelDiscovery.refresh",
++          })}
++        </Button>
++      </ControlHintTooltip>
++      <span className="sr-only" role="status" aria-live="polite">
++        {statusText}
+       </span>
+     </div>
+   );
+diff --git a/packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx b/packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx
+index c7d655324923b067db8cc7feb8ed89d2e66ef789..407279150d32e01e49a20d4da3349ec492b9489d 100644
+--- a/packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx
++++ b/packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx
+@@ -846,13 +846,6 @@ export function InlineEditableProviderCard({
+           />
+         ) : null}
+ 
+-        {!isAccountProvider ? (
+-          // 同级发现区和模型列表曾共用 providerId key，切换时 React 会遗留旧发现区；按区域隔离身份。
+-          <ProviderModelDiscoveryPanel
+-            key={`discovery:${provider.providerId}`}
+-            providerId={provider.providerId}
+-          />
+-        ) : null}
+         <ProviderModelsSection
+           // 不同 Provider 可以有同名模型；不能复用上一供应商的打开中草稿和版本。
+           key={`models:${provider.providerId}`}
+@@ -860,6 +853,11 @@ export function InlineEditableProviderCard({
+           providerName={getProviderFormLabel(provider)}
+           providerEnabled={provider.enabled}
+           providerAccess={provider.config.access}
++          headerActions={
++            !isAccountProvider ? (
++              <ProviderModelDiscoveryPanel providerId={provider.providerId} />
++            ) : undefined
++          }
+           models={models}
+           onTestModel={onTestModel ? handleTestModel : undefined}
+           onModelCommit={handleModelCommit}
+diff --git a/packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx b/packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx
+index 3bf5e371bf9c35f26a4fe71f3fcadf4ffdf1f333..5d23c3e9ac931653b2d3ab529b944af148d51b40 100644
+--- a/packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx
++++ b/packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx
+@@ -363,6 +363,7 @@ export function ProviderModelsSection({
+   onAddModel,
+   onReorderModelIds,
+   settingsRevision = 0,
++  headerActions,
+ }: {
+   providerId: string;
+   providerName?: string;
+@@ -380,6 +381,7 @@ export function ProviderModelsSection({
+   onAddModel: (model: ProviderSettingsFormModel) => void | Promise<void>;
+   onReorderModelIds?: (modelIds: string[]) => void;
+   settingsRevision?: number;
++  headerActions?: ReactNode;
+ }) {
+   const { intl } = useZCodeIntl();
+   const { providerSettingsService } = useServices();
+@@ -477,17 +479,20 @@ export function ProviderModelsSection({
+         <span className="text-ui-base text-foreground-subtle">
+           {intl.formatMessage({ id: "settings.modelProvider.models" })}
+         </span>
+-        <Button
+-          type="button"
+-          variant="secondary"
+-          size="default"
+-          className="rounded-lg"
+-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+-          onClick={openAddDialog}
+-        >
+-          <Plus data-icon="inline-start" aria-hidden="true" />
+-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+-        </Button>
++        <div className="flex flex-wrap items-center justify-end gap-2" data-model-provider-actions>
++          {headerActions}
++          <Button
++            type="button"
++            variant="secondary"
++            size="default"
++            className="rounded-lg"
++            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
++            onClick={openAddDialog}
++          >
++            <Plus data-icon="inline-start" aria-hidden="true" />
++            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
++          </Button>
++        </div>
+       </div>
+       {models.length > 0 ? (
+         <div className="overflow-hidden rounded-lg border border-input-border bg-input">
+diff --git a/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs b/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs
+index 41f3802cad6b17ab9ef180311f3c502143005abe..3057fe3e0a69edc08223010ba35b0b392a51f06b 100644
+--- a/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs
++++ b/packages/ui/test/browser/manual-review/pending/codex-device.test.mjs
+@@ -57,7 +57,8 @@ for (const width of [320, 1200])
+         page.on("pageerror", (error) => errors.push(String(error)));
+         try {
+           await page.goto(`${origin}fixture?${new URLSearchParams({ locale, theme })}`);
+-          await page.getByTestId("codex-device-login").waitFor();
++      await page.getByTestId("codex-device-login").waitFor();
++      assert.equal(await page.locator('[data-testid="codex-connection"] > p').count(), 0);
+           assert.equal(await page.getByTestId("starts").textContent(), "0");
+           assert.equal(await page.getByTestId("codex-login").count(), 1);
+           await page.getByTestId("codex-device-login").click();
+diff --git a/packages/ui/test/codexConnection.test.ts b/packages/ui/test/codexConnection.test.ts
+index 11b841764ff38b7698177e931d626bff29a00453..c806d187a5ade9036571933fe6c0cbd6209dbbb6 100644
+--- a/packages/ui/test/codexConnection.test.ts
++++ b/packages/ui/test/codexConnection.test.ts
+@@ -42,6 +42,14 @@ beforeEach(() => {
+ afterEach(cleanup);
+ 
+ describe("Codex connection card", () => {
++  it("retains both login options without the idle promotional description", async () => {
++    render(createElement(CodexConnectionCard, { providerId: "codex-test" }));
++    await waitFor(() =>
++      expect((screen.getByTestId("codex-login") as HTMLButtonElement).disabled).toBe(false),
++    );
++    expect(screen.getByTestId("codex-device-login")).toBeTruthy();
++    expect(screen.queryByText("description")).toBeNull();
++  });
+   it("only requests a device code on click, opens the fixed official page, and hides it on cancel", async () => {
+     const device = {
+       verificationUrl: "https://auth.openai.com/codex/device",
+diff --git a/packages/ui/test/modelProviderModelRowEditor.test.ts b/packages/ui/test/modelProviderModelRowEditor.test.ts
+index c326dce33a2a642427fac59d4ab5dbc4c1380f69..af85d885c4f05169887970122cb0dc4b6feaac3c 100644
+--- a/packages/ui/test/modelProviderModelRowEditor.test.ts
++++ b/packages/ui/test/modelProviderModelRowEditor.test.ts
+@@ -208,6 +208,17 @@ function createProvider(
+ }
+ 
+ describe("ProviderModelsSection compact model rows", () => {
++  it("获取模型与添加模型位于同一标题操作区，不再独占说明区", async () => {
++    render(
++      createElement(InlineEditableProviderCard, { provider: createProvider(), onSave: vi.fn() }),
++    );
++    const refresh = screen.getByTestId("provider-model-discovery-refresh");
++    const add = screen.getByTestId(TID_MODEL_PROVIDER_ADD_MODEL_BUTTON);
++    const actions = refresh.closest("[data-model-provider-actions]");
++    expect(actions).not.toBeNull();
++    expect(add.closest("[data-model-provider-actions]")).toBe(actions);
++    expect(screen.getByRole("status").className).toContain("sr-only");
++  });
+   it("切换 Provider 后发现区域和模型列表始终只有一个，账号供应商不残留发现区域", async () => {
+     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+     const onSave = vi.fn();

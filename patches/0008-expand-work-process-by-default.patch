@@ -1,0 +1,396 @@
+diff --git a/docs/ui/v4-chat-turn-render-units.md b/docs/ui/v4-chat-turn-render-units.md
+index d72e2892ef48687f3846045d0f072ffcf8bfb837..db8cca49d7bcc53de62dcf1ae694b9a772a3db07 100644
+--- a/docs/ui/v4-chat-turn-render-units.md
++++ b/docs/ui/v4-chat-turn-render-units.md
+@@ -9,7 +9,7 @@ v4 conversation protocol 仍保持 `ConversationRow[]` 的 flat fact model；UI
+ - user query 在上方，assistant work 在该 user query 下方。
+ - `turnHeader` 是协议边界和诊断事实，不直接显示为用户可见行。
+ - assistant 的 reasoning、tool、explore、subagent、compact timeline 和正文都属于同一轮 assistant work。
+-- 每个初始输入或已成功注入的 guided input 都开启独立 visual work segment；正常完成的 segment 默认折叠为“已工作 N 秒”，当前运行或以 interrupted / failed / error 异常收口的 segment 强制展开。
++- 每个初始输入或已成功注入的 guided input 都开启独立 visual work segment；“已工作 N 秒”整个过程区默认展开，正常完成后不自动收起，用户仍可按段手动折叠。当前运行或以 interrupted / failed / error 异常收口的 segment 继续强制展开。
+ - 手动 `/compact` 是维护命令，不显示 `/compact` user bubble；只显示 compact timeline / assistant work activity。
+ 
+ ## 结构
+@@ -59,8 +59,9 @@ turn actions 逐行消费 `row.actions`。任何带 action 的 assistant row 都
+ - `tailRows`：该 turn 中 latest assistant text 之后的 boundary rows，例如 fork notice / goal verification。它们属于本轮结尾，但不是 assistant work history，不能被“已工作 N 秒”折叠到正文上方。
+ - 如果没有 latest assistant text，则所有 assistant rows 都是 history rows，必须展开，避免出现只有“已工作”但没有内容的空 assistant。
+ - 当前 running segment 必须展开 history；新的 guide 到达后，前一 segment 收口并可独立折叠，新 segment 使用自己的展开状态。
+-- `completedInterrupted`、`failed`、`error` 异常终态必须强制展开 history，即使已经存在 interrupted / failed assistant partial；异常上下文不能隐藏在“已工作”折叠内。`completedSuccess` 继续遵循正常完成的默认折叠规则。
+-- 冷恢复发现 transcript assistant message 缺少完成时间时，表示应用或 Agent 在 turn 收口前退出；hydration 必须将该 orphan turn 归一化为 `completedInterrupted`，禁止伪造 `completedSuccess` 后触发正常折叠。
++- `completedInterrupted`、`failed`、`error` 异常终态必须强制展开 history，即使已经存在 interrupted / failed assistant partial；异常上下文不能隐藏在“已工作”折叠内。`completedSuccess` 默认展开，但允许手动折叠。
++- 冷恢复发现 transcript assistant message 缺少完成时间时，表示应用或 Agent 在 turn 收口前退出；hydration 必须将该 orphan turn 归一化为 `completedInterrupted`，禁止伪造 `completedSuccess` 丢失异常状态。
++- 主会话时间线由每个稳定 `segment.key` 对应的 UI 组件持有手动展开状态：初次/冷恢复挂载默认展开，普通快照刷新、耗时更新及正常完成不覆盖用户选择；新 guided segment 默认展开且不重置旧段。`assistantHistoryDefaultOpen` 保留现有强制展开语义，不通过把它一律置为 true 来禁用折叠。状态不写入协议或持久化；公开分享只读页及 reasoning/工具各自内部折叠规则不在本次变更范围。
+ - assistant work history 的状态标签必须区分运行中、正常完成和中断：运行中显示“工作中 N 秒”，正常结束显示“已工作 N 秒”，`completedInterrupted` 的末段只显示“已停止”/`Stopped`，不得附带耗时。guide turn 优先消费 `turnHeader.workSegments` 的权威分段时间；无分段事实的普通/旧 snapshot 才回退到 turn 级 `activeMs`、`endedAt - startedAt` 或运行时 UI 时钟。
+ - `turnHeader.executionKind` 是是否存在 Agent 工作生命周期的权威事实。`controlOnly` 轮只承载可见控制输入，不产生 work status；字段缺失的旧 snapshot 只在有真实 work row、running 或正工时时兼容派生。
+ - `lightBoundary`（例如 model change）先从 assistant work rows 分离，再计算 work status；边界行本身不能把 control-only query 推成“工作中/已工作”。
+@@ -70,7 +71,7 @@ turn
+   workSegment(initial)
+     userInput(real user)
+     historyStatus(running ? "工作中 11 秒" : "已工作 11 秒")
+-    historyRows(collapsed by default)
++    historyRows(expanded by default; manually collapsible after completion)
+     assistantText
+   workSegment(guide-1)
+     userInput(guided)
+@@ -107,6 +108,8 @@ model A completed
+ 
+ ## 虚拟滚动边界
+ 
++默认展开验收：历史完成轮首次可见、running → completedSuccess 后仍展开；鼠标/键盘收起后同段刷新保持收起，最终正文不随过程区隐藏；新增 guided segment 仅新段默认展开。桌面/手机 Web、Zai Light/Zai Dark 覆盖真实浏览器交互；异常强制展开及 reasoning 内层默认收起保持原行为。
++
+ 虚拟滚动单位是 turn render unit，而不是 raw row。原因：
+ 
+ - user query 和它的 assistant work 不能被 `turnHeader` 或工具行拆散。
+diff --git a/packages/ui/src/v4/ConversationTurnGroup.tsx b/packages/ui/src/v4/ConversationTurnGroup.tsx
+index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..cabc2cf146e71de7370c86c9c6ec693fe620db5d 100644
+--- a/packages/ui/src/v4/ConversationTurnGroup.tsx
++++ b/packages/ui/src/v4/ConversationTurnGroup.tsx
+@@ -756,10 +756,11 @@ function ConversationWorkSegmentFlow({
+   highspeed: boolean;
+   highspeedMeta?: HighspeedMessageMeta;
+ }) {
+-  const [historyOpen, setHistoryOpen] = useState(segment.assistantHistoryDefaultOpen);
++  // 过程区默认展开；强制展开标记只管运行/异常边界，正常完成不能再把本段自动收起。
++  const [historyOpen, setHistoryOpen] = useState(true);
+   useEffect(() => {
+-    setHistoryOpen(segment.assistantHistoryDefaultOpen);
+-  }, [segment.assistantHistoryDefaultOpen, segment.key]);
++    setHistoryOpen(true);
++  }, [segment.key]);
+ 
+   const shouldShowHistoryStatus = segment.workStatus !== undefined;
+   const firstAssistantFlowItemIndex = segment.flowItems.findIndex(
+diff --git a/packages/ui/test/browser/manual-review/pending/work-history.fixture.tsx b/packages/ui/test/browser/manual-review/pending/work-history.fixture.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b1d31effc42166cfdd95d557d84565fd7abf3ae
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/work-history.fixture.tsx
+@@ -0,0 +1,104 @@
++import { useState } from "react";
++import { createRoot } from "react-dom/client";
++import type { ConversationRow, TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
++import { TooltipProvider } from "@/components/ui/tooltip.js";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
++import { ConversationTurnGroup } from "@/v4/ConversationTurnGroup.js";
++import { buildConversationTurnRenderUnits } from "@/v4/conversationTurnRenderUnits.js";
++import "@/styles.css";
++
++const query = new URLSearchParams(location.search);
++const mobile = query.get("mobile") === "true";
++const theme = query.get("theme") === "light" ? "light" : "dark";
++document.documentElement.className = `${theme} theme-zai-${theme}`;
++const startedAt = 1_700_000_000_000;
++function at(rowId: number) {
++  return { rowId, turnId: "work-history", createdAt: startedAt + rowId, createdAtSeq: rowId };
++}
++
++function Fixture() {
++  const [state, setState] = useState<TurnHeaderRow["state"]>(
++    query.get("running") === "true" ? "running" : "completedSuccess",
++  );
++  const [revision, setRevision] = useState(0);
++  const [guided, setGuided] = useState(false);
++  const rows: ConversationRow[] = [
++    {
++      ...at(1),
++      kind: "turnHeader",
++      origin: "userInput",
++      state,
++      startedAt,
++      ...(state === "running" ? {} : { endedAt: startedAt + 2_000 }),
++    },
++    { ...at(2), kind: "userInput", origin: "realUser", text: "Inspect project" },
++    { ...at(3), kind: "assistantText", state: "complete", text: "First work detail" },
++    { ...at(4), kind: "reasoning", state: "complete", text: "Nested reasoning detail" },
++    {
++      ...at(5),
++      kind: "assistantText",
++      entityId: "answer-first",
++      state: state === "running" ? "streaming" : "complete",
++      text: `Final answer ${revision}`,
++    },
++    ...(guided
++      ? [
++          {
++            ...at(6),
++            kind: "userInput" as const,
++            origin: "realUser" as const,
++            guided: true,
++            entityId: "guide-1",
++            text: "Continue",
++          },
++          {
++            ...at(7),
++            kind: "assistantText" as const,
++            state: "complete" as const,
++            text: "Second work detail",
++          },
++          {
++            ...at(8),
++            kind: "assistantText" as const,
++            state: "complete" as const,
++            text: "Second final answer",
++          },
++        ]
++      : []),
++  ];
++  const [unit] = buildConversationTurnRenderUnits(rows);
++  return (
++    <main className="min-h-dvh bg-background text-foreground @container/conversation">
++      <div className="flex flex-wrap gap-2 p-4">
++        <button data-testid="complete" onClick={() => setState("completedSuccess")}>
++          Complete
++        </button>
++        <button data-testid="refresh" onClick={() => setRevision((value) => value + 1)}>
++          Refresh snapshot
++        </button>
++        <button data-testid="add-guide" onClick={() => setGuided(true)}>
++          Add guide
++        </button>
++        <output data-testid="phase">{state}</output>
++      </div>
++      <ConversationTurnGroup
++        unit={unit!}
++        context={{
++          workspacePath: "/fixture",
++          theme,
++          codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
++          compactForRemoteControl: mobile,
++        }}
++      />
++    </main>
++  );
++}
++
++createRoot(document.getElementById("root")!).render(
++  <TooltipProvider>
++    <ZCodeIntlProvider initialLocale={mobile ? "en-US" : "zh-CN"}>
++      <Fixture />
++    </ZCodeIntlProvider>
++  </TooltipProvider>,
++);
+diff --git a/packages/ui/test/browser/manual-review/pending/work-history.test.mjs b/packages/ui/test/browser/manual-review/pending/work-history.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd9356d59fd3a493286b42787c436cb999359f88
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/work-history.test.mjs
+@@ -0,0 +1,132 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { fileURLToPath } from "node:url";
++import { mkdir } from "node:fs/promises";
++import { join } from "node:path";
++import { createServer } from "vite";
++import react from "@vitejs/plugin-react";
++import tailwindcss from "@tailwindcss/vite";
++import { chromium } from "playwright-core";
++
++const root = fileURLToPath(new URL("../../../../../../", import.meta.url));
++const entry = "/packages/ui/test/browser/manual-review/pending/work-history.fixture.tsx";
++const artifacts = join(root, "packages/desktop/.e2e-artifacts/work-history-default-open");
++let server, browser, origin;
++before(async () => {
++  await mkdir(artifacts, { recursive: true });
++  server = await createServer({
++    root,
++    configFile: false,
++    plugins: [
++      react(),
++      tailwindcss(),
++      {
++        name: "work-history-fixture",
++        configureServer(vite) {
++          vite.middlewares.use(async (req, res, next) => {
++            if (!req.url?.startsWith("/fixture?")) return next();
++            res.setHeader("Content-Type", "text/html");
++            res.end(
++              await vite.transformIndexHtml(
++                req.url,
++                `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="root"></div><script type="module" src="${entry}"></script></body></html>`,
++              ),
++            );
++          });
++        },
++      },
++    ],
++    resolve: { alias: { "@": `${root}packages/ui/src` } },
++    optimizeDeps: { entries: [entry.slice(1)] },
++    server: {
++      host: "127.0.0.1",
++      port: 0,
++      hmr: false,
++      watch: { ignored: ["**/.e2e-artifacts/**"] },
++    },
++  });
++  await server.listen();
++  origin = server.resolvedUrls.local[0];
++  browser = await chromium.launch(
++    process.env.CHROME_EXECUTABLE_PATH
++      ? { executablePath: process.env.CHROME_EXECUTABLE_PATH }
++      : { channel: "chrome" },
++  );
++});
++after(async () => {
++  await browser?.close();
++  await server?.close();
++});
++
++for (const mobile of [false, true])
++  for (const theme of ["light", "dark"])
++    for (const running of [false, true]) {
++      test(`work history ${mobile ? "mobile" : "desktop"}/${theme}/${running ? "running-to-complete" : "history-and-guide"}`, async () => {
++        const page = await browser.newPage({
++          viewport: { width: mobile ? 390 : 1200, height: 900 },
++          isMobile: mobile,
++          hasTouch: mobile,
++        });
++        const errors = [];
++        page.on("pageerror", (error) => errors.push(String(error)));
++        try {
++          await page.goto(
++            `${origin}fixture?${new URLSearchParams({ mobile: String(mobile), theme, running: String(running) })}`,
++          );
++          const history = page.getByTestId("chat-assistant-history-trigger-work-history");
++          const detail = page.getByTestId("v4-row-3");
++          await history.waitFor();
++          assert.equal(await history.getAttribute("aria-expanded"), "true");
++          await detail.waitFor({ state: "visible" });
++          if (running) {
++            await page.getByTestId("complete").click();
++            await page.getByTestId("phase").filter({ hasText: "completedSuccess" }).waitFor();
++            assert.equal(await history.getAttribute("aria-expanded"), "true");
++            await detail.waitFor({ state: "visible" });
++          }
++          assert.equal(
++            await page.getByTestId("v4-row-4").locator('[aria-expanded="false"]').count(),
++            1,
++          );
++          await page
++            .getByTestId("chat-assistant-history-content-work-history")
++            .evaluate(async (element) => {
++              await Promise.all(
++                element.getAnimations({ subtree: true }).map((animation) => animation.finished),
++              );
++            });
++          await page.screenshot({
++            path: join(
++              artifacts,
++              `${mobile ? "mobile" : "desktop"}-${theme}-${running ? "completed" : "history"}.png`,
++            ),
++          });
++          await history.click();
++          await detail.waitFor({ state: "hidden" });
++          await page.getByTestId("v4-row-5").waitFor({ state: "visible" });
++          await page.getByTestId("refresh").click();
++          await page.getByTestId("v4-row-5").filter({ hasText: "Final answer 1" }).waitFor();
++          assert.equal(await history.getAttribute("aria-expanded"), "false");
++          await history.focus();
++          await page.keyboard.press("Enter");
++          await detail.waitFor({ state: "visible" });
++          await history.click();
++          await detail.waitFor({ state: "hidden" });
++          await page.getByTestId("add-guide").click();
++          const next = page.getByTestId(
++            "chat-assistant-history-trigger-work-history:guide:guide-1",
++          );
++          await next.waitFor();
++          assert.equal(await history.getAttribute("aria-expanded"), "false");
++          assert.equal(await next.getAttribute("aria-expanded"), "true");
++          await page.getByTestId("v4-row-7").waitFor({ state: "visible" });
++          assert.equal(
++            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
++            true,
++          );
++          assert.deepEqual(errors, []);
++        } finally {
++          await page.close();
++        }
++      });
++    }
+diff --git a/packages/ui/test/v4ConversationTurnGroup.test.ts b/packages/ui/test/v4ConversationTurnGroup.test.ts
+index 4dfc40814edeb10f068b182e47426c8927fb6c07..706605f2c22837f13985f581e89012c5f4cec2d2 100644
+--- a/packages/ui/test/v4ConversationTurnGroup.test.ts
++++ b/packages/ui/test/v4ConversationTurnGroup.test.ts
+@@ -698,6 +698,21 @@ describe("ConversationTurnGroup message stream display settings", () => {
+ });
+ 
+ describe("ConversationTurnGroup assistant history status", () => {
++  it("defaults a completed work process to expanded without forcing its nested reasoning open", () => {
++    const [unit] = buildConversationTurnRenderUnits([
++      turnHeader({ endedAt: 1_700_000_002_000 }),
++      userInputRow(2),
++      reasoningRow(),
++      toolCallRow(4, "Read", { file_path: "AGENTS.md" }),
++      assistantTextRow(5),
++    ]);
++    expect(unit!.assistantHistoryDefaultOpen).toBe(false);
++    const html = renderUnit(unit!);
++    expect(html).toContain('data-history-open="true"');
++    expect(html).toContain('data-row-id="4"');
++    expect(html).toContain("完成回复");
++    expect(html).not.toContain("完成了");
++  });
+   it("源码将会话内分享按钮接到本地卡片，且不调用后端分享接口", () => {
+     const source = readFileSync("packages/ui/src/v4/ConversationTurnGroup.tsx", "utf8");
+ 
+@@ -2199,7 +2214,7 @@ describe("ConversationTurnGroup assistant history status", () => {
+     expect(html).toContain('data-testid="v4-copy-6"');
+   });
+ 
+-  it("P06：每条 guided user 开独立工作段，且只展开目标段不影响其它段", () => {
++  it("P06：每条 guided user 的独立工作段默认展开，保留行序与最终操作栏", () => {
+     const units = buildConversationTurnRenderUnits([
+       turnHeader({
+         workSegments: [
+@@ -2235,33 +2250,7 @@ describe("ConversationTurnGroup assistant history status", () => {
+     ]);
+ 
+     expect(units[0]?.workStatus).toBeDefined();
+-    const collapsedHtml = renderUnit(units[0]!);
+-    const collapsedIndexes = [
+-      collapsedHtml.indexOf('data-row-id="2"'),
+-      collapsedHtml.indexOf("chat-assistant-history-trigger"),
+-      collapsedHtml.indexOf('data-row-id="5"'),
+-      collapsedHtml.indexOf('data-row-id="6"'),
+-      collapsedHtml.indexOf('data-row-id="7"'),
+-      collapsedHtml.indexOf('data-row-id="8"'),
+-    ];
+-    expect(
+-      collapsedIndexes.every((index) => index >= 0),
+-      JSON.stringify(collapsedIndexes),
+-    ).toBe(true);
+-    expect(collapsedIndexes).toEqual([...collapsedIndexes].sort((left, right) => left - right));
+-    expect(collapsedHtml).not.toContain('data-row-id="4"');
+-    expect(collapsedHtml.match(/chat-assistant-history-trigger/g)).toHaveLength(3);
+-    expect(collapsedHtml).toContain("已工作 5 秒");
+-    expect(collapsedHtml).toContain("已工作 2 秒");
+-    expect(collapsedHtml).toContain("已工作 1 秒");
+-
+-    const expandedHtml = renderUnit({
+-      ...units[0]!,
+-      workSegments: units[0]!.workSegments!.map((segment, index) => ({
+-        ...segment,
+-        assistantHistoryDefaultOpen: index === 0,
+-      })),
+-    });
++    const expandedHtml = renderUnit(units[0]!);
+     const expandedIndexes = [
+       expandedHtml.indexOf('data-row-id="2"'),
+       expandedHtml.indexOf('data-row-id="4"'),
+@@ -2273,11 +2262,14 @@ describe("ConversationTurnGroup assistant history status", () => {
+     expect(expandedIndexes.every((index) => index >= 0)).toBe(true);
+     expect(expandedIndexes).toEqual([...expandedIndexes].sort((left, right) => left - right));
+     expect(expandedHtml.match(/chat-assistant-history-trigger/g)).toHaveLength(3);
++    expect(expandedHtml).toContain("已工作 5 秒");
++    expect(expandedHtml).toContain("已工作 2 秒");
++    expect(expandedHtml).toContain("已工作 1 秒");
+     expect(expandedHtml).toContain(
+       'data-testid="chat-assistant-history-trigger-turn-complete" data-history-open="true"',
+     );
+     expect(expandedHtml).toContain(
+-      'data-testid="chat-assistant-history-trigger-turn-complete:guide:guide-1" data-history-open="false"',
++      'data-testid="chat-assistant-history-trigger-turn-complete:guide:guide-1" data-history-open="true"',
+     );
+     expect(expandedHtml).not.toContain('data-testid="v4-copy-6"');
+     expect(expandedHtml).toContain('data-testid="v4-copy-8"');

@@ -1,0 +1,334 @@
+diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..28d72518d9b2a48b436e909f86046e8a67fb153b
+--- /dev/null
++++ b/docs/ui/navigation-entry-removals.md
+@@ -0,0 +1,8 @@
++# Navigation entry removals
++
++This fork intentionally hides two entries that do not lead to a supported product flow:
++
++- The Settings sidebar does not show `computerUse` / 「电脑控制」 on any platform. The section id, history preference and old navigation intents are retained for compatibility; any remaining intent resolves to `general`. The underlying Computer Use implementation is not deleted, so the entry can be restored by removing `computerUse` from `HIDDEN_SETTINGS_SECTIONS`.
++- The desktop sidebar footer does not render the phone / Web remote-control trigger. The remote-control dialog, host services and mobile `/remote` flow are unchanged; only this desktop entry is removed.
++
++Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger.
+diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..3afd61b5c35f4810d2f8c3604b8ce066e4a93176 100644
+--- a/packages/ui/src/SettingsPage.tsx
++++ b/packages/ui/src/SettingsPage.tsx
+@@ -323,15 +323,7 @@ export function SettingsPage({
+   user?: UserInfo | null;
+ }) {
+   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
+-  const { settingsSectionGroups, settingsSections } = useMemo(
+-    () =>
+-      createSettingsPageConfig({
+-        isDesktop: Boolean(isDesktop),
+-        isMacDesktop: Boolean(isMacDesktop),
+-        isWindowsDesktop: Boolean(isWindowsDesktop),
+-      }),
+-    [isDesktop, isMacDesktop, isWindowsDesktop],
+-  );
++  const { settingsSectionGroups, settingsSections } = useMemo(() => createSettingsPageConfig(), []);
+   const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
+   const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
+   const platform = usePlatform();
+diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
+index ff88957fc0640fcb88340396c57f44f2257f5e0e..005d48e09933dadad8a996564a25f39120f02827 100644
+--- a/packages/ui/src/WorkspaceSidebarFooter.tsx
++++ b/packages/ui/src/WorkspaceSidebarFooter.tsx
+@@ -49,7 +49,6 @@ import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
+ import { useZCodeStore } from "@/store/StoreProvider.js";
+ import { normalizeInterfaceMode } from "@/lib/interfaceMode.js";
+ import type { Theme } from "@/useTheme.js";
+-import { WorkspaceWebRemoteControlTrigger } from "@/WorkspaceWebRemoteControlTrigger.js";
+ import {
+   WorkspaceSidebarFooterPlanBadge,
+   WorkspaceSidebarFooterUsageSummaryContent,
+@@ -103,8 +102,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   user,
+   workspacePath,
+   workspaceIdentity,
+-  workspaceRemoteSessionId,
+-  activeTaskId,
+   isDesktop = false,
+   banner,
+   className,
+@@ -124,8 +121,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   user?: UserInfo | null;
+   workspacePath?: string;
+   workspaceIdentity?: string;
+-  workspaceRemoteSessionId?: string;
+-  activeTaskId?: string | null;
+   isDesktop?: boolean;
+   banner?: ReactNode;
+   className?: string;
+@@ -466,15 +461,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+           </DropdownMenuContent>
+         </DropdownMenu>
+         <div className="flex shrink-0 items-center gap-1.5">
+-          {isDesktop && workspacePath ? (
+-            <WorkspaceWebRemoteControlTrigger
+-              workspacePath={workspacePath}
+-              workspaceIdentity={workspaceIdentity}
+-              remoteSessionId={workspaceRemoteSessionId}
+-              initialTaskId={activeTaskId ?? undefined}
+-              compact
+-            />
+-          ) : null}
+           <ControlHintTooltip title={settingsButtonLabel}>
+             <Button
+               type="button"
+diff --git a/packages/ui/src/lib/settingsNavigation.ts b/packages/ui/src/lib/settingsNavigation.ts
+index 637dcfa5f47cd90bff2897653bfae916169d4e0d..eecb9104e201811a24ec7fc5b363aa6b4cabfc6f 100644
+--- a/packages/ui/src/lib/settingsNavigation.ts
++++ b/packages/ui/src/lib/settingsNavigation.ts
+@@ -46,6 +46,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
+   // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
+   // 编辑页代码保留，放开时从这里移除即可。
+   "workspaceFileSearch",
++  // ZCode-plus 不提供「电脑控制」入口；保留 section id 以兼容历史偏好和旧调用，
++  // 任何残留 intent 都会回退到 general，底层 CUA 能力代码不在此处删除。
++  "computerUse",
+ ]);
+ 
+ export interface SettingsSectionIntentEventDetail {
+diff --git a/packages/ui/src/project-sidebar/index.tsx b/packages/ui/src/project-sidebar/index.tsx
+index 8e721ed100547b3d38790f583826d3b15ce8866e..ee730bd1a75e7f96398b052991cd269b5139c746 100644
+--- a/packages/ui/src/project-sidebar/index.tsx
++++ b/packages/ui/src/project-sidebar/index.tsx
+@@ -328,9 +328,7 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
+                 onLogout={props.onLogout}
+                 user={props.user}
+                 workspacePath={props.workspacePath}
+-                // 项目侧栏不再从 tab 反推身份；远控入口必须沿用当前 attachment 的精确 scope。
+                 workspaceIdentity={props.workspaceIdentity}
+-                workspaceRemoteSessionId={props.workspaceRemoteSessionId}
+                 isDesktop={props.isDesktop}
+                 banner={banner}
+               />
+diff --git a/packages/ui/src/settings/settingsPageConfig.ts b/packages/ui/src/settings/settingsPageConfig.ts
+index 845aaccc18df72db668a38e1a71331938eb7f55b..28b79e327dc54afbc526873f96a410ffe070c57d 100644
+--- a/packages/ui/src/settings/settingsPageConfig.ts
++++ b/packages/ui/src/settings/settingsPageConfig.ts
+@@ -130,7 +130,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+     titleId: "settings.browser.title",
+     groupId: "basics",
+   },
+-  // 原型导航顺序：浏览器之后才是远程设备；电脑控制继续紧随其后并受灰度门禁。
++  // 原型导航顺序：浏览器之后才是远程设备。
+   {
+     id: "remoteDevices",
+     icon: HardDrive,
+@@ -138,15 +138,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+     contentTitleId: "settings.remoteDevicesTitle",
+     groupId: "basics",
+   },
+-  // 电脑控制紧跟「浏览器」：两者都是给 Agent 用的本机操控入口，
+-  // 放在基础设置里让用户在同一处理解「控制浏览器 / 控制整台电脑」的关系。
+-  {
+-    id: "computerUse",
+-    icon: Monitor,
+-    titleId: "settings.computerUse.title",
+-    groupId: "basics",
+-  },
+-  // 键盘快捷键紧跟「电脑控制」：同属本机操控/效率配置，收纳在基础设置尾部。
++  // 键盘快捷键收纳在基础设置尾部。
+   {
+     id: "shortcuts",
+     icon: Keyboard,
+@@ -180,26 +172,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+   // },
+ ];
+ 
+-// 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
+-// macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
+-export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
+-  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
++export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter((section) =>
++  isSettingsSectionEnabled(section.id),
+ );
+ 
+-export interface SettingsPageConfigOptions {
+-  isDesktop?: boolean;
+-  isMacDesktop?: boolean;
+-  isWindowsDesktop?: boolean;
+-}
+-
+-export function createSettingsPageConfig({
+-  isDesktop = false,
+-  isMacDesktop = false,
+-  isWindowsDesktop = false,
+-}: SettingsPageConfigOptions = {}) {
+-  const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
++export function createSettingsPageConfig() {
+   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
+-    if (section.id === "computerUse" && !showComputerUse) return false;
+     return isSettingsSectionEnabled(section.id);
+   });
+   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
+diff --git a/packages/ui/test/browser/manual-review/pending/sidebar-user-id.test.mjs b/packages/ui/test/browser/manual-review/pending/sidebar-user-id.test.mjs
+index 84bd46b3d0b65edab8ff72a3dd45a08d029dba0e..7bda3f27575f9fcdc604247d5547d8cb60181d38 100644
+--- a/packages/ui/test/browser/manual-review/pending/sidebar-user-id.test.mjs
++++ b/packages/ui/test/browser/manual-review/pending/sidebar-user-id.test.mjs
+@@ -28,8 +28,6 @@ before(async () => {
+             return 'export const useShortcutCommandLabel=()=>"";';
+           if (id.endsWith("/store/StoreProvider.tsx"))
+             return 'export const useZCodeStore=(select)=>select({interfaceMode:"coding",setInterfaceMode:()=>{},isRestoringOAuthSession:false});';
+-          if (id.endsWith("/WorkspaceWebRemoteControlTrigger.tsx"))
+-            return "export const WorkspaceWebRemoteControlTrigger=()=>null;";
+           if (id.endsWith("/WorkspaceSidebarFooterUsageSummary.tsx"))
+             return 'import React from "react"; export const useWorkspaceSidebarFooterUsageSummaryState=()=>({}); export const WorkspaceSidebarFooterPlanBadge=()=>React.createElement("span",{className:"rounded-full border border-border bg-surface px-1 py-px text-ui-xs text-foreground-subtle"},"Pro"); export const WorkspaceSidebarFooterUsageSummaryContent=()=>null;';
+         },
+diff --git a/packages/ui/test/settingsPageConfig.test.ts b/packages/ui/test/settingsPageConfig.test.ts
+index 734479eee628063c3d21b7fac88d5eecca8ffb3c..065f8d17a1b27100a532473461943bf26b58fa77 100644
+--- a/packages/ui/test/settingsPageConfig.test.ts
++++ b/packages/ui/test/settingsPageConfig.test.ts
+@@ -28,7 +28,7 @@ describe("settingsPageConfig", () => {
+   });
+   it("按设置页分组与顺序展示公开分区", async () => {
+     const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
+-    const { settingsSectionGroups, settingsSections } = createSettingsPageConfig({});
++    const { settingsSectionGroups, settingsSections } = createSettingsPageConfig();
+     expect(
+       settingsSectionGroups.map((group) => ({
+         id: group.id,
+@@ -78,20 +78,20 @@ describe("settingsPageConfig", () => {
+   });
+ 
+   it.each([
+-    ["macOS", { isMacDesktop: true }, true],
+-    ["Windows", { isWindowsDesktop: true }, true],
+-    ["Linux 桌面", { isDesktop: true }, true],
+-    ["Web", {}, false],
+-  ] as const)("%s 的电脑控制入口符合桌面平台边界", async (_name, options, expected) => {
++    ["macOS", { isMacDesktop: true }],
++    ["Windows", { isWindowsDesktop: true }],
++    ["Linux 桌面", { isDesktop: true }],
++    ["Web", {}],
++  ] as const)("%s 不展示已移除的电脑控制入口", async (_name) => {
+     const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
+-    const { settingsSections } = createSettingsPageConfig(options);
++    const { settingsSections } = createSettingsPageConfig();
+ 
+-    expect(settingsSections.some((section) => section.id === "computerUse")).toBe(expected);
++    expect(settingsSections.some((section) => section.id === "computerUse")).toBe(false);
+   });
+ 
+-  it("桌面平台的电脑控制排在基础设置的浏览器之后", async () => {
++  it("桌面平台的基础设置不再包含电脑控制", async () => {
+     const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
+-    const { settingsSectionGroups } = createSettingsPageConfig({ isMacDesktop: true });
++    const { settingsSectionGroups } = createSettingsPageConfig();
+     const basics = settingsSectionGroups.find((group) => group.id === "basics");
+ 
+     expect(basics?.sections.map((section) => section.id)).toEqual([
+@@ -100,7 +100,6 @@ describe("settingsPageConfig", () => {
+       "modelProvider",
+       "browser",
+       "remoteDevices",
+-      "computerUse",
+       "shortcuts",
+     ]);
+     expect(
+@@ -113,7 +112,7 @@ describe("settingsPageConfig", () => {
+   it("不可见的电脑控制落点回退到 general", async () => {
+     const { createSettingsPageConfig, resolveSettingsSectionForPlatform } =
+       await loadSettingsPageConfig("test");
+-    const { settingsSections } = createSettingsPageConfig({});
++    const { settingsSections } = createSettingsPageConfig();
+ 
+     expect(resolveSettingsSectionForPlatform("computerUse", settingsSections, "general")).toBe(
+       "general",
+diff --git a/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts b/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
+index 139cb9598b8541666f27fc7e0c58bc3a1f93570f..ffb6b1e7182d679650a0f1ec0274d403f8343c0e 100644
+--- a/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
++++ b/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
+@@ -10,14 +10,7 @@ const pendingEffects = vi.hoisted(() => [] as Array<() => void | (() => void)>);
+ const generalSectionCapture = vi.hoisted(
+   () => ({ props: undefined }) as { props: Record<string, unknown> | undefined },
+ );
+-const settingsPageConfigCalls = vi.hoisted(
+-  () =>
+-    [] as Array<{
+-      isDesktop?: boolean;
+-      isMacDesktop?: boolean;
+-      isWindowsDesktop?: boolean;
+-    }>,
+-);
++const settingsPageConfigCalls = vi.hoisted(() => [] as unknown[][]);
+ const sharedSettingsState = vi.hoisted(
+   () =>
+     ({ value: undefined }) as {
+@@ -282,12 +275,8 @@ vi.mock("../src/settingsCodePreview.js", () => ({
+ }));
+ 
+ vi.mock("../src/settingsPageHelpers.js", () => ({
+-  createSettingsPageConfig: (options: {
+-    isDesktop?: boolean;
+-    isMacDesktop?: boolean;
+-    isWindowsDesktop?: boolean;
+-  }) => {
+-    settingsPageConfigCalls.push(options);
++  createSettingsPageConfig: (...args: unknown[]) => {
++    settingsPageConfigCalls.push(args);
+     const settingsSections = [
+       {
+         id: selectedSection.value,
+@@ -373,13 +362,7 @@ describe("SettingsPage integrated terminal shell", () => {
+ 
+     const html = renderToStaticMarkup(createElement(SettingsPage, { isWindowsDesktop: true }));
+ 
+-    expect(settingsPageConfigCalls).toEqual([
+-      {
+-        isDesktop: false,
+-        isMacDesktop: false,
+-        isWindowsDesktop: true,
+-      },
+-    ]);
++    expect(settingsPageConfigCalls).toEqual([[]]);
+     expect(html).toContain('aria-label="settings.navLabel"');
+     expect(html).toContain('role="group"');
+     expect(html).toContain('aria-labelledby="settings-sidebar-group-basics"');
+diff --git a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
+index 89c77655bdbb1742897a35c679447e1ee78f2bff..3305b007fcddc9041c9c973cbff906acc8384bae 100644
+--- a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
++++ b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
+@@ -23,13 +23,6 @@ vi.mock("@/ControlHintTooltip.js", async (importOriginal) => ({
+     createElement("span", { "data-tooltip-title": title }, children),
+ }));
+ 
+-vi.mock("@/WorkspaceWebRemoteControlTrigger.js", () => ({
+-  WorkspaceWebRemoteControlTrigger: () =>
+-    createElement("button", {
+-      "data-testid": "web-remote-control-trigger",
+-    }),
+-}));
+-
+ vi.mock("@/hooks/usePlatform.js", () => ({
+   usePlatform: () => ({
+     executeDesktopCommand: vi.fn(),
+@@ -381,7 +374,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
+     ).toBeNull();
+   });
+ 
+-  it("does not wrap the remote control trigger in a second tooltip", () => {
++  it("does not render the removed phone remote-control entry", () => {
+     const html = renderToStaticMarkup(
+       createElement(WorkspaceSidebarFooter, {
+         theme: "dark",
+@@ -389,12 +382,11 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
+         onLocaleChange: () => {},
+         onThemeChange: () => {},
+         onSettingsButtonClick: () => {},
+-        workspacePath: "/tmp/project",
+         isDesktop: true,
+       }),
+     );
+ 
+-    expect(html).toContain('data-testid="web-remote-control-trigger"');
+-    expect(html).not.toContain('data-tooltip-title="webRemoteControl.trigger"');
++    expect(html).not.toContain("web-remote-control-trigger");
++    expect(html).not.toContain("webRemoteControl.trigger");
+   });
+ });
