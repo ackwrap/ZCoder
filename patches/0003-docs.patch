@@ -437,6 +437,109 @@ index 0000000000000000000000000000000000000000..e983f8ef5b6b3990fb508771b16b3b7b
 +LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 +OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 +SOFTWARE.
+diff --git a/docs/ui/composer-git-branch-switcher.md b/docs/ui/composer-git-branch-switcher.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c76532121475d525279f649a67baa053e76b3fa
+--- /dev/null
++++ b/docs/ui/composer-git-branch-switcher.md
+@@ -0,0 +1,40 @@
++# 输入框底栏 Git 分支切换入口
++
++## 背景
++
++老版对话底栏把 Git 分支切换入口与 agent / 模型 / mode / context 控件放在同一条底栏，并固定在最右侧
++（见 `docs/git/ui-shell.md` §7）。v4 composer 迁移后，只保留了草稿态输入框上方的
++`contextHeader` 入口，会话态的输入框底栏缺少分支切换入口，用户必须离开输入区才能切分支。
++
++本规格把该入口补回 v4 输入框底栏，交互与数据链路全部复用既有 `GitBranchSwitcher`。
++
++## 行为
++
++- **展示条件**：当前 workspace 的 `gitSummary` 表明 Git 可用且是仓库，并且宿主提供
++  `onRefreshGit`；非 Git 工作区不渲染占位。
++- **去重**：宿主下发了 `contextHeader` 时不在底栏渲染。草稿态的分支入口仍由
++  `contextHeader`（`ProjectComposerMenu` 内的 `GitBranchSwitcher`）提供，同一个输入区不出现两个入口。
++  单行浮窗形态没有 `contextHeader`，此时由底栏提供入口。
++- **位置**：输入框 leading actions 簇的末尾，位于 mode 选择、CUA 入口、后台任务入口之后，
++  发送 / 停止按钮左侧；与老版“底栏最右”一致。
++- **交互**：点击展开本地分支列表，复用 `GitBranchSwitcher` 的搜索、切换、创建分支、
++  未提交更改保护（commit-and-switch 辅助流程）与 Git Graph 动作。切换成功后通过
++  `onRefreshGit` 刷新宿主与状态面板共用的 Git 快照。
++- **弹层方向**：固定在触发器上方展开，不做碰撞翻转，避免菜单遮挡输入区。
++- **窄宽度**：参与 composer 工具栏的压缩档位，优先级 `4`（在 Computer / mode / Plan / think
++  之后收起为纯图标）；手机远控直接使用紧凑图标形态。收起后按钮仍可打开同一分支菜单。
++
++## 数据与所有权
++
++- `gitSummary` / `gitDirtyFileCount` 来自 app shell 的 `useGitRepository` 快照，与对话状态面板
++  读取同一份事实；`GitBranchSwitcher` 只在其上做展示与动作，不新增读取路径。
++- 分支列表读取、切换、创建仍由 `useGitBranchSwitcher` → `services.gitService` 完成；
++  composer 不持有第二份 Git 状态或本地分支缓存。
++- `ConversationComposer` 只接收宿主下发的 props，不自行拉取 Git 状态。
++
++## 验收场景
++
++- 会话态底栏出现分支入口，点击可展开本地分支列表；切换后入口与状态面板的分支名同步更新。
++- 草稿态（存在 `contextHeader`）只在输入框上方出现一个分支入口。
++- 非 Git workspace 与缺少 `onRefreshGit` 的宿主不渲染入口。
++- 窄容器内入口按档位收成图标后仍可打开菜单；手机远控直接显示图标入口。
+diff --git a/docs/ui/explore-run-summary.md b/docs/ui/explore-run-summary.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..73d95a3387e4c2aa136c2f03eea73eebc2be00d3
+--- /dev/null
++++ b/docs/ui/explore-run-summary.md
+@@ -0,0 +1,51 @@
++# 探索过程摘要（思考 + 查阅合并）
++
++## 背景
++
++一轮 assistant 工作里的过程行目前逐条展示：`思考 · 持续了 N 秒`、`查阅 · 1 搜索, 1 列表`、`思考 · 持续了 N 秒`……
++`buildAssistantWorkRenderItems` 只把**连续且同族**的 Explore 工具合并成 Explore 组，reasoning 行会立刻打断分组，
++所以实际一轮探索经常留下 6–8 条独立摘要行，收起后仍占用大量纵向空间。
++
++## 行为
++
++- 连续的可见 `reasoning` 行与 Explore 家族工具行合并成一个**探索组**（`exploreGroup`）。
++- 成立条件：组内至少包含 **2 个** Explore 工具行；只有 1 个工具时保持原有单工具卡片，不新建合成层。
++  reasoning 行本身不构成分组条件，只被相邻的探索组吸收。
++- 分组边界：assistant 正文、Execute / Changes / Agent / CUA 组、user input、隐藏行（不可见 reasoning、
++  等待 command 的 Shell）都会结束当前组。组内保持原始行序（思考与工具按发生顺序交替）。
++- 隐藏 reasoning（`messageStreamShowReasoning=false` 且非首条）时不并入组，也不计入思考次数；
++  此时行为与旧的“跨隐藏 reasoning 合并”一致。
++- 完成后的折叠摘要统一为：
++
++  ```text
++  探索 · 查阅 N 次, 思考 N 次, 搜索 N 次, 列表 N 次, 文件 N 次, 网页抓取 N 次
++  ```
++
++  计数为 0 的项省略；`查阅` 是组内 Explore 工具数，`思考` 是组内 reasoning 行数，
++  其余四类沿用现有 Explore bucket 分类。运行中仍显示最后一条子项的动作文本（与现有 Explore 组一致），
++  不因为合并而提前展示总计。
++
++- 运行中的探索组默认展开，实时展示当前思考与命令（含命令输出）。
++- 探索组在当前工作段仍是尾部时保持展开：即使组内最后一条思考/工具已经结束，也继续显示明细，
++  等**下一段可见内容**（下一条总结正文或新阶段的行）出现后才进入 completed，展示聚合摘要
++  并自动收起一次。不能只看子项是否结束，否则会在两段内容之间的空档提前折叠。
++  用户随后仍可手动展开查看明细。
++- 连续的终端命令组（Execute group）同样在运行中默认展开，最后一条命令结束后立即完成并
++  自动收起为汇总；单条命令卡执行结束后也自动收起，用户仍可手动再次展开。
++- 展开后按原顺序渲染 reasoning 行（嵌套样式）与各工具卡，不丢行、不重排、不把 reasoning 文本合并成一段。
++
++## 数据与所有权
++
++- 分组与计数只在 `buildAssistantWorkRenderItems` 一处完成，输出带 `events` 的 `exploreGroup` 渲染项；
++  UI 不自建第二份行序或缓存。
++- `ExploreToolCallBlock` 仍是唯一摘要渲染者；组事件通过 `ToolCallBlock` 的显式 props 下发，
++  与 CUA 组的事件下发方式一致。
++- 不新增服务调用、持久化或协议字段；reasoning 可见性仍由 `conversationRowContext` 决定。
++
++## 验收场景
++
++- `思考, 查阅, 思考, 查阅, 思考, 查阅` 收成一个探索组，折叠摘要包含正确的查阅/思考/搜索次数。
++- 两个连续 Explore 工具之间夹 reasoning 仍然分组；只有一个 Explore 工具时不分组且行序不变。
++- assistant 正文、Execute 工具、写文件工具会切断探索组。
++- 隐藏 reasoning 时组内不含思考行，摘要省略“思考”项。
++- 展开组后 reasoning 与工具按原顺序出现；运行中摘要显示最新子项动作。
 diff --git a/docs/ui/login-page.md b/docs/ui/login-page.md
 index 38c6010a7a0b8e00d5640aa5623de8ee38139ae7..e68084389f64cb6c20fb1d5e0e53b253b1dbd03a 100644
 --- a/docs/ui/login-page.md
@@ -479,7 +582,7 @@ index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080
 +
 +Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger and that `hideAccountEntry` drops the account trigger while keeping the settings button; `sidebarBottomActivity.test.ts` checks the slot never renders the marketing banner but still arbitrates highspeed notices.
 diff --git a/docs/ui/tool-inline-diff.md b/docs/ui/tool-inline-diff.md
-index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..926f37a644a7c40a9b7302d1aff064731b16f541 100644
+index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..4848f933159b039573a1773555222c09c1137bec 100644
 --- a/docs/ui/tool-inline-diff.md
 +++ b/docs/ui/tool-inline-diff.md
 @@ -21,7 +21,7 @@
@@ -487,7 +590,7 @@ index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..926f37a644a7c40a9b7302d1aff06473
  - 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
  - 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
 -- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
-+- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write` 与 `execute`（命令输出）在**运行中默认展开**，实时显示 diff / 输出，完成后不单独收起，由整条 assistant 消息的默认折叠边界统一收口（用户手动折叠优先，`autoOpen` 只展开一次）
++- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write` 在**运行中默认展开**，实时显示 diff，完成后不单独收起，由整条 assistant 消息的默认折叠边界统一收口；`execute`（命令输出）同样运行中默认展开，但**执行结束后自动收起**为摘要（用户手动折叠优先，`autoOpen` / `autoCollapseOnComplete` 只处理一次边沿）
  - 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
  - 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
  - “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现

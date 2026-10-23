@@ -5,14 +5,14 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "892429f0d66edabce96973f4c2b291a9218196d4",
-  "tree": "ef357e3a2bca35bbd53b34b8c7017496791db29a",
+  "sourceHead": "2e0e57b7d587a225efc0926aab810b5ba4beb308",
+  "tree": "c5ecf04121777a85627a27fcf7bda0b6e74f9836",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "6a481ebd144d9bb7c412eda9ec29aef03ff64566975856b353e6c6c6a49263b2",
+      "sha256": "87b274d1b43456d4a5ae9aadf9860088ba55bc3278a92662360a3b43472e4393",
       "paths": [
         ".oxlintrc.json",
         "architecture-policy.yaml",
@@ -75,7 +75,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "7f6c15c1859edf39f523735a01f6a66c10b6c87a54bcdbf173ac6594c76f3a03",
+      "sha256": "623760989979ff7f751227f065b45510e8a3baa5a0af27fadbee8e3a8ddf2670",
       "paths": [
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
@@ -86,6 +86,8 @@
         "docs/session-context-and-mcp-diagnostics.md",
         "docs/session-resource-controls.md",
         "docs/third-party/opencode-codex-MIT.txt",
+        "docs/ui/composer-git-branch-switcher.md",
+        "docs/ui/explore-run-summary.md",
         "docs/ui/login-page.md",
         "docs/ui/navigation-entry-removals.md",
         "docs/ui/tool-inline-diff.md",
@@ -161,7 +163,7 @@
     {
       "file": "0008-packages-services.patch",
       "directory": "packages/services",
-      "sha256": "777a755541f1e4aeb268904f43bb99b13a392dac21784bf0ed32987a91d776c3",
+      "sha256": "3bfc728beef9eb25d9d219fc770bddd3a2b2d30195bb4c477aa45454a643e3d9",
       "paths": [
         "packages/services/package.json",
         "packages/services/src/accessor.ts",
@@ -210,13 +212,18 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "fd748c78fd7674f13c9257cd99be1b10144d28735630ee5d578f657b6ffb4c74",
+      "sha256": "d180590e0a5251376081ca57ecc6dbd0ac5592974bbab5e9668ffb514ec99df3",
       "paths": [
+        "packages/ui/src/GitBranchSwitcher.tsx",
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
         "packages/ui/src/SettingsPage.tsx",
+        "packages/ui/src/ToolCallBlocks.tsx",
+        "packages/ui/src/ToolCallBlocks/ToolPresentation.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/edit.tsx",
+        "packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/execute.tsx",
+        "packages/ui/src/ToolCallBlocks/renderers/explore.tsx",
         "packages/ui/src/WorkspaceSidebarFooter.tsx",
         "packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx",
         "packages/ui/src/chat-input-toolbar/contextUsage.tsx",
@@ -236,6 +243,7 @@
         "packages/ui/src/lib/mcpStatusCommand.ts",
         "packages/ui/src/lib/settingsNavigation.ts",
         "packages/ui/src/project-sidebar/index.tsx",
+        "packages/ui/src/prompt-editor/useComposerToolbarFit.ts",
         "packages/ui/src/provider-model-discovery/CONTRACT.md",
         "packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx",
         "packages/ui/src/provider-model-discovery/contract.example.ts",
@@ -274,12 +282,14 @@
         "packages/ui/src/settings/model-provider-section/ProviderTemplatePicker.tsx",
         "packages/ui/src/settings/settingsPageConfig.ts",
         "packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx",
+        "packages/ui/src/v4/ConversationComposer.tsx",
         "packages/ui/src/v4/ConversationRowView.tsx",
         "packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx",
         "packages/ui/src/v4/ConversationStatusPanel.tsx",
         "packages/ui/src/v4/ConversationTurnGroup.tsx",
         "packages/ui/src/v4/SessionPane.tsx",
         "packages/ui/src/v4/composer/V4ComposerToolbar.tsx",
+        "packages/ui/src/v4/conversationAssistantWorkItems.ts",
         "packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx",
         "packages/ui/test/browser/manual-review/pending/codex-device.test.mjs",
         "packages/ui/test/browser/manual-review/pending/conversation-hook-footer.fixture.tsx",
@@ -298,6 +308,8 @@
         "packages/ui/test/browser/manual-review/pending/turn-spacing.test.mjs",
         "packages/ui/test/codexConnection.test.ts",
         "packages/ui/test/codingPlanUpgradeDialogProvider.test.ts",
+        "packages/ui/test/composerToolbarFit.test.ts",
+        "packages/ui/test/gitBranchSwitcher.test.ts",
         "packages/ui/test/mcpStatusDialog.test.ts",
         "packages/ui/test/modelProviderCodingPlan.test.ts",
         "packages/ui/test/modelProviderModelRowEditor.test.ts",
@@ -312,8 +324,12 @@
         "packages/ui/test/sidebarBottomActivity.test.ts",
         "packages/ui/test/tokensPerSecond.test.ts",
         "packages/ui/test/toolLiveExpand.test.ts",
+        "packages/ui/test/v4AssistantWorkRenderItems.test.ts",
+        "packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts",
         "packages/ui/test/v4ConversationStatusPanel.test.ts",
         "packages/ui/test/v4ConversationStatusPanelGitReview.test.ts",
+        "packages/ui/test/v4ConversationTurnGroup.test.ts",
+        "packages/ui/test/v4ExploreRunSummary.test.ts",
         "packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts"
       ]
     }

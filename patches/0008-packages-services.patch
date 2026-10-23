@@ -1,12 +1,12 @@
 diff --git a/packages/services/package.json b/packages/services/package.json
-index 2d7845d5a04e12a14ad67b40ebc4bff169de2b77..bf4e9dc10ec7a53ec791cba7e4e7cbd5f4ac30a4 100644
+index 2d7845d5a04e12a14ad67b40ebc4bff169de2b77..b1649fcc7247c11583f945be34b3c1777e4e1fce 100644
 --- a/packages/services/package.json
 +++ b/packages/services/package.json
 @@ -27,6 +27,7 @@
      "chokidar": "4.0.3",
      "croner": "^10.0.1",
      "ignore": "^5.3.2",
-+    "jose": "6.2.1",
++    "jose": "6.2.2",
      "node-forge": "^1.4.0",
      "node-pty": "^1.0.0",
      "smol-toml": "^1.6.1",

@@ -1,3 +1,231 @@
+diff --git a/packages/ui/src/GitBranchSwitcher.tsx b/packages/ui/src/GitBranchSwitcher.tsx
+index 1314165bbe922628f5abd4b32d7b75c1f7c73999..a810a00351a7c7f49345398c5af10eec9c2c8572 100644
+--- a/packages/ui/src/GitBranchSwitcher.tsx
++++ b/packages/ui/src/GitBranchSwitcher.tsx
+@@ -1,11 +1,4 @@
+-import {
+-  useCallback,
+-  useEffect,
+-  useMemo,
+-  useRef,
+-  useState,
+-  type KeyboardEvent,
+-} from "react";
++import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+ import type { GitRepositorySummary } from "@zcode/shared";
+ import { Button } from "@/components/ui/button.js";
+ import {
+@@ -16,11 +9,7 @@ import {
+   CommandItem,
+   CommandList,
+ } from "@/components/ui/command.js";
+-import {
+-  Popover,
+-  PopoverContent,
+-  PopoverTrigger,
+-} from "@/components/ui/popover.js";
++import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
+ import { cn } from "@/components/lib/utils.js";
+ import {
+   GitBranchCreateDialog,
+@@ -37,13 +26,7 @@ import {
+   isCoarseTouchDevice,
+   shouldRestoreChatInputFocusAfterPickerClose,
+ } from "@/lib/pickerFocus.js";
+-import {
+-  ChevronDownIcon,
+-  GitBranchIcon,
+-  GitGraph,
+-  LoaderIcon,
+-  PlusIcon,
+-} from "lucide-react";
++import { ChevronDownIcon, GitBranchIcon, GitGraph, LoaderIcon, PlusIcon } from "lucide-react";
+ 
+ interface GitBranchSwitcherProps {
+   workspacePath: string;
+@@ -59,6 +42,10 @@ interface GitBranchSwitcherProps {
+   popoverSide?: "top" | "bottom" | "left" | "right";
+   avoidPopoverCollisions?: boolean;
+   showFooterActions?: boolean;
++  /** 嵌入 composer 工具栏：窄宽度时按工具栏档位收成图标，菜单内容与动作不变。 */
++  composerToolbar?: boolean;
++  /** 弹层关闭后焦点归还的输入框选择器；v4 composer 的输入框 test id 与旧版不同。 */
++  restoreFocusSelector?: string;
+ }
+ 
+ export function GitBranchSwitcher({
+@@ -75,6 +62,8 @@ export function GitBranchSwitcher({
+   popoverSide = "top",
+   avoidPopoverCollisions = true,
+   showFooterActions = true,
++  composerToolbar = false,
++  restoreFocusSelector = '[data-testid="chat-input"]',
+ }: GitBranchSwitcherProps) {
+   const { intl, locale } = useZCodeIntl();
+   const numberFormatter = new Intl.NumberFormat(locale);
+@@ -108,8 +97,7 @@ export function GitBranchSwitcher({
+   });
+ 
+   const isVisible = gitSummary.isGitAvailable && gitSummary.isRepository;
+-  const displayedCurrentBranchName =
+-    branchesResult?.currentBranchName ?? gitSummary.branchName;
++  const displayedCurrentBranchName = branchesResult?.currentBranchName ?? gitSummary.branchName;
+   const triggerLabel = useMemo(
+     () =>
+       resolveGitBranchTriggerLabel({
+@@ -143,8 +131,7 @@ export function GitBranchSwitcher({
+     });
+   }, [gitSummary.headRefType, intl, switchAssistState, triggerLabel]);
+   const branchSearchFilter = useCallback(
+-    (value: string, search: string) =>
+-      matchesGitBranchSearch(value, search) ? 1 : 0,
++    (value: string, search: string) => (matchesGitBranchSearch(value, search) ? 1 : 0),
+     [],
+   );
+ 
+@@ -155,9 +142,7 @@ export function GitBranchSwitcher({
+ 
+     const frameId = window.requestAnimationFrame(() => {
+       const selectedItem =
+-        commandListRef.current?.querySelector<HTMLElement>(
+-          '[data-branch-current="true"]',
+-        ) ?? null;
++        commandListRef.current?.querySelector<HTMLElement>('[data-branch-current="true"]') ?? null;
+       selectedItem?.scrollIntoView({ block: "nearest" });
+     });
+ 
+@@ -166,11 +151,10 @@ export function GitBranchSwitcher({
+     };
+   }, [branchesResult, open]);
+ 
+-  const handleContentKeyDown = useCallback(
+-    (event: KeyboardEvent<HTMLDivElement>) => {
+-      if (event.key !== "Tab") {
+-        return;
+-      }
++  const handleContentKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
++    if (event.key !== "Tab") {
++      return;
++    }
+ 
+     const highlightedItem =
+       event.currentTarget.querySelector<HTMLElement>(
+@@ -184,11 +168,9 @@ export function GitBranchSwitcher({
+       return;
+     }
+ 
+-      event.preventDefault();
+-      highlightedItem.click();
+-    },
+-    [],
+-  );
++    event.preventDefault();
++    highlightedItem.click();
++  }, []);
+ 
+   if (!isVisible) {
+     return null;
+@@ -198,7 +180,7 @@ export function GitBranchSwitcher({
+     <>
+       <div
+         data-workspace-header-branch={markAsWorkspaceHeaderBranch ? "true" : undefined}
+-        className={cn("flex items-center px-1 pt-2", className)}
++        className={cn("flex items-center", !composerToolbar && "px-1 pt-2", className)}
+       >
+         <Popover open={open} onOpenChange={setOpen}>
+           <PopoverTrigger asChild>
+@@ -207,6 +189,9 @@ export function GitBranchSwitcher({
+               variant="ghost"
+               size={"default"}
+               disabled={mutationPending}
++              // composer 工具栏的压缩顺序由 useComposerToolbarFit 统一裁决；
++              // 分支入口最后收成图标，不抢占模式/思考等高频控件的空间。
++              data-composer-collapse-priority={composerToolbar ? "4" : undefined}
+               aria-label={intl.formatMessage({
+                 id: "git.branchSwitcher.trigger.ariaLabel",
+               })}
+@@ -214,8 +199,14 @@ export function GitBranchSwitcher({
+                 "min-w-0 rounded-full text-ui-base/relaxed",
+                 // Bugfix: 手机远控聊天页底部空间很窄，分支名会挤压输入工具栏；远控模式只保留图标入口。
+                 compactForRemoteControl
+-                  ? "size-8 px-0"
+-                  : "max-w-full pl-3 pr-2",
++                  ? composerToolbar
++                    ? "h-7 w-7 px-0"
++                    : "size-8 px-0"
++                  : composerToolbar
++                    ? "max-w-full px-2"
++                    : "max-w-full pl-3 pr-2",
++                composerToolbar &&
++                  "group/branch rounded-lg gap-1 data-[composer-compact=true]:w-7 data-[composer-compact=true]:gap-0 data-[composer-compact=true]:px-0",
+                 triggerClassName,
+               )}
+             >
+@@ -225,16 +216,18 @@ export function GitBranchSwitcher({
+               />
+               {!compactForRemoteControl ? (
+                 <>
+-                  <span className="min-w-0 max-w-25 truncate text-left">{triggerLabel}</span>
++                  <span className="min-w-0 max-w-25 truncate text-left group-data-[composer-compact=true]/branch:hidden">
++                    {triggerLabel}
++                  </span>
+                   {loadingBranches || mutationPending ? (
+                     <LoaderIcon
+                       data-branch-switcher-trailing-icon="true"
+-                      className="size-3.5 animate-spin text-foreground-subtle"
++                      className="size-3.5 animate-spin text-foreground-subtle group-data-[composer-compact=true]/branch:hidden"
+                     />
+                   ) : (
+                     <ChevronDownIcon
+                       data-branch-switcher-trailing-icon="true"
+-                      className="size-3.5 text-foreground-subtle"
++                      className="size-3.5 text-foreground-subtle group-data-[composer-compact=true]/branch:hidden"
+                     />
+                   )}
+                 </>
+@@ -258,9 +251,7 @@ export function GitBranchSwitcher({
+               if (!(target instanceof HTMLElement)) {
+                 return;
+               }
+-              const searchInput = target.querySelector<HTMLElement>(
+-                '[data-slot="command-input"]',
+-              );
++              const searchInput = target.querySelector<HTMLElement>('[data-slot="command-input"]');
+               searchInput?.focus();
+             }}
+             onCloseAutoFocus={(event) => {
+@@ -272,9 +263,7 @@ export function GitBranchSwitcher({
+               ) {
+                 return;
+               }
+-              const input = document.querySelector<HTMLElement>(
+-                '[data-testid="chat-input"]',
+-              );
++              const input = document.querySelector<HTMLElement>(restoreFocusSelector);
+               input?.focus();
+             }}
+           >
+@@ -302,8 +291,7 @@ export function GitBranchSwitcher({
+                   className="space-y-0.5 p-1 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-ui-base **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-foreground-subtle"
+                 >
+                   {(branchesResult?.branches ?? []).map((branch) => {
+-                    const isCurrent =
+-                      branch.name === displayedCurrentBranchName;
++                    const isCurrent = branch.name === displayedCurrentBranchName;
+                     return (
+                       <CommandItem
+                         key={branch.name}
+@@ -311,9 +299,7 @@ export function GitBranchSwitcher({
+                         data-checked={isCurrent ? "true" : undefined}
+                         data-branch-current={isCurrent ? "true" : undefined}
+                         disabled={mutationPending}
+-                        className={cn(
+-                          "items-start gap-3 rounded-lg px-3 py-2 text-ui-base",
+-                        )}
++                        className={cn("items-start gap-3 rounded-lg px-3 py-2 text-ui-base")}
+                         onSelect={() => {
+                           void switchBranch(branch.name);
+                         }}
 diff --git a/packages/ui/src/McpStatusDialog.tsx b/packages/ui/src/McpStatusDialog.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..1532cc2caec461c6f8acf9b0bdc0fd1db741fd97
@@ -290,10 +518,18 @@ index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..629e92051c4b8351c3d3d2209c3a55cc
        isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
        providerFamilyDomain: appSettings?.providerFamilyDomain,
 diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
-index 65a4df026b94fdd76b012875ca94faa95fb6271e..43b64ca2532c4234456a097f60ffa8e788429495 100644
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e43608c2c 100644
 --- a/packages/ui/src/SettingsPage.tsx
 +++ b/packages/ui/src/SettingsPage.tsx
-@@ -323,15 +323,7 @@ export function SettingsPage({
+@@ -72,7 +72,6 @@ import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
+ import { ArchiveManagement, useOptionalProjectDirectory } from "@/project-sidebar/index.js";
+ import { resolveRecentRemoteProjectPreference } from "@/project-sidebar/remote-project-connection.js";
+ import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
+-import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
+ import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
+ import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
+ import {
+@@ -323,15 +322,7 @@ export function SettingsPage({
    user?: UserInfo | null;
  }) {
    const { intl, localePreference, setLocalePreference } = useZCodeIntl();
@@ -310,7 +546,39 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..43b64ca2532c4234456a097f60ffa8e7
    const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
    const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
    const platform = usePlatform();
-@@ -1695,6 +1687,9 @@ export function SettingsPage({
+@@ -628,7 +619,6 @@ export function SettingsPage({
+     usageBigmodelEnterpriseProducts.loading ||
+     usageZaiEnterpriseProducts.loading;
+   const [initialModelProviderTarget] = useState(() => consumePendingSettingsModelProviderTarget());
+-  const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
+   const [pendingModelProviderTarget, setPendingModelProviderTarget] = useState<
+     SettingsModelProviderTarget | undefined
+   >(() => initialModelProviderTarget);
+@@ -682,18 +672,6 @@ export function SettingsPage({
+       setActiveSettingsSection("general");
+     }
+   }, [activeSection, isDesktop, setActiveSettingsSection]);
+-  const handleOpenCodingPlanUpgradeSettings = useCallback(
+-    (
+-      providerId: string,
+-      funnelContext?: import("@/lib/codingPlanFunnelTelemetry.js").CodingPlanFunnelContext,
+-    ) => {
+-      openCodingPlanUpgrade({
+-        providerId,
+-        funnelContext,
+-      });
+-    },
+-    [openCodingPlanUpgrade],
+-  );
+   const handleOpenModelProviderSettings = useCallback(() => {
+     setActiveSettingsSection("modelProvider");
+   }, [setActiveSettingsSection]);
+@@ -1690,11 +1668,13 @@ export function SettingsPage({
+                   onThemeChange={handleFooterThemeChange}
+                   onSettingsButtonClick={onBack}
+                   onUsageClick={handleOpenUsageSettings}
+-                  onUpgradeClick={handleOpenCodingPlanUpgradeSettings}
+                   onLogin={onLogin}
                    onLogout={onLogout}
                    settingsButtonMode="back"
                    user={user}
@@ -320,6 +588,95 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..43b64ca2532c4234456a097f60ffa8e7
                    // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
                    // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
                    isDesktop={isDesktop}
+diff --git a/packages/ui/src/ToolCallBlocks.tsx b/packages/ui/src/ToolCallBlocks.tsx
+index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fdd11869b2 100644
+--- a/packages/ui/src/ToolCallBlocks.tsx
++++ b/packages/ui/src/ToolCallBlocks.tsx
+@@ -14,6 +14,7 @@ import {
+ } from "@/lib/toolCallSummary.js";
+ import type { CodeViewerSource } from "@/lib/codeViewer.js";
+ import { CuaGroupToolCallBlock } from "@/ToolCallBlocks/renderers/cua-group.js";
++import { ExploreToolCallBlock } from "@/ToolCallBlocks/renderers/explore.js";
+ import { resolveToolCallRenderer } from "@/ToolCallBlocks/resolveRenderer.js";
+ import * as PluginUi from "@/plugin-ui/index.js";
+ import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
+@@ -23,6 +24,7 @@ import {
+ } from "@/ToolCallBlocks/shared.js";
+ import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+ import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
++import type { ConversationExploreGroupEvent } from "@/v4/conversationAssistantWorkItems.js";
+ 
+ const NESTED_TOOLCALL_CONTAINER_CLASS =
+   "ml-2 space-y-2 border-border border-l pl-3.5 border-border";
+@@ -106,6 +108,8 @@ function ToolCallBlockComponent({
+   cuaGroupEvents,
+   renderCuaAssistantMessage,
+   renderCuaReasoning,
++  exploreGroupEvents,
++  renderExploreReasoning,
+ }: {
+   toolCallNode: TaskChatToolCallTreeNode;
+   depth?: number;
+@@ -155,6 +159,11 @@ function ToolCallBlockComponent({
+   renderCuaReasoning?: (
+     event: Extract<ConversationCuaGroupEvent, { kind: "reasoning" }>,
+   ) => ReactNode;
++  /** 探索组的事件序列（思考 + 工具按原始行序）；单工具卡没有该字段。 */
++  exploreGroupEvents?: readonly ConversationExploreGroupEvent[];
++  renderExploreReasoning?: (
++    event: Extract<ConversationExploreGroupEvent, { kind: "reasoning" }>,
++  ) => ReactNode;
+ }) {
+   const presentationCapabilities = useToolPresentationHostCapabilities(workspacePath);
+   const inheritedPluginUi = PluginUi.usePluginUiToolBinding(toolCallNode.toolCall.toolId);
+@@ -399,6 +408,12 @@ function ToolCallBlockComponent({
+             renderAssistantMessage={renderCuaAssistantMessage}
+             renderReasoning={renderCuaReasoning}
+           />
++        ) : ToolCallRenderer === ExploreToolCallBlock ? (
++          <ExploreToolCallBlock
++            {...renderContext}
++            events={exploreGroupEvents}
++            renderReasoning={renderExploreReasoning}
++          />
+         ) : (
+           <ToolCallRenderer {...renderContext} />
+         )}
+diff --git a/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx b/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx
+index e50ee6c34b5b45d62e545d7ddac2fc2dcbcb1d4d..f3eba24f2fe7175eec3060fab89a1ecb51175c81 100644
+--- a/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx
++++ b/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx
+@@ -12,6 +12,7 @@ import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
+ import { resolveToolCallRenderer } from "@/ToolCallBlocks/resolveRenderer.js";
+ import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
+ import { CuaGroupToolCallBlock } from "@/ToolCallBlocks/renderers/cua-group.js";
++import { ExploreToolCallBlock } from "@/ToolCallBlocks/renderers/explore.js";
+ import {
+   readRawToolCallFileSummaries,
+   type ToolCallBlockRenderContext,
+@@ -39,6 +40,8 @@ export function ToolPresentation({
+       typeof CuaGroupToolCallBlock
+     >["renderAssistantMessage"];
+     renderCuaReasoning?: ComponentProps<typeof CuaGroupToolCallBlock>["renderReasoning"];
++    exploreGroupEvents?: ComponentProps<typeof ExploreToolCallBlock>["events"];
++    renderExploreReasoning?: ComponentProps<typeof ExploreToolCallBlock>["renderReasoning"];
+   }) {
+   const { intl } = useZCodeIntl();
+   const capabilities = useToolPresentationCapabilities();
+@@ -93,5 +96,13 @@ export function ToolPresentation({
+         renderReasoning={options.renderCuaReasoning}
+       />
+     );
++  if (Renderer === ExploreToolCallBlock)
++    return (
++      <ExploreToolCallBlock
++        {...context}
++        events={options.exploreGroupEvents}
++        renderReasoning={options.renderExploreReasoning}
++      />
++    );
+   return <Renderer {...context} />;
+ }
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx b/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
 index 69a3da030d2537cf09d2e433ae44d8872db9f329..5708be4778aae24657235da57b08eed58301032d 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
@@ -390,22 +747,245 @@ index 69a3da030d2537cf09d2e433ae44d8872db9f329..5708be4778aae24657235da57b08eed5
          kindLabel={kindLabel}
          sourceLabel={sourceLabel}
          primaryText={primaryText}
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
+index 44c956a6034ecd0e63d9a41b02f9e686f3340bbe..e95896f1d13dba0f0b62d57d579eaec9c8f894e5 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
+@@ -112,6 +112,10 @@ export function ExecuteGroupToolCallBlock(context: ToolCallBlockRenderContext) {
+       icon={EXECUTE_GROUP_ICON}
+       canToggle={!isOfficeMode && (context.canToggle ?? true)}
+       forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
++      // 与单条命令一致：运行中的命令组默认展开，实时显示子命令与输出；
++      // 执行结束后自动收起为汇总，用户仍可手动再次展开。
++      autoOpen={!isOfficeMode && isRunning}
++      autoCollapseOnComplete={!isOfficeMode}
+       kindLabel={intl.formatMessage({ id: "chat.toolCall.executeGroup.label" })}
+       expandedKindLabel={intl.formatMessage({
+         id: "chat.toolCall.executeGroup.label",
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-index 37ac09799834fcfdb8d0c29853166af7f8a30046..ce95f7e8016b5e25b115e43ec48b68fa3acdae42 100644
+index 37ac09799834fcfdb8d0c29853166af7f8a30046..3219a724bf13dee618b60d0c49d6151d2831182c 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
 +++ b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-@@ -347,6 +347,9 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -347,6 +347,10 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
          showIcon={context.showIcon !== false}
          canToggle={!isOfficeMode && (context.canToggle ?? true)}
          forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
-+        // 运行中的命令默认展开，实时显示输出；完成后不单独收起，
-+        // 由整条 assistant 消息的默认折叠边界统一收口。
++        // 运行中的命令默认展开，实时显示输出；执行结束后自动收起为摘要，
++        // 用户仍可手动再次展开查看完整输出。
 +        autoOpen={!isOfficeMode && isRunning}
++        autoCollapseOnComplete={!isOfficeMode}
          hideSecondaryTextWhenOpen
          kindLabel={
            (isOfficeMode
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
+index 40352b38d217883006fc1436db83664013ea1a38..a94bacc0bc4c631ba7fad98f4d2c805bc99b7452 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
+@@ -11,9 +11,10 @@ import { renderFilePath } from "@/ToolCallBlocks/shared.js";
+ import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
+ import { ToolLayout } from "../ToolLayout.js";
+ import type { ToolCallBlockRenderContext } from "../shared.js";
+-import { useCallback, type ReactNode } from "react";
++import { useCallback, useMemo, type ReactNode } from "react";
+ import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
+ import type { ZCodePlanStep } from "@zcode/shared";
++import type { ConversationExploreGroupEvent } from "@/v4/conversationAssistantWorkItems.js";
+ 
+ const EXPLORE_TOOL_ICON = <SearchIcon className="size-4 shrink-0 text-foreground-subtle" />;
+ 
+@@ -208,6 +209,57 @@ function formatExploreSummary(intl: IntlLike, counts: Record<ExploreBucket, numb
+     : intl.formatMessage({ id: "chat.toolCall.explore.emptySummary" });
+ }
+ 
++function formatExploreRunBucketPart(intl: IntlLike, bucket: ExploreBucket, count: number) {
++  return intl.formatMessage(
++    { id: `chat.toolCall.explore.run.bucket.${bucket}.${count === 1 ? "one" : "other"}` },
++    { count: String(count) },
++  );
++}
++
++/** 探索组折叠摘要：查阅 / 思考与四类动作都按次数展示，计数为 0 的项省略。 */
++export function formatExploreRunSummary(
++  intl: IntlLike,
++  params: {
++    exploreCount: number;
++    reasoningCount: number;
++    counts: Record<ExploreBucket, number>;
++  },
++) {
++  const parts: string[] = [];
++  if (params.exploreCount > 0) {
++    parts.push(
++      intl.formatMessage(
++        {
++          id:
++            params.exploreCount === 1
++              ? "chat.toolCall.explore.run.lookups.one"
++              : "chat.toolCall.explore.run.lookups.other",
++        },
++        { count: String(params.exploreCount) },
++      ),
++    );
++  }
++  if (params.reasoningCount > 0) {
++    parts.push(
++      intl.formatMessage(
++        {
++          id:
++            params.reasoningCount === 1
++              ? "chat.toolCall.explore.run.thoughts.one"
++              : "chat.toolCall.explore.run.thoughts.other",
++        },
++        { count: String(params.reasoningCount) },
++      ),
++    );
++  }
++  for (const bucket of ["fetch", "search", "list", "file"] as const) {
++    if (params.counts[bucket] > 0) {
++      parts.push(formatExploreRunBucketPart(intl, bucket, params.counts[bucket]));
++    }
++  }
++  return parts.join(", ");
++}
++
+ function getChildActionKindLabel(
+   intl: IntlLike,
+   family: ReturnType<typeof resolveToolCallIdentity>["family"],
+@@ -416,12 +468,37 @@ export function getLatestExploreChildSummaryFromChildren(
+   return null;
+ }
+ 
+-export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
++interface ExploreRenderProps extends ToolCallBlockRenderContext {
++  /** 探索组的事件序列（思考与工具按原始行序）；单工具卡片没有该字段。 */
++  events?: readonly ConversationExploreGroupEvent[];
++  renderReasoning?: (
++    event: Extract<ConversationExploreGroupEvent, { kind: "reasoning" }>,
++  ) => ReactNode;
++}
++
++export function ExploreToolCallBlock(context: ExploreRenderProps) {
+   const ToolCallBlock = context.nestedToolRenderer;
+   const { intl } = useZCodeIntl();
+   const { toolCallNode, isRunning, statusLabel, errorText } = context;
+   const { toolCall, childToolCalls } = toolCallNode;
+-  const counts = childToolCalls.reduce<Record<ExploreBucket, number>>(
++  const entries = useMemo(() => {
++    if (context.events) {
++      return context.events.map((event) =>
++        event.kind === "tool"
++          ? { kind: "tool" as const, key: `tool:${event.row.toolCallId}`, node: event.node }
++          : { kind: "reasoning" as const, key: `reasoning:${event.row.rowId}`, row: event.row },
++      );
++    }
++    return childToolCalls.map((node) => ({
++      kind: "tool" as const,
++      key: `tool:${node.toolCall.toolId}`,
++      node,
++    }));
++  }, [context.events, childToolCalls]);
++  const toolNodes = entries.flatMap((entry) => (entry.kind === "tool" ? [entry.node] : []));
++  const reasoningCount = entries.length - toolNodes.length;
++  const isRunGroup = toolNodes.length > 1;
++  const counts = toolNodes.reduce<Record<ExploreBucket, number>>(
+     (acc, childToolCallNode) => {
+       const bucket = classifyExploreToolCall({
+         kind: childToolCallNode.toolCall.kind,
+@@ -433,9 +510,15 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+     },
+     { search: 0, fetch: 0, list: 0, file: 0 },
+   );
+-  const summary = formatExploreSummary(intl, counts);
++  const summary = isRunGroup
++    ? formatExploreRunSummary(intl, {
++        exploreCount: toolNodes.length,
++        reasoningCount,
++        counts,
++      })
++    : formatExploreSummary(intl, counts);
+   const kindLabel = intl.formatMessage({
+-    id: "chat.toolCall.explore.label",
++    id: isRunGroup ? "chat.toolCall.explore.run.label" : "chat.toolCall.explore.label",
+   });
+   const collapsedChildSummary = isRunning
+     ? getLatestExploreChildSummaryFromChildren(intl, childToolCalls, context, {
+@@ -444,30 +527,39 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+     : null;
+   const renderContent = useCallback(
+     () =>
+-      childToolCalls.length > 0 ? (
++      entries.length > 0 ? (
+         <div className="ml-2 space-y-2 border-border border-l pl-3.5 border-border">
+-          {childToolCalls.map((childToolCallNode) => (
+-            <ToolCallBlock
+-              key={childToolCallNode.toolCall.toolId}
+-              toolCallNode={childToolCallNode}
+-              workspacePath={context.workspacePath}
+-              showIcon={false}
+-              onOpenCodeViewer={context.onOpenCodeViewer}
+-              onOpenFileLink={context.onOpenFileLink}
+-              onOpenBrowserUrl={context.onOpenBrowserUrl}
+-              onOpenAutomationsMain={context.onOpenAutomationsMain}
+-              onLoadFullToolCallFields={context.onLoadFullToolCallFields}
+-            />
+-          ))}
++          {entries.map((entry) =>
++            entry.kind === "tool" ? (
++              <ToolCallBlock
++                key={entry.key}
++                toolCallNode={entry.node}
++                workspacePath={context.workspacePath}
++                showIcon={false}
++                onOpenCodeViewer={context.onOpenCodeViewer}
++                onOpenFileLink={context.onOpenFileLink}
++                onOpenBrowserUrl={context.onOpenBrowserUrl}
++                onOpenAutomationsMain={context.onOpenAutomationsMain}
++                onLoadFullToolCallFields={context.onLoadFullToolCallFields}
++              />
++            ) : (
++              <div key={entry.key} className="min-w-0 py-1">
++                {context.renderReasoning?.({ kind: "reasoning", row: entry.row }) ?? (
++                  <span className="break-words whitespace-pre-wrap">{entry.row.text}</span>
++                )}
++              </div>
++            ),
++          )}
+         </div>
+       ) : null,
+     [
+-      childToolCalls,
++      entries,
+       context.onLoadFullToolCallFields,
+       context.onOpenAutomationsMain,
+       context.onOpenBrowserUrl,
+       context.onOpenCodeViewer,
+       context.onOpenFileLink,
++      context.renderReasoning,
+       context.workspacePath,
+     ],
+   );
+@@ -479,6 +571,10 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+         icon={EXPLORE_TOOL_ICON}
+         canToggle={context.canToggle ?? true}
+         forceOpen={context.forceOpen ?? false}
++        // 运行中的探索阶段默认展开，保证正在执行的命令与思考内容可见；
++        // 阶段结束后回到“探索 · 查阅/思考次数”摘要，用户可以再手动展开。
++        autoOpen={isRunning}
++        autoCollapseOnComplete
+         kindLabel={kindLabel}
+         expandedKindLabel={kindLabel}
+         sourceLabel={context.sourceLabel}
+@@ -497,7 +593,7 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+         statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+         showFailureStatus={toolCall.status === "failed"}
+         isRunning={isRunning}
+-        title={collapsedChildSummary?.title ?? (isRunning ? summary : toolCall.title)}
++        title={collapsedChildSummary?.title ?? (isRunning || isRunGroup ? summary : toolCall.title)}
+         expandedTitle={toolCall.title}
+         renderContent={renderContent}
+       />
 diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
-index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8247d906c 100644
+index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c613a18fbe1 100644
 --- a/packages/ui/src/WorkspaceSidebarFooter.tsx
 +++ b/packages/ui/src/WorkspaceSidebarFooter.tsx
 @@ -49,7 +49,6 @@ import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
@@ -416,7 +996,14 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8
  import {
    WorkspaceSidebarFooterPlanBadge,
    WorkspaceSidebarFooterUsageSummaryContent,
-@@ -103,10 +102,9 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -96,17 +95,15 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   onThemeChange,
+   onSettingsButtonClick,
+   onUsageClick,
+-  onUpgradeClick,
+   onLogin,
+   onLogout,
+   settingsButtonMode = "settings",
    user,
    workspacePath,
    workspaceIdentity,
@@ -428,7 +1015,16 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8
    className,
  }: {
    theme: Theme;
-@@ -124,10 +122,13 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -115,19 +112,19 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   onThemeChange: (value: string) => void;
+   onSettingsButtonClick?: () => void;
+   onUsageClick?: () => void;
+-  onUpgradeClick?: Parameters<
+-    typeof WorkspaceSidebarFooterUsageSummaryContent
+-  >[0]["onUpgradeClick"];
+   onLogin?: () => void;
+   onLogout?: () => void;
+   settingsButtonMode?: "settings" | "back";
    user?: UserInfo | null;
    workspacePath?: string;
    workspaceIdentity?: string;
@@ -444,7 +1040,7 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8
    className?: string;
  }) {
    const { intl } = useZCodeIntl();
-@@ -234,247 +235,250 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -234,247 +231,246 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
      <footer className={cn("flex shrink-0 flex-col gap-2.5 px-4 pt-2 pb-4", className)}>
        {banner}
        <div className="flex min-w-0 gap-2">
@@ -826,11 +1422,7 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8
 +                </DropdownMenuSub>
 +              ) : null}
 +              {/* Bugfix: 升级入口状态不再以菜单开关为生命周期边界。 */}
-+              <WorkspaceSidebarFooterUsageSummaryContent
-+                state={usageSummaryState}
-+                onUsageClick={usageButtonClick}
-+                onUpgradeClick={onUpgradeClick}
-+              />
++              <WorkspaceSidebarFooterUsageSummaryContent onUsageClick={usageButtonClick} />
 +              {user ? (
 +                <DropdownMenuItem onSelect={() => openRewards?.()} data-testid="rewards-menu-item">
 +                  <Gift className="size-4" />
@@ -923,7 +1515,7 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..4708b5ccef7239e5233a5759a12005c8
              <Button
                type="button"
 diff --git a/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx b/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx
-index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..e82c620af2fa613884327cbee116e8ee74f239e5 100644
+index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..c71d46141b76069b165192e73ae3bfd0099fc626 100644
 --- a/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx
 +++ b/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx
 @@ -1,5 +1,4 @@
@@ -941,7 +1533,7 @@ index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..e82c620af2fa613884327cbee116e8ee
  import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu.js";
  import {
    resolveCodingPlanUsageRemainingState,
-@@ -24,15 +23,8 @@ import {
+@@ -24,15 +23,7 @@ import {
    resolveEntitledAccountProviderAccessFingerprint,
  } from "@/lib/accountProviderAccess.js";
  import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
@@ -955,21 +1547,62 @@ index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..e82c620af2fa613884327cbee116e8ee
 -  type CodingPlanFunnelContext,
 -} from "@/lib/codingPlanFunnelTelemetry.js";
 +import { resolveSidebarCodingPlanUpgradeFallbackProviderId } from "@/lib/sidebarCodingPlanUpgrade.js";
-+import { type CodingPlanFunnelContext } from "@/lib/codingPlanFunnelTelemetry.js";
  import { type SidebarUsageCodingPlanProviderId } from "@/lib/sidebarUsageCodingPlanProviderPreference.js";
  import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
  import {
-@@ -52,8 +44,6 @@ export {
+@@ -52,38 +43,6 @@ export {
    resolveSidebarFooterProfilePlanBadge,
  } from "@/WorkspaceSidebarFooterPlanBadgeHelpers.js";
  
 -const TID_SIDEBAR_CODING_PLAN_UPGRADE_BUTTON = "sidebar-coding-plan-upgrade-button";
 -
- export function WorkspaceSidebarFooterUsageSummary({
+-export function WorkspaceSidebarFooterUsageSummary({
+-  enabled,
+-  onUsageClick,
+-  onUpgradeClick,
+-  workspaceIdentity,
+-  workspacePath,
+-}: {
+-  enabled: boolean;
+-  onUsageClick?: () => void;
+-  onUpgradeClick?: (
+-    providerId: SidebarUsageCodingPlanProviderId,
+-    funnelContext: CodingPlanFunnelContext,
+-  ) => void;
+-  workspaceIdentity?: string;
+-  workspacePath?: string;
+-}) {
+-  const state = useWorkspaceSidebarFooterUsageSummaryState({
+-    enabled,
+-    workspaceIdentity,
+-    workspacePath,
+-  });
+-  return (
+-    <WorkspaceSidebarFooterUsageSummaryContent
+-      state={state}
+-      onUsageClick={onUsageClick}
+-      onUpgradeClick={onUpgradeClick}
+-    />
+-  );
+-}
+-
+ export function useWorkspaceSidebarFooterUsageSummaryState({
    enabled,
+   workspaceIdentity,
+@@ -417,26 +376,11 @@ export type WorkspaceSidebarFooterUsageSummaryState = ReturnType<
+ >;
+ 
+ export function WorkspaceSidebarFooterUsageSummaryContent({
+-  state,
    onUsageClick,
-@@ -429,14 +419,9 @@ export function WorkspaceSidebarFooterUsageSummaryContent({
-   ) => void;
+-  onUpgradeClick,
+ }: {
+-  state: WorkspaceSidebarFooterUsageSummaryState;
+   onUsageClick?: () => void;
+-  onUpgradeClick?: (
+-    providerId: SidebarUsageCodingPlanProviderId,
+-    funnelContext: CodingPlanFunnelContext,
+-  ) => void;
  }) {
    const { intl } = useZCodeIntl();
 -  const entryGate = useCodingPlanEntryGate();
@@ -980,13 +1613,10 @@ index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..e82c620af2fa613884327cbee116e8ee
 -  const upgradeActionLabelId = isMaxCodingPlanSnapshot(upgradeProviderSnapshot)
 -    ? "sidebar.usage.plan.renew"
 -    : "sidebar.usage.plan.upgrade";
-+  // 二开：升级入口已移除，套餐状态仍由其他展示面消费。
-+  void state;
-+  void onUpgradeClick;
  
    return (
      <>
-@@ -451,33 +436,6 @@ export function WorkspaceSidebarFooterUsageSummaryContent({
+@@ -451,33 +395,6 @@ export function WorkspaceSidebarFooterUsageSummaryContent({
          <BarChart3Icon className="size-4" />
          {intl.formatMessage({ id: "sidebar.usage.plan.openStats" })}
        </DropdownMenuItem>
@@ -2089,7 +2719,7 @@ index 0000000000000000000000000000000000000000..234d8a51a7d6296387e04fe6e2b1e579
 +  return { state, refresh };
 +}
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6f6558047 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..1fa3ed69f60b03f56cc817d44bb6451727255a0a 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,62 @@
@@ -2155,7 +2785,16 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6
    "preview.image.copy": "Copy image",
    "preview.image.actions": "Image actions",
    "preview.image.added": "Added to chat",
-@@ -5691,6 +5747,7 @@ const enUS: Record<string, string> = {
+@@ -4558,8 +4614,6 @@ const enUS: Record<string, string> = {
+   "settings.usage.entitlementStatusNotConfigured": "Not configured",
+   "sidebar.usage.summaryTitle": "Last 30 days",
+   "sidebar.usage.plan.title": "Usage remaining",
+-  "sidebar.usage.plan.upgrade": "Upgrade",
+-  "sidebar.usage.plan.renew": "Renew",
+   "sidebar.usage.plan.codingPlanTitle": "Coding Plan",
+   "sidebar.usage.plan.audienceIndividual": "Individual",
+   "sidebar.usage.plan.audienceTeam": "Team",
+@@ -5691,6 +5745,7 @@ const enUS: Record<string, string> = {
    "chat.message.toolSnapshot.loading": "Loading...",
    "chat.message.toolSnapshot.retry": "Load failed, retry",
    "chat.message.time.yesterday": "Yesterday {time}",
@@ -2163,7 +2802,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6
    "chat.message.retry": "Retry",
    "chat.history.workingFor": "Working for {duration}",
    "chat.history.workedFor": "Worked for {duration}",
-@@ -5829,6 +5886,13 @@ const enUS: Record<string, string> = {
+@@ -5829,6 +5884,13 @@ const enUS: Record<string, string> = {
    "chat.target.resume": "Resume goal",
    "chat.target.clear": "Clear goal",
    "chat.summaryPanel.title": "Status",
@@ -2177,7 +2816,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6
    "chat.summaryPanel.duration.hours": "h",
    "chat.summaryPanel.duration.minutes": "m",
    "chat.summaryPanel.duration.seconds": "s",
-@@ -5871,6 +5935,8 @@ const enUS: Record<string, string> = {
+@@ -5871,6 +5933,8 @@ const enUS: Record<string, string> = {
    "chat.statusPanel.todoWaitingFold": "{count} waiting",
    "chat.statusPanel.terminals": "Terminals",
    "chat.statusPanel.agents": "Agents",
@@ -2186,7 +2825,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6
    "chat.statusPanel.workflows": "Workflows",
    "chat.statusPanel.runningStatusValue": "{count} in background",
    "chat.statusPanel.runningStatusValuePlural": "{count} in background",
-@@ -5905,6 +5971,39 @@ const enUS: Record<string, string> = {
+@@ -5905,6 +5969,39 @@ const enUS: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
    "chat.slash.app.plan.label": "Plan mode",
    "chat.slash.app.plan.description": "Enable Plan mode",
@@ -2226,8 +2865,28 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..66c5448db41a850128615ab99fc136d6
    "chat.compact.runningBlocked": "Compact context after the current task finishes.",
    "chat.compact.queued": "Compaction queued and will run in order.",
    "chat.compact.duplicateBlocked": "A compaction is already running or queued.",
+@@ -6790,6 +6887,19 @@ const enUS: Record<string, string> = {
+   "chat.toolCall.sessionContext.result": "Result",
+   "chat.toolCall.sessionContext.noResult": "No context returned.",
+   "chat.toolCall.explore.label": "Explore",
++  "chat.toolCall.explore.run.label": "Explore",
++  "chat.toolCall.explore.run.lookups.one": "{count} lookup",
++  "chat.toolCall.explore.run.lookups.other": "{count} lookups",
++  "chat.toolCall.explore.run.thoughts.one": "{count} thought",
++  "chat.toolCall.explore.run.thoughts.other": "{count} thoughts",
++  "chat.toolCall.explore.run.bucket.search.one": "{count} search",
++  "chat.toolCall.explore.run.bucket.search.other": "{count} searches",
++  "chat.toolCall.explore.run.bucket.list.one": "{count} list",
++  "chat.toolCall.explore.run.bucket.list.other": "{count} lists",
++  "chat.toolCall.explore.run.bucket.file.one": "{count} file",
++  "chat.toolCall.explore.run.bucket.file.other": "{count} files",
++  "chat.toolCall.explore.run.bucket.fetch.one": "{count} fetch",
++  "chat.toolCall.explore.run.bucket.fetch.other": "{count} fetches",
+   "chat.toolCall.explore.bucket.search.one": "search",
+   "chat.toolCall.explore.bucket.search.other": "searches",
+   "chat.toolCall.explore.bucket.list.one": "list",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf803fb25a7 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..92d70d9509aab00f2d19c5d3680b6f0caea626bc 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,56 @@
@@ -2287,7 +2946,16 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf8
    "preview.image.copy": "复制图片",
    "preview.image.actions": "图片操作",
    "preview.image.added": "已添加到聊天",
-@@ -5318,6 +5368,7 @@ const zhCN: Record<string, string> = {
+@@ -4281,8 +4331,6 @@ const zhCN: Record<string, string> = {
+   "settings.usage.entitlementStatusNotConfigured": "未配置",
+   "sidebar.usage.summaryTitle": "最近 30 天",
+   "sidebar.usage.plan.title": "剩余额度",
+-  "sidebar.usage.plan.upgrade": "升级",
+-  "sidebar.usage.plan.renew": "续期",
+   "sidebar.usage.plan.codingPlanTitle": "编程套餐",
+   "sidebar.usage.plan.audienceIndividual": "个人",
+   "sidebar.usage.plan.audienceTeam": "团队",
+@@ -5318,6 +5366,7 @@ const zhCN: Record<string, string> = {
    "chat.message.toolSnapshot.loading": "正在加载...",
    "chat.message.toolSnapshot.retry": "加载失败，重试",
    "chat.message.time.yesterday": "昨天 {time}",
@@ -2295,7 +2963,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf8
    "chat.message.retry": "重试",
    "chat.history.workingFor": "工作中 {duration}",
    "chat.history.workedFor": "已工作 {duration}",
-@@ -5451,6 +5502,13 @@ const zhCN: Record<string, string> = {
+@@ -5451,6 +5500,13 @@ const zhCN: Record<string, string> = {
    "chat.target.resume": "继续目标",
    "chat.target.clear": "清空目标",
    "chat.summaryPanel.title": "状态",
@@ -2309,7 +2977,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf8
    "chat.summaryPanel.duration.hours": "小时",
    "chat.summaryPanel.duration.minutes": "分",
    "chat.summaryPanel.duration.seconds": "秒",
-@@ -5496,6 +5554,9 @@ const zhCN: Record<string, string> = {
+@@ -5496,6 +5552,9 @@ const zhCN: Record<string, string> = {
    "chat.statusPanel.todoWaitingFold": "待处理 {count} 项",
    "chat.statusPanel.terminals": "终端",
    "chat.statusPanel.agents": "智能体",
@@ -2319,7 +2987,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf8
    // Workflows 分区：与 Terminals / Agents 并列的
    // 第三类实时活动。行内的状态词与步数复用 chat.toolCall.workflow.* 那一组，不另造词汇。
    "chat.statusPanel.workflows": "工作流",
-@@ -5530,6 +5591,37 @@ const zhCN: Record<string, string> = {
+@@ -5530,6 +5589,37 @@ const zhCN: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal 无法在 Plan 模式下使用，请切换模式。",
    "chat.slash.app.plan.label": "计划模式",
    "chat.slash.app.plan.description": "开启计划模式",
@@ -2357,6 +3025,26 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..8615de9a799024225c55790ece858bf8
    "chat.compact.runningBlocked": "运行中不能压缩上下文，请等待当前任务结束。",
    "chat.compact.queued": "已加入队列，将按顺序压缩上下文。",
    "chat.compact.duplicateBlocked": "已有压缩任务正在运行或排队。",
+@@ -6463,6 +6553,19 @@ const zhCN: Record<string, string> = {
+   "chat.toolCall.sessionContext.result": "结果",
+   "chat.toolCall.sessionContext.noResult": "没有返回上下文。",
+   "chat.toolCall.explore.label": "查阅",
++  "chat.toolCall.explore.run.label": "探索",
++  "chat.toolCall.explore.run.lookups.one": "查阅 {count} 次",
++  "chat.toolCall.explore.run.lookups.other": "查阅 {count} 次",
++  "chat.toolCall.explore.run.thoughts.one": "思考 {count} 次",
++  "chat.toolCall.explore.run.thoughts.other": "思考 {count} 次",
++  "chat.toolCall.explore.run.bucket.search.one": "搜索 {count} 次",
++  "chat.toolCall.explore.run.bucket.search.other": "搜索 {count} 次",
++  "chat.toolCall.explore.run.bucket.list.one": "列表 {count} 次",
++  "chat.toolCall.explore.run.bucket.list.other": "列表 {count} 次",
++  "chat.toolCall.explore.run.bucket.file.one": "文件 {count} 次",
++  "chat.toolCall.explore.run.bucket.file.other": "文件 {count} 次",
++  "chat.toolCall.explore.run.bucket.fetch.one": "网页抓取 {count} 次",
++  "chat.toolCall.explore.run.bucket.fetch.other": "网页抓取 {count} 次",
+   "chat.toolCall.explore.bucket.search.one": "搜索",
+   "chat.toolCall.explore.bucket.search.other": "搜索",
+   "chat.toolCall.explore.bucket.list.one": "列表",
 diff --git a/packages/ui/src/lib/mcpStatusCommand.ts b/packages/ui/src/lib/mcpStatusCommand.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..6071d27feddecc28228c078ef4b40c6953ebaf3e
@@ -2437,6 +3125,21 @@ index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e6
                />
              </div>
            </div>
+diff --git a/packages/ui/src/prompt-editor/useComposerToolbarFit.ts b/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
+index 6b61355165a94be9eb22432871446572a0947861..2d7c1bba4484a43b0e5cb4428c6e8f789a27fe6e 100644
+--- a/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
++++ b/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
+@@ -33,8 +33,8 @@ export function fitComposerToolbar(root: HTMLElement, { iconOnly = false } = {})
+   delete root.dataset.composerProviderCompact;
+   for (const control of controls) delete control.dataset.composerCompact;
+   const overflow = iconOnly ? () => Number.POSITIVE_INFINITY : () => toolbarOverflow(root);
+-  // 前四档依次收起 Computer、mode、Plan、think 文字，不能合并裁决。
+-  for (const priority of ["0", "1", "2", "3"]) {
++  // 前五档依次收起 Computer、mode、Plan、think、Git 分支文字，不能合并裁决。
++  for (const priority of ["0", "1", "2", "3", "4"]) {
+     if (overflow() <= 0) return;
+     for (const control of controls) {
+       if (control.dataset.composerCollapsePriority === priority) {
 diff --git a/packages/ui/src/provider-model-discovery/CONTRACT.md b/packages/ui/src/provider-model-discovery/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..d6d535f51659ded5c088638b52032bb432bcf28c
@@ -4792,6 +5495,89 @@ index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1b
    // 未注入时走 GlobalNoticeSurface 默认的 browserGlobalNoticeStore。
    return <GlobalNoticeSurface store={noticeStore ?? undefined} />;
  }
+diff --git a/packages/ui/src/v4/ConversationComposer.tsx b/packages/ui/src/v4/ConversationComposer.tsx
+index 8b19443f9b8c7b63b0bcaf904690ea1d790e9f2f..80d0e4dc2f2d99e6cc03db79cd51b7a6f1208be0 100644
+--- a/packages/ui/src/v4/ConversationComposer.tsx
++++ b/packages/ui/src/v4/ConversationComposer.tsx
+@@ -36,6 +36,7 @@ import { cn } from "@/components/lib/utils.js";
+ import { HighspeedComposerBackground } from "@/highspeed/HighspeedActivationVisual.js";
+ import { useHighspeedComposerEntrance } from "@/highspeed/useHighspeedComposerEntrance.js";
+ import {
++  type GitRepositorySummary,
+   type HighspeedCardSnapshot,
+   type PlanIdentitySnapshot,
+   type ZCodeProvider,
+@@ -69,6 +70,7 @@ import {
+   XIcon,
+ } from "lucide-react";
+ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
++import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
+ import {
+   ChatErrorBanner,
+   resolveChatErrorBannerDisplayMessage,
+@@ -490,6 +492,13 @@ export interface ConversationComposerProps {
+   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
+   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
+   onSwitchMode: (mode: string) => void;
++  /**
++   * 底栏 Git 分支入口的数据源：复用宿主/状态面板同一份 Git 快照，不新增读取路径。
++   * `contextHeader` 已提供入口（草稿态）或不是 Git 仓库时不渲染。
++   */
++  gitSummary?: GitRepositorySummary | null;
++  gitDirtyFileCount?: number;
++  onRefreshGit?: () => void;
+   /** 打开当前 session 的 Status panel，并直达 Running 明细。 */
+   onOpenRunningBackgroundWorks?: () => void;
+   /**
+@@ -589,6 +598,9 @@ function ConversationComposerImpl({
+   onSelectModel,
+   onSelectThought,
+   onSwitchMode,
++  gitSummary,
++  gitDirtyFileCount = 0,
++  onRefreshGit,
+   onOpenRunningBackgroundWorks,
+   backgroundWorkOpenTarget = "panel",
+   runningSubagentCount = 0,
+@@ -2494,6 +2506,23 @@ function ConversationComposerImpl({
+           onOpen={onOpenRunningBackgroundWorks}
+           openTarget={backgroundWorkOpenTarget}
+         />
++        {/* 底栏分支入口复用状态面板的 Git 快照；草稿态上方 contextHeader 已提供入口，
++            同一输入区不重复渲染。非 Git 工作区或无刷新通道时整个入口不挂载。 */}
++        {gitSummary?.isGitAvailable && gitSummary.isRepository && onRefreshGit && !contextHeader ? (
++          <GitBranchSwitcher
++            workspacePath={workspacePath}
++            gitSummary={gitSummary}
++            dirtyFileCount={gitDirtyFileCount}
++            onRefreshGit={onRefreshGit}
++            composerToolbar
++            compactForRemoteControl={isWebRemoteControl}
++            // 输入区在底部：锁定向上展开，避免菜单遮挡编辑器。
++            popoverSide="top"
++            avoidPopoverCollisions={false}
++            // v4 编辑器的输入框 test id 与旧版不同，关闭弹层后要把焦点还给当前输入框。
++            restoreFocusSelector={`[data-testid="${TID_V4_COMPOSER_INPUT}"]`}
++          />
++        ) : null}
+       </>
+     ),
+     [
+@@ -2502,10 +2531,14 @@ function ConversationComposerImpl({
+       disabled,
+       runtimeBlocked,
+       draftConfig,
++      gitDirtyFileCount,
++      gitSummary,
+       handleConfigPickerOpenChange,
+       isWebRemoteControl,
+       backgroundWorkOpenTarget,
++      contextHeader,
+       onOpenRunningBackgroundWorks,
++      onRefreshGit,
+       onSwitchMode,
+       provider,
+       remoteSessionId,
 diff --git a/packages/ui/src/v4/ConversationRowView.tsx b/packages/ui/src/v4/ConversationRowView.tsx
 index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e895d14843 100644
 --- a/packages/ui/src/v4/ConversationRowView.tsx
@@ -4841,10 +5627,34 @@ index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e8
          <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
        ) : null}
 diff --git a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx b/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
-index a367bba0009b0e7d593b5b6095559b6577e1cf80..374834281b150b7bcaddbe0e6b722e07ba103c91 100644
+index a367bba0009b0e7d593b5b6095559b6577e1cf80..ccb7a30094e9942b5da2ab9f66efee1ad01aead2 100644
 --- a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
 +++ b/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
-@@ -966,7 +966,7 @@ function ReadonlyTurn({
+@@ -649,6 +649,23 @@ function GroupedToolPresentation({
+           />
+         )}
+         renderCuaReasoning={(event) => <ReasoningPresentation row={event.row} />}
++        exploreGroupEvents={
++          item.kind === "exploreGroup"
++            ? item.events.map((event) =>
++                event.kind === "tool"
++                  ? {
++                      ...event,
++                      node: toolNodeWithSnapshot(
++                        event.row,
++                        snapshots.get(event.row.rowId),
++                        resourceUrl ?? (() => undefined),
++                      ),
++                    }
++                  : event,
++              )
++            : undefined
++        }
++        renderExploreReasoning={(event) => <ReasoningPresentation row={event.row} />}
+       />
+     </div>
+   );
+@@ -966,7 +983,7 @@ function ReadonlyTurn({
    return (
      <section
        data-conversation-share-turn={unit.turnId}
@@ -5271,10 +6081,18 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
              // 与页脚同一道门（canRenderEndedWorkflows）：缺会话或缺回调时目录打不开，
              // 胶囊也就不该报一个点了没反应的数。
 diff --git a/packages/ui/src/v4/ConversationTurnGroup.tsx b/packages/ui/src/v4/ConversationTurnGroup.tsx
-index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60edd1d85341 100644
+index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120f3c4bcae 100644
 --- a/packages/ui/src/v4/ConversationTurnGroup.tsx
 +++ b/packages/ui/src/v4/ConversationTurnGroup.tsx
-@@ -109,6 +109,7 @@ import type {
+@@ -77,6 +77,7 @@ import {
+   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
+   ENABLE_TERMINAL_TOOL_CALL_GROUPING,
+   type ConversationAssistantWorkRenderItem,
++  type ConversationExploreGroupEvent,
+ } from "@/v4/conversationAssistantWorkItems.js";
+ import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
+ import { ConversationAgentToolCallRow } from "@/v4/ConversationAgentToolCallRow.js";
+@@ -109,6 +110,7 @@ import type {
  import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
  import { ConversationTurnRow, resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
  import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
@@ -5282,7 +6100,29 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
  import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
  
  interface ConversationTurnGroupProps {
-@@ -1060,8 +1061,8 @@ function resolveBackgroundResultTitle(unit: ConversationTurnRenderUnit): string
+@@ -243,6 +245,12 @@ function ConversationExploreGroupRow({
+   item: Extract<ConversationAssistantWorkRenderItem, { kind: "exploreGroup" }>;
+   context: ConversationRowRenderContext;
+ }) {
++  const renderReasoning = useCallback(
++    (event: Extract<ConversationExploreGroupEvent, { kind: "reasoning" }>) => (
++      <ConversationTurnRow row={event.row} context={context} reasoningContentVariant="nested" />
++    ),
++    [context],
++  );
+   // explore 分组行已经处在 turn 容器的统一边距内，单独再加 px-4
+   // 会让同一串工具调用有的内缩、有的不内缩。
+   return (
+@@ -261,6 +269,8 @@ function ConversationExploreGroupRow({
+         onOpenFileLink={context.onOpenFileLink}
+         onOpenBrowserUrl={context.onOpenBrowserUrl}
+         onOpenAutomationsMain={context.onOpenAutomationsMain}
++        exploreGroupEvents={item.events}
++        renderExploreReasoning={renderReasoning}
+       />
+     </div>
+   );
+@@ -1060,8 +1070,8 @@ function resolveBackgroundResultTitle(unit: ConversationTurnRenderUnit): string
   * 该轮是否以 workflow 通知卡（ToolLayout 行）开头。
   *
   * 用于两处：`ConversationBackgroundResultWork` 决定渲染通知行还是裸标题行；轮容器决定是否
@@ -5293,7 +6133,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
   */
  function resolveWorkflowNotification(
    unit: ConversationTurnRenderUnit,
-@@ -1345,6 +1346,13 @@ function ConversationTurnGroupImpl({
+@@ -1345,6 +1355,13 @@ function ConversationTurnGroupImpl({
          : assistantRawCopyText,
      [assistantRawCopyText, assistantCodeCommentProjectionEnabled, unit.isRunning],
    );
@@ -5307,7 +6147,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
    const assistantCodeCommentCards = useMemo(
      () =>
        codeCommentCardsEnabled &&
-@@ -1450,15 +1458,15 @@ function ConversationTurnGroupImpl({
+@@ -1450,15 +1467,15 @@ function ConversationTurnGroupImpl({
      return { enabled: true, reason: "available" };
    }, [unit.header?.actions?.canRewindFiles, unit.header?.fileChanges, unit.isRunning]);
  
@@ -5326,7 +6166,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
    const startsWithoutUserBubble =
      startsWithWorkflowNotificationCard || unit.workflowLaunch !== undefined;
  
-@@ -1468,8 +1476,10 @@ function ConversationTurnGroupImpl({
+@@ -1468,8 +1485,10 @@ function ConversationTurnGroupImpl({
        data-turn-key={unit.key}
        data-highspeed-gradient={showHighspeedAnimatedGradient ? "true" : undefined}
        className={cn(
@@ -5339,7 +6179,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
          showHighspeedAnimatedGradient && "highspeed-animated-gradient-text",
        )}
      >
-@@ -1576,6 +1586,7 @@ function ConversationTurnGroupImpl({
+@@ -1576,6 +1595,7 @@ function ConversationTurnGroupImpl({
                entityId={latestAssistantTextRow.entityId}
                text={assistantCopyText}
                createdAt={latestAssistantTextRow.createdAt}
@@ -5347,7 +6187,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
                compactForRemoteControl={context.compactForRemoteControl}
                feedback={readAssistantFeedback(latestAssistantTextRow)}
                sessionId={context.sessionId}
-@@ -1597,6 +1608,7 @@ function ConversationTurnGroupImpl({
+@@ -1597,6 +1617,7 @@ function ConversationTurnGroupImpl({
              // Highspeed 无正文轮又丢失入口；它只与普通操作栏互斥，页脚独立渲染。
              <MessageActions
                className={cn(
@@ -5356,7 +6196,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..732327ea128222ca8628e7a75a8f60ed
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04a2914071 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9ae78ff7f5 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -5532,7 +6372,18 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,7 +5467,6 @@ export function SessionPane({
+@@ -5443,6 +5428,10 @@ export function SessionPane({
+       workspacePath={workspacePath}
+       workspaceIdentity={workspaceIdentity}
+       remoteSessionId={remoteSessionId ?? undefined}
++      // 底栏分支入口与状态面板共用同一份 Git 快照；切换成功后由 onRefreshGit 统一刷新。
++      gitSummary={gitSummary}
++      gitDirtyFileCount={gitDirtyFileCount}
++      onRefreshGit={onRefreshGit}
+       modelSelectionView={
+         modelSelectionView ??
+         (modelSelectionRead.state.status === "loading" ? modelSelectionRead.state.catalog : null)
+@@ -5482,7 +5471,6 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -5540,7 +6391,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        modelConfigTarget={modelConfigTarget}
        onOpenCodeViewer={onOpenCodeViewer}
        suppressGoalCommands={selectionSideChat}
-@@ -5570,12 +5554,6 @@ export function SessionPane({
+@@ -5570,12 +5558,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -5553,7 +6404,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5606,14 @@ export function SessionPane({
+@@ -5628,6 +5610,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -5568,7 +6419,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5745,39 @@ export function SessionPane({
+@@ -5759,6 +5749,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -5700,6 +6551,164 @@ index 8ef15aa09127a178e757f9408f184124b38f1363..0f91afb83e7c2ef1ae81515b301d48f0
            startPlanBalance={contextStartPlanBalance}
            selectedProvider={displayProvider}
            intl={intl}
+diff --git a/packages/ui/src/v4/conversationAssistantWorkItems.ts b/packages/ui/src/v4/conversationAssistantWorkItems.ts
+index 25e03132a2d2020be063c2bb283500604472548c..cde77255409867b4a5aeb576dd9f35a316fa80a3 100644
+--- a/packages/ui/src/v4/conversationAssistantWorkItems.ts
++++ b/packages/ui/src/v4/conversationAssistantWorkItems.ts
+@@ -1,4 +1,4 @@
+-import type { SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
++import type { ReasoningRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+ import {
+   isExecuteToolCall,
+   isExploreToolCall,
+@@ -18,6 +18,17 @@ import {
+   type ConversationCuaGroupRenderItem,
+ } from "@/v4/conversationCuaGroups.js";
+ 
++export type ConversationExploreGroupEvent =
++  | {
++      kind: "tool";
++      row: ToolCallRow;
++      node: TaskChatToolCallTreeNode;
++    }
++  | {
++      kind: "reasoning";
++      row: ReasoningRow;
++    };
++
+ export type ConversationAssistantWorkRenderItem =
+   | {
+       kind: "row";
+@@ -29,6 +40,9 @@ export type ConversationAssistantWorkRenderItem =
+       key: string;
+       rowId: number;
+       rows: ToolCallRow[];
++      /** 组内原始行序（思考与工具交替），展开后按此顺序渲染。 */
++      events: ConversationExploreGroupEvent[];
++      reasoningCount: number;
+       node: TaskChatToolCallTreeNode;
+     }
+   | ConversationCuaGroupRenderItem
+@@ -111,18 +125,40 @@ function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
+   });
+ }
+ 
+-function resolveGroupStageStatus(
++const ACTIVE_TOOL_STATUSES = new Set<ToolCallRow["status"]>([
++  "inputStreaming",
++  "pendingApproval",
++  "running",
++]);
++
++function resolveExploreGroupStageStatus(
+   rows: readonly ToolCallRow[],
+   stageTailIsRunning: boolean,
+ ): string {
+-  // Explore/Execute 父节点表达的是当前工作阶段，不是子工具执行状态的汇总。
+-  // 子工具可能已经全部完成，但只要当前运行工作段尚未出现下一条可见边界，父阶段仍在继续；
+-  // 反之，后续非当前分组内容已经出现时，即使迟到的子状态仍是 running，父阶段也必须结束。
++  // 探索组保持展开直到下一条可见内容出现：它是当前工作段尾部时仍算进行中，
++  // 即便最后一条思考/工具已经结束，也要等下一段总结（正文、新阶段）落下来
++  // 才进入 completed 并自动收起。不能只看子项是否结束，否则会在空档期提前折叠。
+   if (stageTailIsRunning) return "in_progress";
+   return rows.some((row) => row.status === "cancelled") ? "stopped" : "completed";
+ }
+ 
+-function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
++function resolveExecuteGroupStageStatus(
++  rows: readonly ToolCallRow[],
++  stageTailIsRunning: boolean,
++): string {
++  // 命令组以最后一条命令结束为完成信号：命令执行完后即可收起，不必等下一段内容。
++  // 尾部仍有 running/inputStreaming/pendingApproval 子命令时才保持运行态。
++  if (stageTailIsRunning && rows.some((row) => ACTIVE_TOOL_STATUSES.has(row.status))) {
++    return "in_progress";
++  }
++  return rows.some((row) => row.status === "cancelled") ? "stopped" : "completed";
++}
++
++function buildExploreGroup(
++  rows: ToolCallRow[],
++  events: ConversationExploreGroupEvent[],
++  stageTailIsRunning: boolean,
++) {
+   // 分组 builder 只会在连续同类工具达到两项后调用；空数组不是合法状态，
+   // 不再用伪造 identity 的兜底掩盖调用方错误。
+   const firstRow = rows[0]!;
+@@ -136,6 +172,8 @@ function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
+     key: `explore:${firstRow.rowId}`,
+     rowId: firstRow.rowId,
+     rows,
++    events,
++    reasoningCount: events.filter((event) => event.kind === "reasoning").length,
+     node: {
+       toolCall: {
+         toolId: `explore:${firstRow.toolCallId}`,
+@@ -143,7 +181,7 @@ function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
+         kind: "Explore",
+         title: "Explore",
+         input: {},
+-        status: resolveGroupStageStatus(rows, stageTailIsRunning),
++        status: resolveExploreGroupStageStatus(rows, stageTailIsRunning),
+         startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
+       },
+       childToolCalls,
+@@ -167,7 +205,7 @@ function buildExecuteGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
+         kind: "executeGroup",
+         title: "Execute",
+         input: {},
+-        status: resolveGroupStageStatus(rows, stageTailIsRunning),
++        status: resolveExecuteGroupStageStatus(rows, stageTailIsRunning),
+         startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
+       },
+       childToolCalls: rows.map(toolCallRowToLegacyNode),
+@@ -402,23 +440,41 @@ export function buildAssistantWorkRenderItems(
+     }
+ 
+     const groupRows: ToolCallRow[] = [row];
++    const groupEvents: ConversationExploreGroupEvent[] = [
++      { kind: "tool", row, node: toolCallRowToLegacyNode(row) },
++    ];
+     index += 1;
+     while (index < preparedRows.length) {
+       const nextRow = preparedRows[index];
+-      if (!nextRow || nextRow.kind === "cuaGroup" || !isExploreToolCallRow(nextRow)) {
++      if (!nextRow || nextRow.kind === "cuaGroup") {
+         break;
+       }
+-      groupRows.push(nextRow);
+-      index += 1;
++      if (isExploreToolCallRow(nextRow)) {
++        groupRows.push(nextRow);
++        groupEvents.push({ kind: "tool", row: nextRow, node: toolCallRowToLegacyNode(nextRow) });
++        index += 1;
++        continue;
++      }
++      // 思考行是探索过程的一部分：并入组内并保留原始行序，不再打断 Explore 分组。
++      if (nextRow.kind === "reasoning") {
++        groupEvents.push({ kind: "reasoning", row: nextRow });
++        index += 1;
++        continue;
++      }
++      break;
+     }
+-    // Explore 只有在出现第二个连续只读工具后才成立；首项必须立即按原工具展示。
++    // Explore 只有在出现第二个只读工具后才成立；首项必须立即按原工具展示，
++    // 已经吸收的思考行也要按原顺序逐行放回，不能因为分组未成立而丢失。
+     if (groupRows.length === 1) {
+-      items.push({ kind: "row", key: `row:${row.rowId}`, row });
++      for (const event of groupEvents) {
++        items.push({ kind: "row", key: `row:${event.row.rowId}`, row: event.row });
++      }
+       continue;
+     }
+     items.push(
+       buildExploreGroup(
+         groupRows,
++        groupEvents,
+         options?.stageTailIsRunning === true && index === preparedRows.length,
+       ),
+     );
 diff --git a/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx b/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..3237d1a2291903006e5e35bbc2575d04f6969f71
@@ -7837,6 +8846,101 @@ index d18a50d6db0b9658b1984ef1e250f633a87fba9a..00000000000000000000000000000000
 -    expect(h.reportTelemetryEvent).toHaveBeenCalledTimes(2);
 -  });
 -});
+diff --git a/packages/ui/test/composerToolbarFit.test.ts b/packages/ui/test/composerToolbarFit.test.ts
+index 36180737cb4961f813efd3469136f18850fc9381..6042c9c54e4749812103ac3f52cb2bbbf87ebdab 100644
+--- a/packages/ui/test/composerToolbarFit.test.ts
++++ b/packages/ui/test/composerToolbarFit.test.ts
+@@ -152,6 +152,37 @@ describe("composer toolbar fit", () => {
+     expect(f.root.dataset.composerProviderCompact).toBeUndefined();
+     expect(f.root.dataset.composerModelIcon).toBeUndefined();
+   });
++
++  it("Git 分支入口作为第五档收成图标，空间恢复后展开", () => {
++    const root = document.createElement("div");
++    root.style.columnGap = "12px";
++    root.innerHTML = `<div data-composer-leading-actions><div data-composer-leading-content>
++      <button data-composer-collapse-priority="4"></button>
++    </div></div><div data-composer-trailing-actions><button></button></div>`;
++    const branch = root.querySelector<HTMLElement>('[data-composer-collapse-priority="4"]')!;
++    const leading = root.querySelector<HTMLElement>("[data-composer-leading-content]")!;
++    const available = root.querySelector<HTMLElement>("[data-composer-leading-actions]")!;
++    const trailing = root.querySelector<HTMLElement>("[data-composer-trailing-actions]")!;
++    const rect = (width: number) => ({ width }) as DOMRect;
++    const branchWidth = () => (branch.dataset.composerCompact ? 28 : 100);
++    let width = 200;
++    branch.getBoundingClientRect = () => rect(branchWidth());
++    leading.getBoundingClientRect = () => rect(branchWidth());
++    trailing.getBoundingClientRect = () => rect(28);
++    available.getBoundingClientRect = () => rect(width - 28 - 12);
++    root.getBoundingClientRect = () => rect(width);
++
++    fitComposerToolbar(root);
++    expect(branch.dataset.composerCompact).toBeUndefined();
++
++    width = 120;
++    fitComposerToolbar(root);
++    expect(branch.dataset.composerCompact).toBe("true");
++
++    width = 200;
++    fitComposerToolbar(root);
++    expect(branch.dataset.composerCompact).toBeUndefined();
++  });
+ });
+ 
+ // Side Pane 完整视图浮窗的单行输入框：工具栏宽度随内容变化，不能测量，直接收到最后一级。
+diff --git a/packages/ui/test/gitBranchSwitcher.test.ts b/packages/ui/test/gitBranchSwitcher.test.ts
+index 8f28c604a932e804e3059ad5bde997e17c3fdd5a..765aa5a0f9ffdebc0b267bdab882dab555ef01b9 100644
+--- a/packages/ui/test/gitBranchSwitcher.test.ts
++++ b/packages/ui/test/gitBranchSwitcher.test.ts
+@@ -22,15 +22,12 @@ vi.mock("@/components/ui/button.js", () => ({
+ 
+ vi.mock("@/components/ui/command.js", () => ({
+   Command: ({ children }: { children: ReactNode }) => createElement("div", null, children),
+-  CommandEmpty: ({ children }: { children: ReactNode }) =>
+-    createElement("div", null, children),
+-  CommandGroup: ({ children }: { children: ReactNode }) =>
+-    createElement("div", null, children),
++  CommandEmpty: ({ children }: { children: ReactNode }) => createElement("div", null, children),
++  CommandGroup: ({ children }: { children: ReactNode }) => createElement("div", null, children),
+   CommandInput: (props: Record<string, unknown>) => createElement("input", props),
+   CommandItem: ({ children, ...props }: { children: ReactNode }) =>
+     createElement("div", props, children),
+-  CommandList: ({ children }: { children: ReactNode }) =>
+-    createElement("div", null, children),
++  CommandList: ({ children }: { children: ReactNode }) => createElement("div", null, children),
+ }));
+ 
+ vi.mock("@/components/ui/popover.js", () => ({
+@@ -152,4 +149,29 @@ describe("GitBranchSwitcher", () => {
+     expect(html).not.toContain("git.branchSwitcher.createAction");
+     expect(html).not.toContain("gitGraph.menuAction");
+   });
++
++  it("joins the composer toolbar collapse order in its compact form", async () => {
++    const { GitBranchSwitcher } = await import("@/GitBranchSwitcher.js");
++
++    const html = renderToStaticMarkup(
++      createElement(GitBranchSwitcher, {
++        composerToolbar: true,
++        dirtyFileCount: 0,
++        gitSummary: {
++          branchName: "main",
++          headRefType: "branch",
++          isGitAvailable: true,
++          isRepository: true,
++        },
++        onRefreshGit: vi.fn(),
++        workspacePath: "/workspace/zcode-cli",
++      }),
++    );
++
++    expect(html).toContain('data-composer-collapse-priority="4"');
++    expect(html).toContain("group/branch");
++    expect(html).toContain("data-[composer-compact=true]:w-7");
++    // 工具栏形态不带工作区头部入口的独立内边距，避免把底栏行高撑开。
++    expect(html).not.toContain("px-1 pt-2");
++  });
+ });
 diff --git a/packages/ui/test/mcpStatusDialog.test.ts b/packages/ui/test/mcpStatusDialog.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e8336b292281e03d0c1f5e45c48541b1036cd0fc
@@ -9075,10 +10179,10 @@ index 0000000000000000000000000000000000000000..63d1e4c9820b07b3156179aa0b416a34
 +});
 diff --git a/packages/ui/test/toolLiveExpand.test.ts b/packages/ui/test/toolLiveExpand.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e97261d21
+index 0000000000000000000000000000000000000000..6698f8207a7bbac1f075bc494c8b54c88d064e70
 --- /dev/null
 +++ b/packages/ui/test/toolLiveExpand.test.ts
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,318 @@
 +// @vitest-environment jsdom
 +
 +import { cleanup, render } from "@testing-library/react";
@@ -9093,6 +10197,8 @@ index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e
 +  resolveEditToolLayout,
 +} from "../src/ToolCallBlocks/renderers/edit.js";
 +import { ExecuteToolCallBlock } from "../src/ToolCallBlocks/renderers/execute.js";
++import { ExecuteGroupToolCallBlock } from "../src/ToolCallBlocks/renderers/execute-group.js";
++import { ExploreToolCallBlock } from "../src/ToolCallBlocks/renderers/explore.js";
 +import { readRawToolCallFileSummaries } from "../src/ToolCallBlocks/fileSummaries.js";
 +
 +const displayModel = {
@@ -9142,14 +10248,15 @@ index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e
 +  );
 +}
 +
-+function renderExecute(status: "running" | "completed") {
++function executeElement(status: "running" | "completed") {
 +  const node = toolCallRowToLegacyNode({
 +    kind: "toolCall",
 +    rowId: 2,
 +    turnId: "turn",
 +    createdAt: 1,
 +    createdAtSeq: 1,
-+    toolCallId: `exec-live-${status}`,
++    // 固定 toolId：重渲染必须复用同一折叠状态，才能验证完成边沿的自动收起。
++    toolCallId: "exec-live-command",
 +    toolName: "Bash",
 +    status,
 +    inputText: "",
@@ -9162,21 +10269,125 @@ index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e
 +      linesEstimated: false,
 +    },
 +  } as ToolCallRow);
-+  return render(
-+    createElement(
-+      ZCodeIntlProvider,
-+      { initialLocale: "zh-CN" },
-+      createElement(ExecuteToolCallBlock, {
-+        toolCallNode: node,
-+        workspacePath: "/workspace",
-+        displayModel,
-+        viewerSource: null,
-+        rawFileSummaries: [],
-+        isRunning: status === "running",
-+        statusLabel: status,
-+        childToolList: null,
-+      } as never),
-+    ),
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: "zh-CN" },
++    createElement(ExecuteToolCallBlock, {
++      toolCallNode: node,
++      workspacePath: "/workspace",
++      displayModel,
++      viewerSource: null,
++      rawFileSummaries: [],
++      isRunning: status === "running",
++      statusLabel: status,
++      childToolList: null,
++    } as never),
++  );
++}
++
++function renderExecute(status: "running" | "completed") {
++  return render(executeElement(status));
++}
++
++function liveToolRow(
++  rowId: number,
++  toolName: string,
++  input: Record<string, unknown>,
++  status: "running" | "completed",
++): ToolCallRow {
++  return {
++    rowId,
++    turnId: "turn",
++    createdAt: 1,
++    createdAtSeq: rowId,
++    kind: "toolCall",
++    toolCallId: `${toolName}-${rowId}`,
++    toolName,
++    status,
++    inputText: JSON.stringify(input),
++    input,
++  } as ToolCallRow;
++}
++
++function exploreGroupElement(isRunning: boolean) {
++  const rows = [
++    liveToolRow(10, "Read", { path: "/workspace/a.ts" }, isRunning ? "running" : "completed"),
++    liveToolRow(11, "Grep", { pattern: "needle" }, isRunning ? "running" : "completed"),
++  ];
++  const nodes = rows.map((row) => toolCallRowToLegacyNode(row));
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: "zh-CN" },
++    createElement(ExploreToolCallBlock, {
++      toolCallNode: {
++        toolCall: {
++          toolId: "explore:group-live",
++          toolName: "Explore",
++          kind: "Explore",
++          title: "Explore",
++          input: {},
++          status: isRunning ? "in_progress" : "completed",
++        },
++        childToolCalls: nodes,
++      },
++      workspacePath: "/workspace",
++      displayModel,
++      viewerSource: null,
++      rawFileSummaries: [],
++      isRunning,
++      statusLabel: isRunning ? "running" : "completed",
++      childToolList: null,
++      nestedToolRenderer: () => null,
++      events: [
++        { kind: "tool", row: rows[0]!, node: nodes[0]! },
++        {
++          kind: "reasoning",
++          row: {
++            rowId: 12,
++            turnId: "turn",
++            createdAt: 2,
++            createdAtSeq: 12,
++            kind: "reasoning",
++            state: "complete",
++            text: "reasoning-detail",
++          },
++        },
++        { kind: "tool", row: rows[1]!, node: nodes[1]! },
++      ],
++      renderReasoning: () => createElement("div", { className: "reasoning-detail" }, "detail"),
++    } as never),
++  );
++}
++
++function executeGroupElement(isRunning: boolean) {
++  const rows = [
++    liveToolRow(20, "Bash", { command: "pnpm install" }, isRunning ? "running" : "completed"),
++    liveToolRow(21, "Bash", { command: "pnpm test" }, isRunning ? "running" : "completed"),
++  ];
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: "zh-CN" },
++    createElement(ExecuteGroupToolCallBlock, {
++      toolCallNode: {
++        toolCall: {
++          toolId: "execute:group-live",
++          toolName: "ExecuteGroup",
++          kind: "executeGroup",
++          title: "Execute",
++          input: {},
++          status: isRunning ? "in_progress" : "completed",
++        },
++        childToolCalls: rows.map((row) => toolCallRowToLegacyNode(row)),
++      },
++      workspacePath: "/workspace",
++      displayModel,
++      viewerSource: null,
++      rawFileSummaries: [],
++      isRunning,
++      statusLabel: isRunning ? "running" : "completed",
++      childToolList: null,
++      nestedToolRenderer: () => null,
++    } as never),
 +  );
 +}
 +
@@ -9246,6 +10457,427 @@ index 0000000000000000000000000000000000000000..b29ecafba863207b5f7fcea179fa425e
 +  it("keeps a completed command collapsed", () => {
 +    const completed = renderExecute("completed");
 +    expect(completed.container.textContent).not.toContain("latest-line-xyz");
++  });
++
++  it("collapses a running command once it finishes", () => {
++    const view = render(executeElement("running"));
++    const trigger = () =>
++      view.container.querySelector<HTMLElement>(
++        '[data-testid="tool-summary-trigger-exec-live-command"]',
++      );
++
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
++
++    view.rerender(executeElement("completed"));
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++  });
++});
++
++describe("grouped run live expand layout", () => {
++  it("auto-opens a running explore run and folds it back after completion", () => {
++    const view = render(exploreGroupElement(true));
++    const trigger = () =>
++      view.container.querySelector<HTMLElement>(
++        '[data-testid="tool-summary-trigger-explore:group-live"]',
++      );
++
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
++    expect(view.container.textContent).toContain("detail");
++
++    view.rerender(exploreGroupElement(false));
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++  });
++
++  it("auto-opens a running command group and folds it after completion", () => {
++    const view = render(executeGroupElement(true));
++    const trigger = () =>
++      view.container.querySelector<HTMLElement>(
++        '[data-testid="tool-summary-trigger-execute:group-live"]',
++      );
++
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
++
++    view.rerender(executeGroupElement(false));
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++  });
++});
+diff --git a/packages/ui/test/v4AssistantWorkRenderItems.test.ts b/packages/ui/test/v4AssistantWorkRenderItems.test.ts
+index e89297a203f59dee4af8755c965c47a75ff7eb2f..2d5692a115d4585a17b83f867086eac23ba96ecd 100644
+--- a/packages/ui/test/v4AssistantWorkRenderItems.test.ts
++++ b/packages/ui/test/v4AssistantWorkRenderItems.test.ts
+@@ -56,14 +56,14 @@ function subagent(rowId: number, overrides: Partial<SubagentRow> = {}): Subagent
+   };
+ }
+ 
+-function reasoning(rowId: number): ReasoningRow {
++function reasoning(rowId: number, state: ReasoningRow["state"] = "complete"): ReasoningRow {
+   return {
+     rowId,
+     turnId: "turn-1",
+     createdAt: 1_700_000_000_000 + rowId,
+     createdAtSeq: rowId,
+     kind: "reasoning",
+-    state: "complete",
++    state,
+     text: `reasoning-${rowId}`,
+   };
+ }
+@@ -475,8 +475,8 @@ describe("buildAssistantWorkRenderItems", () => {
+     expect(grownExplore.rows).toHaveLength(2);
+   });
+ 
+-  it("derives Explore parent status from the running stage tail", () => {
+-    const completedItems = buildRenderItems(
++  it("keeps an Explore run active until the next visible stage appears", () => {
++    const settledTailItems = buildRenderItems(
+       [
+         toolCall(1, "Read", { path: "package.json" }),
+         toolCall(2, "Grep", { pattern: "missing" }, { status: "error" }),
+@@ -489,23 +489,56 @@ describe("buildAssistantWorkRenderItems", () => {
+       toolCall(2, "Grep", { pattern: "still-running" }, { status: "running" }),
+       toolCall(3, "Bash", { command: "pnpm test" }, { status: "running" }),
+     ]);
+-    const runningExplore = completedItems[0];
++    const settledExplore = settledTailItems[0];
+     const boundedExplore = boundedItems[0];
+ 
+-    expect(runningExplore?.kind).toBe("exploreGroup");
++    expect(settledExplore?.kind).toBe("exploreGroup");
+     expect(boundedExplore?.kind).toBe("exploreGroup");
+-    if (runningExplore?.kind !== "exploreGroup" || boundedExplore?.kind !== "exploreGroup") {
++    if (settledExplore?.kind !== "exploreGroup" || boundedExplore?.kind !== "exploreGroup") {
+       throw new Error("expected explore groups");
+     }
+ 
+-    expect(runningExplore.node.toolCall.status).toBe("in_progress");
+-    expect(runningExplore.node.childToolCalls[1]?.toolCall.status).toBe("failed");
++    // 子项已结束但仍是当前工作段尾部时保持展开；等下一段总结/内容落下才完成并折叠。
++    expect(settledExplore.node.toolCall.status).toBe("in_progress");
++    expect(settledExplore.node.childToolCalls[1]?.toolCall.status).toBe("failed");
+     expect(boundedExplore.node.toolCall.status).toBe("completed");
+     expect(boundedExplore.node.childToolCalls[1]?.toolCall.status).toBe("in_progress");
+   });
+ 
+-  it("derives Execute parent status from the running stage tail", () => {
+-    const tailItems = buildRenderItems(
++  it("keeps an Explore run active while its reasoning is still streaming", () => {
++    const streamingItems = buildRenderItems(
++      [
++        toolCall(1, "Grep", { pattern: "composer" }),
++        reasoning(2, "streaming"),
++        toolCall(3, "Read", { path: "src/a.ts" }),
++      ],
++      SHOW_ALL_REASONING,
++      { stageTailIsRunning: true },
++    );
++    const settledItems = buildRenderItems(
++      [
++        toolCall(1, "Grep", { pattern: "composer" }),
++        reasoning(2, "complete"),
++        toolCall(3, "Read", { path: "src/a.ts" }),
++      ],
++      SHOW_ALL_REASONING,
++      { stageTailIsRunning: true },
++    );
++
++    const streamingGroup = streamingItems[0];
++    const settledGroup = settledItems[0];
++    expect(streamingGroup?.kind).toBe("exploreGroup");
++    expect(settledGroup?.kind).toBe("exploreGroup");
++    if (streamingGroup?.kind !== "exploreGroup" || settledGroup?.kind !== "exploreGroup") {
++      throw new Error("expected explore groups");
++    }
++    // 仍是阶段尾部时，思考流式结束与否都不提前折叠；等下一段内容到达才完成。
++    expect(streamingGroup.node.toolCall.status).toBe("in_progress");
++    expect(settledGroup.node.toolCall.status).toBe("in_progress");
++  });
++
++  it("ends a command group as soon as its last command settles", () => {
++    const settledTailItems = buildRenderItems(
+       [
+         toolCall(1, "Bash", { command: "pnpm test" }),
+         toolCall(2, "Bash", { command: "pnpm lint" }),
+@@ -513,6 +546,14 @@ describe("buildAssistantWorkRenderItems", () => {
+       SHOW_ALL_REASONING,
+       { stageTailIsRunning: true },
+     );
++    const runningTailItems = buildRenderItems(
++      [
++        toolCall(1, "Bash", { command: "pnpm test" }, { status: "running" }),
++        toolCall(2, "Bash", { command: "pnpm lint" }),
++      ],
++      SHOW_ALL_REASONING,
++      { stageTailIsRunning: true },
++    );
+     const boundedItems = buildRenderItems(
+       [
+         toolCall(1, "Bash", { command: "pnpm test" }, { status: "running" }),
+@@ -526,22 +567,27 @@ describe("buildAssistantWorkRenderItems", () => {
+       toolCall(1, "Bash", { command: "pnpm test" }, { status: "running" }),
+       toolCall(2, "Bash", { command: "pnpm lint" }),
+     ]);
+-    const tailExecute = tailItems[0];
++    const settledExecute = settledTailItems[0];
++    const runningExecute = runningTailItems[0];
+     const boundedExecute = boundedItems[0];
+     const terminalExecute = terminalItems[0];
+ 
+-    expect(tailExecute?.kind).toBe("executeGroup");
++    expect(settledExecute?.kind).toBe("executeGroup");
++    expect(runningExecute?.kind).toBe("executeGroup");
+     expect(boundedExecute?.kind).toBe("executeGroup");
+     expect(terminalExecute?.kind).toBe("executeGroup");
+     if (
+-      tailExecute?.kind !== "executeGroup" ||
++      settledExecute?.kind !== "executeGroup" ||
++      runningExecute?.kind !== "executeGroup" ||
+       boundedExecute?.kind !== "executeGroup" ||
+       terminalExecute?.kind !== "executeGroup"
+     ) {
+       throw new Error("expected execute groups");
+     }
+ 
+-    expect(tailExecute.node.toolCall.status).toBe("in_progress");
++    // 命令组在最后一条命令结束后立即完成，以便执行完自动折叠。
++    expect(settledExecute.node.toolCall.status).toBe("completed");
++    expect(runningExecute.node.toolCall.status).toBe("in_progress");
+     expect(boundedExecute.node.toolCall.status).toBe("completed");
+     expect(boundedExecute.node.childToolCalls[0]?.toolCall.status).toBe("in_progress");
+     expect(terminalExecute.node.toolCall.status).toBe("completed");
+@@ -570,12 +616,63 @@ describe("buildAssistantWorkRenderItems", () => {
+       throw new Error("expected merged explore group");
+     }
+     expect(hiddenExplore.rows.map((row) => row.rowId)).toEqual([2, 4]);
++    expect(hiddenExplore.reasoningCount).toBe(0);
++    // 仍是当前工作段尾部时保持运行态，等下一段内容出现后才完成并折叠。
+     expect(hiddenExplore.node.toolCall.status).toBe("in_progress");
+ 
++    // 可见 reasoning 现在并入同一个探索组，保持原始行序而不是单独成行。
+     const visibleReasoningItems = buildRenderItems(rows, SHOW_ALL_REASONING, {
+       stageTailIsRunning: true,
+     });
+-    expect(visibleReasoningItems.map((item) => item.kind)).toEqual(["row", "row", "row", "row"]);
++    expect(visibleReasoningItems.map((item) => item.kind)).toEqual(["row", "exploreGroup"]);
++  });
++
++  it("absorbs interleaved reasoning into one Explore run summary", () => {
++    const rows = [
++      reasoning(1),
++      toolCall(2, "Grep", { pattern: "branch" }),
++      reasoning(3),
++      toolCall(4, "Read", { path: "src/a.ts" }),
++      reasoning(5),
++      toolCall(6, "Grep", { pattern: "composer" }),
++      {
++        rowId: 7,
++        turnId: "turn-1",
++        createdAt: 1_700_000_007,
++        createdAtSeq: 7,
++        kind: "assistantText",
++        text: "结论",
++        state: "complete",
++      } satisfies ConversationRow,
++      toolCall(8, "Grep", { pattern: "after-text" }),
++    ];
++
++    const items = buildRenderItems(rows);
++
++    expect(items.map((item) => item.kind)).toEqual(["row", "exploreGroup", "row", "row"]);
++    const group = items[1];
++    expect(group?.kind).toBe("exploreGroup");
++    if (group?.kind !== "exploreGroup") {
++      throw new Error("expected explore run group");
++    }
++    expect(group.rows.map((row) => row.rowId)).toEqual([2, 4, 6]);
++    expect(group.reasoningCount).toBe(2);
++    expect(
++      group.events.map((event) =>
++        event.kind === "tool" ? `tool:${event.row.rowId}` : `reasoning:${event.row.rowId}`,
++      ),
++    ).toEqual(["tool:2", "reasoning:3", "tool:4", "reasoning:5", "tool:6"]);
++    expect(group.events[0]?.kind).toBe("tool");
++    expect(items[0]).toMatchObject({ kind: "row", row: { rowId: 1 } });
++    expect(items[2]).toMatchObject({ kind: "row", row: { rowId: 7 } });
++    expect(items[3]).toMatchObject({ kind: "row", row: { rowId: 8 } });
++  });
++
++  it("keeps a lone Explore tool and its reasoning as ordered rows", () => {
++    const items = buildRenderItems([toolCall(1, "Read", { path: "src/a.ts" }), reasoning(2)]);
++
++    expect(items.map((item) => item.kind)).toEqual(["row", "row"]);
++    expect(items.map((item) => (item.kind === "row" ? item.row.rowId : null))).toEqual([1, 2]);
+   });
+ 
+   it("ends Explore and starts a Changes group for write tools", () => {
+diff --git a/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts b/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac7ba5704ad9186966e0eef302d03b82d71a54d6
+--- /dev/null
++++ b/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts
+@@ -0,0 +1,165 @@
++// @vitest-environment node
++import { createElement, type ComponentType, type ReactNode } from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { ConversationComposer } from "@/v4/ConversationComposer.js";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++
++const captured = vi.hoisted(() => ({
++  branchProps: null as Record<string, unknown> | null,
++}));
++
++vi.mock("@/GitBranchSwitcher.js", async () => {
++  const React = await import("react");
++  return {
++    GitBranchSwitcher: (props: Record<string, unknown>) => {
++      captured.branchProps = props;
++      return React.createElement("div", { "data-testid": "mock-git-branch-switcher" });
++    },
++  };
++});
++
++vi.mock("@/ChatErrorBanner.js", async () => {
++  const React = await import("react");
++  return {
++    ChatErrorBanner: () => React.createElement("section", { "data-testid": "mock-error-banner" }),
++    resolveChatErrorBannerDisplayMessage: () => null,
++    shouldSuppressChatErrorBanner: () => false,
++  };
++});
++
++vi.mock("@/ControlHintTooltip.js", async () => {
++  const React = await import("react");
++  return {
++    ControlHintTooltip: ({ children }: { children: ReactNode }) =>
++      React.createElement(React.Fragment, null, children),
++  };
++});
++
++vi.mock("@/prompt-editor/ChatPromptEditor.js", async () => {
++  const React = await import("react");
++  return {
++    ChatPromptEditor: (props: { leadingActions?: ReactNode }) =>
++      React.createElement(
++        "form",
++        { "data-testid": "mock-chat-prompt-editor" },
++        props.leadingActions,
++      ),
++  };
++});
++
++vi.mock("@/v4/composer/useComposerAttachments.js", () => ({
++  useComposerAttachments: () => ({
++    attachments: [],
++    attachmentError: null,
++    adoptSentAttachments: vi.fn(async () => {}),
++    hasAttachments: false,
++    hasUnreadyAttachments: false,
++    isDraggingOverComposer: false,
++    attachmentInputRef: { current: null },
++    openAttachmentPicker: vi.fn(),
++    handleAttachmentInputChange: vi.fn(),
++    handlePaste: vi.fn(),
++    handleDragOverComposer: vi.fn(),
++    handleDragLeaveComposer: vi.fn(),
++    handleDropComposer: vi.fn(),
++    handleWhiteboardMentionSelected: vi.fn(),
++    removeAttachment: vi.fn(),
++    retryAttachment: vi.fn(),
++    clearAttachments: vi.fn(),
++    prepareForSend: vi.fn(async () => []),
++    setAttachmentError: vi.fn(),
++  }),
++}));
++
++vi.mock("@/v4/composer/V4ComposerToolbar.js", async () => {
++  const React = await import("react");
++  const Stub = ({ label }: { label: string }) => React.createElement("span", null, label);
++  return {
++    V4ComposerModeSwitch: () => React.createElement(Stub, { label: "mode" }),
++    V4ComposerModelControls: () => React.createElement(Stub, { label: "model" }),
++  };
++});
++
++const AnyConversationComposer = ConversationComposer as unknown as ComponentType<
++  Record<string, unknown>
++>;
++
++function renderComposer(overrides: Record<string, unknown> = {}): string {
++  return renderToStaticMarkup(
++    createElement(
++      ZCodeIntlProvider,
++      { initialLocale: "zh-CN" },
++      createElement(AnyConversationComposer, {
++        snapshot: null,
++        sessionId: "session-1",
++        workspacePath: "/workspace",
++        composerDraft: { text: "", updatedAt: 1 },
++        onSendText: vi.fn(async () => {}),
++        onStop: vi.fn(),
++        onSelectModel: vi.fn(),
++        onSelectThought: vi.fn(),
++        onSwitchMode: vi.fn(),
++        ...overrides,
++      }),
++    ),
++  );
++}
++
++const repositorySummary = {
++  branchName: "main",
++  headRefType: "branch",
++  isGitAvailable: true,
++  isRepository: true,
++} as const;
++
++afterEach(() => {
++  captured.branchProps = null;
++});
++
++describe("ConversationComposer Git branch entry", () => {
++  it("在会话底栏渲染分支入口并复用宿主 Git 快照", () => {
++    const onRefreshGit = vi.fn();
++
++    const html = renderComposer({
++      gitSummary: repositorySummary,
++      gitDirtyFileCount: 3,
++      onRefreshGit,
++    });
++
++    expect(html).toContain("mock-git-branch-switcher");
++    expect(captured.branchProps).toMatchObject({
++      composerToolbar: true,
++      dirtyFileCount: 3,
++      popoverSide: "top",
++      avoidPopoverCollisions: false,
++      restoreFocusSelector: '[data-testid="v4-composer-input"]',
++      workspacePath: "/workspace",
++    });
++    expect(captured.branchProps?.onRefreshGit).toBe(onRefreshGit);
++  });
++
++  it("草稿态上方已有 contextHeader 入口时不重复渲染", () => {
++    const html = renderComposer({
++      contextHeader: createElement("nav", { "data-testid": "mock-context-header" }),
++      gitSummary: repositorySummary,
++      onRefreshGit: vi.fn(),
++    });
++
++    expect(html).toContain("mock-context-header");
++    expect(html).not.toContain("mock-git-branch-switcher");
++  });
++
++  it("非 Git 工作区或无刷新通道时不渲染入口", () => {
++    expect(
++      renderComposer({
++        gitSummary: { ...repositorySummary, isRepository: false },
++        onRefreshGit: vi.fn(),
++      }),
++    ).not.toContain("mock-git-branch-switcher");
++
++    expect(renderComposer({ gitSummary: repositorySummary })).not.toContain(
++      "mock-git-branch-switcher",
++    );
 +  });
 +});
 diff --git a/packages/ui/test/v4ConversationStatusPanel.test.ts b/packages/ui/test/v4ConversationStatusPanel.test.ts
@@ -9399,6 +11031,82 @@ index c0cd8c520d83182debdbd1e848b413d5eb4695eb..e0a9f9347d8a22077d096f5b01293522
    it("opens the preferred worktree source when Changes is clicked", async () => {
      const onOpenGitReview = vi.fn();
      const { ConversationStatusPanel } = await import("@/v4/ConversationStatusPanel.js");
+diff --git a/packages/ui/test/v4ConversationTurnGroup.test.ts b/packages/ui/test/v4ConversationTurnGroup.test.ts
+index 4dfc40814edeb10f068b182e47426c8927fb6c07..204edddd7680d82bb9e1972c505b45c95cd40dcb 100644
+--- a/packages/ui/test/v4ConversationTurnGroup.test.ts
++++ b/packages/ui/test/v4ConversationTurnGroup.test.ts
+@@ -654,7 +654,7 @@ describe("ConversationTurnGroup message stream display settings", () => {
+     expect(html).toContain("tool-summary-trigger-tool-5");
+   });
+ 
+-  it("关闭思考时跨隐藏 reasoning 合并 Explore，开启时保持原始边界", () => {
++  it("关闭思考时跨隐藏 reasoning 合并 Explore，开启时一并收进探索摘要", () => {
+     const firstReasoning = reasoningRow();
+     const firstExplore = toolCallRow(4, "Read", { file_path: "package.json" });
+     const hiddenReasoning: ReasoningRow = {
+@@ -686,14 +686,17 @@ describe("ConversationTurnGroup message stream display settings", () => {
+       messageStreamShowReasoning: false,
+     });
+     expect(hiddenReasoningHtml).toContain('data-tool-call-id="explore:tool-4"');
++    expect(hiddenReasoningHtml).toContain("查阅 2 次");
++    expect(hiddenReasoningHtml).not.toContain("思考 1 次");
+     expect(hiddenReasoningHtml).not.toContain('data-row-id="5"');
+ 
+     const visibleReasoningHtml = renderUnit(exploreUnit, {
+       messageStreamShowReasoning: true,
+     });
+-    expect(visibleReasoningHtml).toContain('data-tool-call-id="tool-4"');
+-    expect(visibleReasoningHtml).toContain('data-tool-call-id="tool-6"');
+-    expect(visibleReasoningHtml).toContain('data-row-id="5"');
++    // 可见 reasoning 现在并入同一个探索组：折叠摘要包含思考次数，不再单独成行。
++    expect(visibleReasoningHtml).toContain('data-tool-call-id="explore:tool-4"');
++    expect(visibleReasoningHtml).toContain("查阅 2 次, 思考 1 次");
++    expect(visibleReasoningHtml).not.toContain('data-row-id="5"');
+   });
+ });
+ 
+diff --git a/packages/ui/test/v4ExploreRunSummary.test.ts b/packages/ui/test/v4ExploreRunSummary.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1e51a6d593a3078e3b890961d2bba39beaba6237
+--- /dev/null
++++ b/packages/ui/test/v4ExploreRunSummary.test.ts
+@@ -0,0 +1,36 @@
++import { describe, expect, it } from "vitest";
++import zhCN from "@/i18n/locales/zh-CN.js";
++import { formatExploreRunSummary } from "@/ToolCallBlocks/renderers/explore.js";
++
++// 用真实中文词条拼装，既验证次数文案，也保证新增 key 与 locale 保持同步。
++const intl = {
++  formatMessage: ({ id }: { id: string }, values?: Record<string, string>) => {
++    const template = zhCN[id];
++    if (template === undefined) {
++      throw new Error(`missing i18n key: ${id}`);
++    }
++    return template.replace(/\{(\w+)\}/g, (_match, key: string) => values?.[key] ?? `{${key}}`);
++  },
++};
++
++describe("formatExploreRunSummary", () => {
++  it("lists lookups, thoughts and non-zero buckets in a stable order", () => {
++    expect(
++      formatExploreRunSummary(intl, {
++        exploreCount: 3,
++        reasoningCount: 2,
++        counts: { search: 2, fetch: 0, list: 1, file: 1 },
++      }),
++    ).toBe("查阅 3 次, 思考 2 次, 搜索 2 次, 列表 1 次, 文件 1 次");
++  });
++
++  it("omits reasoning and buckets that never occurred", () => {
++    expect(
++      formatExploreRunSummary(intl, {
++        exploreCount: 2,
++        reasoningCount: 0,
++        counts: { search: 0, fetch: 1, list: 0, file: 0 },
++      }),
++    ).toBe("查阅 2 次, 网页抓取 1 次");
++  });
++});
 diff --git a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
 index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e9ef47f0e 100644
 --- a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts

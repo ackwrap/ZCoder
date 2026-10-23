@@ -13,7 +13,7 @@ index a755ec45888b605736fe8ef09e813c4200452049..1dddec99c5b5ddb42337a7a27946a672
          "**/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/session-mapper.ts",
          "**/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts",
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..ad5bba75e6d125e34bac33c8c38a990f0a1e39f8 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..fb33063c8c3ee8abd914ec3d89bc1163035e0326 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
 @@ -2,6 +2,28 @@ version: 1
@@ -278,7 +278,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..ad5bba75e6d125e34bac33c8c38a990f
  
  global:
    # 临时时间戳（2026-09-10）：unmanaged-new-file 只约束此日期之后首次入库的文件。
-@@ -886,3 +995,7 @@ exceptions:
+@@ -886,3 +995,13 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.
@@ -286,8 +286,14 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..ad5bba75e6d125e34bac33c8c38a990f
 +    rule: unmanaged-new-file
 +    paths: [packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx]
 +    reason: Admitted upstream slot arbitrator edited only to stop rendering the marketing banner in this fork; the highspeed notice path, ownership and imports are unchanged, and adopting packages/ui/src/sidebar-activity needs a separate module boundary refactor (same pattern as settings-machine-unmanaged-edit).
++  - id: mcp-status-dialog-unmanaged-new-files
++    rule: unmanaged-new-file
++    paths:
++      - packages/ui/src/McpStatusDialog.tsx
++      - packages/ui/src/lib/mcpStatusCommand.ts
++    reason: Admitted new UI entry for the /mcp session diagnostics dialog; it reuses the managed session-diagnostics module and keeps provider/session ownership unchanged, and adopting the whole packages/ui/src root needs a separate module boundary refactor.
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 01a75d1615566e721a3cd6576b621924ec7afe0d..544d869c4d1fef0b777bf1580c06cd7dff8316f4 100644
+index 01a75d1615566e721a3cd6576b621924ec7afe0d..d68dc4d9aa3e983fe5ce31843a366596ccfa8a36 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -1345,6 +1345,9 @@ importers:
@@ -295,27 +301,8 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..544d869c4d1fef0b777bf1580c06cd7d
          specifier: ^5.3.2
          version: 5.3.2
 +      jose:
-+        specifier: 6.2.1
-+        version: 6.2.1
++        specifier: 6.2.2
++        version: 6.2.2
        node-forge:
          specifier: ^1.4.0
          version: 1.4.0
-@@ -8885,6 +8888,9 @@ packages:
-     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
-     hasBin: true
- 
-+  jose@6.2.1:
-+    resolution: {integrity: sha512-jUaKr1yrbfaImV7R2TN/b3IcZzsw38/chqMpo2XJ7i2F8AfM/lA4G1goC3JVEwg0H7UldTmSt3P68nt31W7/mw==}
-+
-   jose@6.2.2:
-     resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
- 
-@@ -19961,6 +19967,8 @@ snapshots:
- 
-   jiti@2.6.1: {}
- 
-+  jose@6.2.1: {}
-+
-   jose@6.2.2: {}
- 
-   joycon@3.1.1: {}
