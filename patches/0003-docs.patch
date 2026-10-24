@@ -125,6 +125,51 @@ index 140afb0e43ec375e6ef73cd25a372a974a71680e..c605a20dde092d52f7de430ce3112e1e
  ## 多端边界
  
  本模型不改变 task realtime 所有权：
+diff --git a/docs/compaction-profiles.md b/docs/compaction-profiles.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b5acdc2757bfb8d92710c58caef920afd4de352f
+--- /dev/null
++++ b/docs/compaction-profiles.md
+@@ -0,0 +1,39 @@
++# 上下文压缩模式与实时设置
++
++## 范围与默认值
++
++基础设置分组在键盘快捷键之后增加 `advanced`（高级设置，SlidersHorizontal）。第一项“上下文压缩方式”提供 detailed（详细摘要，默认）和 compact（精简摘要）。默认升级行为不变：详细摘要保持当前九节模板、20,000 token 摘要上限及既有选轮语义（自动/响应式保留最近一组，手动沿用当前行为）。
++
++精简模式采用 OpenCode 的七节续接模板，保留目标、用户要求、决策、工作状态、下一步、至多十五个相关文件、关键上下文；不逐字抄写全部消息、文件读取或已完成历史。不要求输出分析过程。保留用户的未完成请求、权限/安全边界、准确路径/命令/错误及提交状态；手动 `/compact <instructions>` 的附加指令仍追加到末尾。
++
++参考来源固定为 anomalyco/opencode 提交 `6806c6e29a7d2087335794d8b86c6031cdb5f6dd` 的 `packages/core/src/session/compaction.ts`（MIT，Copyright (c) 2025 opencode）。移植 SUMMARY_TEMPLATE 与 SUMMARY_RULES 的语义，保留归属与许可，不引入 OpenCode 运行时或预压缩机制。
++
++## 设置契约
++
++Host AppSettings 是持久化权威：
++
++- `compactionProfile`: `detailed | compact`，默认 `detailed`；未知磁盘值安全回退 detailed，patch 严格拒绝非法值。
++- `compactionTailBudgetTokens`: 可选整数 1,000–100,000；缺省 15,000。
++- `compactionSummaryMaxOutputTokens`: 可选整数 1,000–20,000；缺省 8,000。
++
++两个数值仅对精简模式生效，详细模式保留固定 20K 上限。最终输出上限仍受模型能力限制。UI 数字输入仅在合法并保存成功后更新事实，保存失败显示本地化错误并可重试；保存期间禁用重复提交，远端设置使用既有 Source/Host 权威，不回落本机。
++
++## 压缩核心
++
++`AutoCompactPolicyConfig` 增加 `profile`、`tailBudgetTokens`、`summaryMaxOutputTokens`。精简模式从最新的完整用户轮次向前累计估算 token，不超过预算；最新一组即使超预算也保留。不得拆散 user 边界、assistant tool call 与对应结果；至少留足可摘要历史，否则健康 no-op，不丢历史。上下文前缀仍走原路径，不复制进尾部。详细模式及原 prompt-too-long 恢复策略保持兼容。精简模式遇到摘要输入过长时只把完整近期用户轮次移入保留尾部；仍无法生成摘要则明确失败并保留原历史，不沿用详细模式的丢弃旧摘要输入回退。
++
++持久化保留尾部按实际选中条目映射，不以 assistant 组数代替用户轮次；校验真实用户与 assistant 数量一致，不能因重复系统提示文本扩大到已摘要历史。选中的真实消息无法可靠映射时压缩失败，不提交摘要边界或替换原历史。
++
++每次压缩开始时捕获一次 policy 快照，选轮、提示词和输出预算在本次执行及重试间一致。`setCompactionPolicy` 只替换配置，不修改已有历史、触发压缩、取消活动请求或改变阈值/模型输出预留；下一次自动、响应式或手动压缩使用新值。
++
++## Host → CLI 同步
++
++新增独立 `workspace/updateCompactionPolicy` strict params/result，不扩展旧 strict interaction preferences。请求携带 workspace 和三个已归一的 policy 值，CLI 先校验再更新 `appRuntimePreferences`，同步更新该进程内活跃 runtime；新建、恢复和冷恢复统一从同一偏好写入 `runtimeConfig.compact`，默认 detailed。
++
++Host 每个 workspace 复用已有客户端，按 workspace 串行同步；执行队列时读取最新持久化设置，防止慢旧写覆盖新策略。设置变更和客户端连接各同步一次，成功后才记录已发策略。-32601 是旧 CLI 正常降级，不重试风暴、不阻止连接、不发送未知字段到旧方法；其他失败只报告 warn，不篡改已接受的运行配置。旧 Host 没有此能力时 CLI 保持 detailed。
++
++手机远控和 SSH workspace 沿用既有 Host 服务路由、广播及鉴权，不创建新连接。设置只影响目标 Host 的活跃会话（包括后续恢复）；不跨不同 Host 覆盖设置。设置变更不保证上下文立即缩小，立即压缩需用户显式 `/compact`。
++
++## 验收
++
++主会话运行定向检查，不重复不变测试，不运行全量构建。核心覆盖默认 detailed、七节 prompt、附加指令、精简预算/超预算最新组/工具配对、活动压缩 policy 快照与下一次更新；shared/协议覆盖默认值、边界校验、活跃及创建恢复、旧方法降级和串行同步；UI 覆盖导航位置、两选项、数字合法性及保存失败。交互验证采用真实组件和可观察的下一次压缩请求；没有真实桌面/移动平台证据时明确报告，mock 不证明所有平台兼容。
 diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..807ce77ca02b85004435fcb65012e78b9006bb9f
@@ -410,6 +455,68 @@ index 0000000000000000000000000000000000000000..d96224eb818762120d1663c78645537e
 +## 验收
 +
 +覆盖单项关闭/恢复、其他会话隔离、重启恢复、并发修改、保存失败、损坏策略、Skill 别名、权限等待期间关闭、DeferredToolCall/MCP App、配置不写入、旧 runtime 不支持。UI 覆盖折叠、键盘开关、忙碌/错误/空列表、中英文、深浅主题、320px/1200px，保留原 Git/任务状态栏与上下文诊断。
+diff --git a/docs/status-panel-header-layout.md b/docs/status-panel-header-layout.md
+index a23429459d7c8728f8d768df158dbdbfe05645b8..dc594409a4a9fcce772b070e47de728816242b6b 100644
+--- a/docs/status-panel-header-layout.md
++++ b/docs/status-panel-header-layout.md
+@@ -11,6 +11,8 @@ Status 面板的 Git、Goal、Progress、Run 区块标题需要保持一致的
+ - Goal 的暂停/恢复操作是当前目标的即时动作，显示在耗时和 tokens 指标之前。
+ - 展开态 Status 面板在右上角提供一个绝对定位的面板收起按钮，用于切换到 mini 状态。
+ - 右上角面板收起按钮存在时，区块标题行需要预留右侧空间，避免标题、箭头或状态内容与按钮重叠。
++- 信息栏卡片的 Goal 暂停/恢复按钮与折叠触发器是同级控件，不得嵌套按钮；操作目标不得改变卡片的开合状态，折叠后操作仍可达。
++- Workflows 卡片的已结束目录入口位于活动列表的限高滚动视口之外；活动列表溢出时仍可直接访问目录，折叠整张卡片时随内容一起隐藏。
+ - Mini 胶囊展示运行中的后台任务时，只显示任务类型图标和运行中任务数量，不显示已运行时长或计时器；展开态 Run 区块及任务明细继续显示耗时。
+ 
+ ## 兼容性
+diff --git a/docs/task-output-contract.md b/docs/task-output-contract.md
+index ab2eabebbe12fa9db42a723bc847007ee5227f0f..d69ef164f111116ecae1230472acc7571bcd2ef9 100644
+--- a/docs/task-output-contract.md
++++ b/docs/task-output-contract.md
+@@ -41,11 +41,11 @@ DEPRECATED: Background tasks return their output file path in the tool result, a
+ 
+ 输入 schema 是 strict object：
+ 
+-| 字段      | Provider schema                                                       | Runtime                             |
+-| --------- | --------------------------------------------------------------------- | ----------------------------------- |
+-| `task_id` | required string，`The task ID to get output from`                              | 空字符串报 `Task ID is required`    |
+-| `block`   | required boolean，default `true`，`Whether to wait for completion`              | 省略时仍补默认值；额外兼容字符串 `"true"` / `"false"` |
+-| `timeout` | required number，default `30000`，min `0`，max `600000`，`Max wait time in ms` | 省略时仍补默认值；单位毫秒          |
++| 字段      | Provider schema                                                                | Runtime                                               |
++| --------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
++| `task_id` | required string，`The task ID to get output from`                              | 空字符串报 `Task ID is required`                      |
++| `block`   | required boolean，default `true`，`Whether to wait for completion`             | 省略时仍补默认值；额外兼容字符串 `"true"` / `"false"` |
++| `timeout` | required number，default `30000`，min `0`，max `600000`，`Max wait time in ms` | 省略时仍补默认值；单位毫秒                            |
+ 
+ Provider `input_schema.required` 固定为
+ `["task_id", "block", "timeout"]`。其中 `block`、`timeout` 同时保留 runtime default；
+@@ -159,14 +159,24 @@ UI 专属卡片使用独立的 completed tool metadata，不解析或改写上
+ 
+ - `task_id` 直接读取 tool input。
+ - Core 从 handler result 生成 `task_output` display，只保留 `retrievalStatus`、最长 64 字符的
+-  可选 `taskStatus`、最长 2000 字符的可选 `output` 和可选 `truncated`。
++  可选 `taskStatus`、最长 2000 字符的可选 `output`、可选 `truncated`，以及下文定义的复制快照引用。
+ - output 使用 `trimEnd()` 后保留前 2000 字符；空白 output 不进入 display，运行中已读取的部分
+   output 可以展示。
+-- display 不包含 task type、description、error、prompt、result、output path 或 provider XML；这些字段也不进入卡片摘要正文或展开内容。真实 tool execution failure 的错误原因只通过 `ToolCallRow.error` 形成的 `context.errorText` 进入 `ToolLayout` 通用失败状态 tooltip，允许用户 hover/copy，且不写回 `task_output` display。
++- display 正文不包含 task type、description、error、prompt、result、任务原始 output path 或 provider XML；这些字段也不进入卡片摘要正文或展开内容。真实 tool execution failure 的错误原因只通过 `ToolCallRow.error` 形成的 `context.errorText` 进入 `ToolLayout` 通用失败状态 tooltip，允许用户 hover/copy，且不写回 `task_output` display。
+ - display 通过现有 completed metadata 和 V4 `ToolCallRow.display` 进入共享 UI；旧记录缺失 display
+   时只展示 task id 和通用 tool lifecycle，不增加 XML/JSON fallback 或持久化迁移。
+ 
+-该投影仅用于桌面、普通 Web 和手机远控共用的渲染组件，不改变 TaskOutput handler、状态机、
++### 复制本次完整输出
++
++- 标题行增加独立的复制小图标，收起时也可操作；点击、Enter 和 Space 只复制，不触发展开。正文仍只展示 2000 字符预览，不提高模型或 V4 正文预算。
++- “全文”指这次 TaskOutput 实际取得的 `task.output` 快照，不包括 provider XML、任务元数据、prompt、hook 内容或后续新写入的日志。运行中 Bash 的 30000 bytes 文件头部及终态 8 MiB 尾读规则不变；已有的前部省略提示必须保留，不能声称复制了整个无限日志文件。
++- executor 在模型格式化之外，用既有 session artifact store 保存独立的 `text/plain` 输出快照（最多 8 MiB UTF-8）。display 仅额外携带有界的 `copySource {path, bytes}` 引用，路径不渲染、不送入模型；保存失败或无 store 不影响工具执行。local_agent 只有 registry 中仍可验证的 completed result content 与本次输出一致时才生成快照，绝不为复制读取会话 JSONL。
++- 用户点击后，UI 通过已注入的目标 Host 文件读取能力分块读取该引用；不新增任意路径 RPC、不跟随 provider 文本中的文件路径，不预取或缓存全文。验证字节数、实际返回长度和 UTF-8；超限、缺失、不完整或 clipboard 拒绝时不写入部分内容，明确提示复制失败并可重试。
++- 旧记录只允许从未被 V4 或模型截断、且 task id 匹配的 canonical TaskOutput 文本中提取 `<output>` 正文用于复制，不用于页面展示。含持久化 envelope、截断标记、缺少完整正文或未知形状时按钮禁用并说明全文不可用，不把 2000 字符预览当全文。local_agent 不走旧文本回退。
++- 复制中的状态由该卡片持有，同一时间只允许一次操作；切换工具、来源或卸载后丢弃过期读取，不写剪贴板。成功/失败有中英文及无障碍反馈，复制按钮不改变任务状态、通知 claim 或权限。
++- 公开分享剥离 `copySource`，只读 renderer 不读取本机文件；普通桌面和远控沿用当前 ServiceProvider 的 Host 路由，断连失败不得回退本机。
++
++该投影及复制动作仅用于桌面、普通 Web 和手机远控共用的渲染组件，不改变 TaskOutput handler、状态机、
+ provider adapters 或 desktop continuous / web remote replayable 的交付语义。
+ 
+ ## 验收
 diff --git a/docs/third-party/opencode-codex-MIT.txt b/docs/third-party/opencode-codex-MIT.txt
 new file mode 100644
 index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847507842a6
@@ -614,8 +721,22 @@ index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080
 +- The sidebar activity slot does not render marketing banners (the seasonal claim-token card). `SidebarBottomActivity` now shows only the highspeed share notice from `GlobalNoticeSurface`. Marketing popups, delivery queries, reporting and the `/mcp`-style surfaces are untouched; restore the banner by rendering `<MarketingBanner />` when `useMarketingBannerVisible()` is true.
 +
 +Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger and that `hideAccountEntry` drops the account trigger while keeping the settings button; `sidebarBottomActivity.test.ts` checks the slot never renders the marketing banner but still arbitrates highspeed notices.
+diff --git a/docs/ui/tool-display-rendering.md b/docs/ui/tool-display-rendering.md
+index ca5156953349271656dd1ca0e82a07dfebf14e67..fc378f4f06a427ffc3f2275b2fbe13006e01fda3 100644
+--- a/docs/ui/tool-display-rendering.md
++++ b/docs/ui/tool-display-rendering.md
+@@ -70,7 +70,8 @@ SPT05 验收以真实 DOM 几何调用和动画事件为证据：批量收起工
+ - `TaskStop` 的收起态必须显式覆盖完整终态：`completed` 显示“已停止”，`failed` 显示“停止任务失败”，`denied` 显示“停止操作已拒绝”，`stopped` 显示“停止操作已取消”；失败、拒绝或中断不得与“已停止”同时出现。
+ - `TaskStop` 的 `failed` / `denied` / `stopped` 若带错误原因，展开态将该原因作为“结果”展示；若 task type、任务描述或命令、结果和截断提示都不存在，则必须禁用展开，禁止出现可点击但内容为空的详情面板。
+ - `TaskOutput` 归入 `task-control` family，并通过 `TaskOutputToolCallBlock` 渲染。收起态使用等宽 `task_id` 作为主内容，状态按“工具执行终态 > retrieval status > 被查询 task status”的优先级投影：工具执行失败显示统一的“执行失败”，运行中显示“任务运行中”，等待超时显示“等待超时”，成功读取 completed task 显示“已获取”，failed/lost 显示“任务失败”，cancelled/killed/stopped 显示“任务已停止”。未知 task status 原样显示，禁止把成功读取结果一律当作 task 成功。
+-- `TaskOutput` 的主展示数据使用 Core 生成的 `task_output` display payload，只包含 `retrievalStatus`、最长 64 字符的可选 `taskStatus`、最长 2000 字符的可选 `output` 和可选 `truncated`。`task_id` 继续直接读取 tool input，不在 display 重复保存。output 使用 `trimEnd()` 后保留前 2000 字符；空白 output 不生成字段，运行中已取得的部分 output 允许展示。仅非空 output 提供展开入口，展开区使用固定最大高度的滚动 `<pre>`；截断时提示后续内容已省略。task type、description、error、prompt、result、output path 和原始 provider XML/JSON 不得进入 display、摘要正文或展开内容；真实 tool execution failure 仍复用 `ToolLayout` 的通用失败状态 tooltip，通过 `context.errorText` 在 hover/copy 时展示错误原因，且不因此生成展开区。
++- `TaskOutput` 的主展示数据使用 Core 生成的 `task_output` display payload，只包含 `retrievalStatus`、最长 64 字符的可选 `taskStatus`、最长 2000 字符的可选 `output`、可选 `truncated`，以及独立的有界复制快照引用。`task_id` 继续直接读取 tool input，不在 display 重复保存。output 使用 `trimEnd()` 后保留前 2000 字符；空白 output 不生成字段，运行中已取得的部分 output 允许展示。仅非空 output 提供展开入口，展开区使用固定最大高度的滚动 `<pre>`；截断时提示后续内容已省略。task type、description、error、prompt、result、任务原始 output path 和原始 provider XML/JSON 不得进入 display 正文、摘要正文或展开内容；真实 tool execution failure 仍复用 `ToolLayout` 的通用失败状态 tooltip，通过 `context.errorText` 在 hover/copy 时展示错误原因，且不因此生成展开区。
++- `TaskOutput` 标题旁提供独立的复制图标，收起时可用，不触发展开；复制仅包含本次输出正文，不扩大 2000 字符 DOM 预览。新结果通过有界 `copySource {path, bytes}` 引用，在点击后复用 Host 文件服务按需读取快照，成功、失败和不可用均有中英文及无障碍反馈。旧记录只对完整、未截断且 task id 匹配的 canonical 文本提取正文；不读文本中的路径、不复制 XML/JSON/元数据，不将预览冒充全文。local_agent 必须有 Core 保存的安全 completed result 快照，不复制其会话 JSONL。异步读取失效、文件缺失、超限或剪贴板拒绝时不复制部分内容。公开分享剥离快照引用，不读取本机。具体边界见 `docs/task-output-contract.md` 的“复制本次完整输出”。
+ - `RespondToCoordinator` 归入 `message` family，并通过 `RespondToCoordinatorToolCallBlock` 渲染。收起态只使用 input `summary` 作为主内容，不提供展开区；运行中显示“正在回复”，success 显示“回复已排队”，业务或执行失败显示统一的“执行失败”，拒绝和停止显示对应终态。“已排队”只表示 response command 已进入 parent runtime command queue，不得写成已送达、已读取或已处理。
+ - `RespondToCoordinator` 的主展示数据使用 Core 生成的 `respond_to_coordinator` display payload，只包含 `status: "success" | "failed"`。`message`、`responseId`、`error` 和原始 result 不得复制到 display、摘要正文或展开内容；真实 tool execution failure 仍复用 `ToolLayout` 的通用失败状态 tooltip，通过 `context.errorText` 在 hover/copy 时展示错误原因，业务 `status: "failed"` 不凭空生成错误详情。普通 child tool row 只在 child session topic 中物化；父会话继续只显示 Agent/Task 摘要，不得为了专属卡片恢复 mirrored child tool row。
+ - 新增 display 通过 completed tool metadata 和 V4 `ToolCallRow.display` 传输。旧记录没有对应 display 时，两个 renderer 只使用 input 与通用 tool lifecycle 展示最小摘要，不解析 provider-visible XML/JSON，也不新增持久化迁移。
 diff --git a/docs/ui/tool-inline-diff.md b/docs/ui/tool-inline-diff.md
-index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..4848f933159b039573a1773555222c09c1137bec 100644
+index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..e1f026879bd9ca87d045b6372e16eba7d82e583c 100644
 --- a/docs/ui/tool-inline-diff.md
 +++ b/docs/ui/tool-inline-diff.md
 @@ -21,7 +21,7 @@
@@ -623,7 +744,7 @@ index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..4848f933159b039573a1773555222c09
  - 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
  - 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
 -- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
-+- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write` 在**运行中默认展开**，实时显示 diff，完成后不单独收起，由整条 assistant 消息的默认折叠边界统一收口；`execute`（命令输出）同样运行中默认展开，但**执行结束后自动收起**为摘要（用户手动折叠优先，`autoOpen` / `autoCollapseOnComplete` 只处理一次边沿）
++- 普通 tool call 按固定官方基线先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write`（含多文件子卡）、`execute`、命令组和查阅组在运行中也不自动展开，完成时不自动改变用户选择的开合状态。用户可手动展开查看 diff、输出或子工具，仍复用 `ToolLayout` 的开合记忆。
  - 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
  - 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
  - “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现

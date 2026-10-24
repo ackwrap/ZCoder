@@ -30,6 +30,189 @@ index f23e43d6f88f8df3079f9dabce8a82493cc1f7ea..5356640039c288cac0915723253391bd
    /** 当前 Environment 的 Provider 配置与设置视图。 */
    readonly providerSettingsService: IProviderSettingsService;
    /** 当前 Environment Registry 发布的唯一模型选择 View。 */
+diff --git a/packages/services/src/bot-project-runtime/contract.test.ts b/packages/services/src/bot-project-runtime/contract.test.ts
+index cec611280acd5443eeb4de2cdd94e02c1112011e..077e18ee78f991ca47399b3e2faab311476eda92 100644
+--- a/packages/services/src/bot-project-runtime/contract.test.ts
++++ b/packages/services/src/bot-project-runtime/contract.test.ts
+@@ -22,7 +22,10 @@ function fixture() {
+     owner: {},
+     taskService,
+     modelSelectionService: { getView: vi.fn() },
+-    agentService: { syncAppRuntimePreferences: vi.fn(async () => undefined) },
++    agentService: {
++      syncAppRuntimePreferences: vi.fn(async () => undefined),
++      syncCompactionPolicy: vi.fn(async () => undefined),
++    },
+     bindWorkspace: vi.fn(async () => undefined),
+   };
+   let online: BotProjectConnection | undefined = connection;
+@@ -60,7 +63,14 @@ function fixture() {
+       return { dispose: () => listeners.delete(listener) };
+     },
+     readBoundTargets: async () => [target],
+-    readRuntimePreferences: async () => ({ askUserQuestionAutoResolutionEnabled: true }),
++    readRuntimePreferences: async () => ({
++      askUserQuestionAutoResolutionEnabled: true,
++      compactionPolicy: {
++        profile: "detailed",
++        tailBudgetTokens: 15_000,
++        summaryMaxOutputTokens: 8_000,
++      },
++    }),
+     warn: vi.fn(),
+   };
+   return {
+@@ -78,6 +88,13 @@ function fixture() {
+     service: createBotProjectRuntime(port),
+   };
+ }
++it("没有本机策略权威时不给远端推默认值（保留 desktop 已推送策略）", async () => {
++  const f = fixture();
++  f.port.readRuntimePreferences = async () => ({ askUserQuestionAutoResolutionEnabled: true });
++  await f.service.getZCodeTaskService(target);
++  expect(f.connection.agentService.syncCompactionPolicy).not.toHaveBeenCalled();
++});
++
+ it("没有 tab 也可使用已在线 Source；查询不隐式连接，目录身份必须一致", async () => {
+   const f = fixture();
+   expect(await f.service.isConnected(target)).toBe(true);
+diff --git a/packages/services/src/bot-project-runtime/contract.ts b/packages/services/src/bot-project-runtime/contract.ts
+index d46274b291e89903cc9a8819d6d42bf4524ba48b..3b6ce79dd6f8f3c2fc1e40f0634af25c1f42861a 100644
+--- a/packages/services/src/bot-project-runtime/contract.ts
++++ b/packages/services/src/bot-project-runtime/contract.ts
+@@ -3,17 +3,22 @@ import type { IModelSelectionService } from "#src/model-provider/providerFacadeS
+ import type {
+   IZCodeAgentService,
+   ZCodeAgentAppRuntimePreferences,
++  ZCodeAgentCompactionPolicy,
+ } from "#src/zcode-agent/zcodeAgent.js";
+ import type { IRemoteProjectService } from "#src/remote-projects/contract.js";
+-export type { IZCodeTaskService, ZCodeAgentAppRuntimePreferences };
++export type { IZCodeTaskService, ZCodeAgentAppRuntimePreferences, ZCodeAgentCompactionPolicy };
+ export type BotRemoteTarget = { workspacePath: string; workspaceIdentity: string; hostId?: string };
+ export type BotRuntimeSubscription = { dispose(): void };
++/** 一次读取的 Host 运行时快照；无本机设置权威时 omission compactionPolicy，避免推默认值覆盖推送缓存。 */
++export interface BotRuntimePreferencesSnapshot extends ZCodeAgentAppRuntimePreferences {
++  compactionPolicy?: ZCodeAgentCompactionPolicy;
++}
+ export interface BotProjectConnection {
+   /** 物理连接的代际标识；router 不拥有或关闭该连接。 */
+   owner: object;
+   taskService: IZCodeTaskService;
+   modelSelectionService: Pick<IModelSelectionService, "getView">;
+-  agentService: Pick<IZCodeAgentService, "syncAppRuntimePreferences">;
++  agentService: Pick<IZCodeAgentService, "syncAppRuntimePreferences" | "syncCompactionPolicy">;
+   bindWorkspace(target: BotRemoteTarget): Promise<void>;
+ }
+ export interface BotProjectRuntimePort {
+@@ -21,7 +26,11 @@ export interface BotProjectRuntimePort {
+   resolveOnline(hostId: string): BotProjectConnection | undefined;
+   onConnectionsChanged(listener: () => void): BotRuntimeSubscription;
+   readBoundTargets(): Promise<readonly BotRemoteTarget[]>;
+-  readRuntimePreferences(): Promise<ZCodeAgentAppRuntimePreferences>;
++  /**
++   * 同一个持久化快照同时提供交互偏好与压缩策略；`compactionPolicy` 缺席表示该 Host 无本机设置权威
++   * （desktop-attached remote），不得用默认值覆盖已推送策略。
++   */
++  readRuntimePreferences(): Promise<BotRuntimePreferencesSnapshot>;
+   warn(message: string): void;
+ }
+ /** 只路由现有 Source；不创建 workspace/session/Agent，不拥有 accepted queue。 */
+@@ -33,4 +42,5 @@ export interface BotRemoteRuntimeService {
+     target: BotRemoteTarget,
+   ): Promise<Pick<IModelSelectionService, "getView"> | null>;
+   syncAppRuntimePreferences(preferences: ZCodeAgentAppRuntimePreferences): Promise<void>;
++  syncCompactionPolicy(policy: ZCodeAgentCompactionPolicy): Promise<void>;
+ }
+diff --git a/packages/services/src/bot-project-runtime/index.ts b/packages/services/src/bot-project-runtime/index.ts
+index 5886303d3a212db6a43afe361142785c0ea74a26..eeebd97644972c38486673efffebdc8f9dff24e7 100644
+--- a/packages/services/src/bot-project-runtime/index.ts
++++ b/packages/services/src/bot-project-runtime/index.ts
+@@ -11,6 +11,7 @@ export type {
+   BotRemoteRuntimeService,
+   BotProjectRuntimePort,
+   BotProjectConnection,
++  BotRuntimePreferencesSnapshot,
+ } from "#src/bot-project-runtime/contract.js";
+ 
+ type Lease = { hostId: string; membershipId: string; connection: BotProjectConnection };
+@@ -132,9 +133,14 @@ export function createBotProjectRuntime(port: BotProjectRuntimePort): BotRemoteR
+     },
+     async getZCodeTaskService(target) {
+       const lease = await admit(target);
+-      await lease.connection.agentService.syncAppRuntimePreferences(
+-        await port.readRuntimePreferences(),
+-      );
++      const preferences = await port.readRuntimePreferences();
++      // strict syncAppRuntimePreferences 只接受旧的交互偏好字段，压缩策略必须拆出发独立方法。
++      const { compactionPolicy, ...runtimePreferences } = preferences;
++      await lease.connection.agentService.syncAppRuntimePreferences(runtimePreferences);
++      // 同一快照附带压缩策略；缺席时保留 desktop 已推送值，不推默认。
++      if (compactionPolicy) {
++        await lease.connection.agentService.syncCompactionPolicy(compactionPolicy);
++      }
+       await assertLease(target, lease);
+       return new Proxy(lease.connection.taskService, {
+         get(base, property, receiver) {
+@@ -170,6 +176,16 @@ export function createBotProjectRuntime(port: BotProjectRuntimePort): BotRemoteR
+         await lease.connection.agentService.syncAppRuntimePreferences(preferences);
+       }
+     },
++    async syncCompactionPolicy(policy) {
++      const hosts = new Set<string>();
++      for (const target of await port.readBoundTargets()) {
++        const host = await readHost(target);
++        if (!host || hosts.has(host.id) || !port.resolveOnline(host.id)) continue;
++        hosts.add(host.id);
++        const lease = await admit(target);
++        await lease.connection.agentService.syncCompactionPolicy(policy);
++      }
++    },
+   };
+   return service;
+ }
+diff --git a/packages/services/src/bots/bots.ts b/packages/services/src/bots/bots.ts
+index 8e7574e3840f3bc3c75283097d5d9932a8c72f3f..2b383a09e15ee45305d585bff484af2fd4a331ce 100644
+--- a/packages/services/src/bots/bots.ts
++++ b/packages/services/src/bots/bots.ts
+@@ -14,7 +14,10 @@ import type {
+   BotsConfigFile,
+   ZCodeAutomationBotDeliveryTarget,
+ } from "@zcode/shared";
+-import type { ZCodeAgentAppRuntimePreferences } from "../zcode-agent/zcodeAgent.js";
++import type {
++  ZCodeAgentAppRuntimePreferences,
++  ZCodeAgentCompactionPolicy,
++} from "../zcode-agent/zcodeAgent.js";
+ 
+ export interface BotCreateBindCodeParams {
+   botId?: string;
+@@ -140,6 +143,10 @@ export interface IBotsService {
+    * 将 App 全局交互偏好同步给 Bot 已持有的远端 runtime；不得为此建立新的远端连接。
+    */
+   syncAppRuntimePreferences(preferences: ZCodeAgentAppRuntimePreferences): Promise<void>;
++  /**
++   * 将 Host 上下文压缩策略同步给 Bot 已持有的远端 runtime；不得为此建立新的远端连接。
++   */
++  syncCompactionPolicy(policy: ZCodeAgentCompactionPolicy): Promise<void>;
+   getStatus(): Promise<BotServiceStatus>;
+   getConfig(): Promise<BotsConfigFile>;
+   listWorkspaceRefs(params?: BotListWorkspaceRefsParams): Promise<BotWorkspaceRef[]>;
+diff --git a/packages/services/src/bots/botsService.ts b/packages/services/src/bots/botsService.ts
+index 4ccb9908a9f9acdd61431512cf767267aadc8ebb..b9a7fe549fb8a578ecc1fb8804b29d39bee67eee 100644
+--- a/packages/services/src/bots/botsService.ts
++++ b/packages/services/src/bots/botsService.ts
+@@ -8121,6 +8121,10 @@ export function createBotsService(
+     async syncAppRuntimePreferences(preferences) {
+       await deps.remoteWorkspaceService?.syncAppRuntimePreferences?.(preferences);
+     },
++    async syncCompactionPolicy(policy) {
++      // 与交互偏好同一条既有远端路由；不新建连接，设置只影响各目标 Host 的活跃会话。
++      await deps.remoteWorkspaceService?.syncCompactionPolicy?.(policy);
++    },
+     async getStatus() {
+       const config = await repo.readConfig();
+       const state = await repo.readState();
 diff --git a/packages/services/src/codex-provider/CONTRACT.md b/packages/services/src/codex-provider/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..47c2b411bac0fbf4eac6918e58733e3a5127dfce
@@ -1191,7 +1374,7 @@ index 1880a104e6cc19f29b9f88b472360b6901367e66..276314cba652adae282efae6fe7b19b3
        configService.renamePersonalModel(providerId, currentModelId, nextModelId, membership),
      deletePersonalModel: (providerId, modelId, membership) =>
 diff --git a/packages/services/src/node.ts b/packages/services/src/node.ts
-index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0cadb9d18b 100644
+index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943f2f1bba9 100644
 --- a/packages/services/src/node.ts
 +++ b/packages/services/src/node.ts
 @@ -1,3 +1,6 @@
@@ -1201,7 +1384,16 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
  import {
    createRemoteProjectService,
    IRemoteProjectService,
-@@ -697,6 +700,10 @@ interface ManagedCuaHelperHostDispose {
+@@ -42,6 +45,8 @@ import {
+ } from "./onboarding/localUsageEvidence.js";
+ import {
+   buildLocalMediaPreviewUrl,
++  normalizeAppCompactionPolicy,
++  type AppCompactionPolicy,
+   type DynamicWorkflowMode,
+   type ProviderProvisioningTrigger,
+ } from "@zcode/shared";
+@@ -697,6 +702,10 @@ interface ManagedCuaHelperHostDispose {
  // 的 WeakMap 侧表登记，dispose 时统一终止（best-effort，不阻断其它资源回收）。
  const managedCuaHelperHosts = new WeakMap<ServiceCollection, ManagedCuaHelperHostDispose>();
  const providerRuntimes = new WeakMap<ServiceCollection, ProviderRuntime>();
@@ -1212,7 +1404,19 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
  const providerProvisioningSources = new WeakMap<ServiceCollection, ProviderProvisioningSource>();
  const providerProvisioningTriggerDisposers = new WeakMap<
    ServiceCollection,
-@@ -1609,6 +1616,12 @@ export function createLocalServices(options: {
+@@ -1204,6 +1213,11 @@ export function createLocalServices(options: {
+    * Desktop Host 把本机设置里的选择推给本窗口所有在线的 desktop-attached remote Host。
+    */
+   forwardDynamicWorkflowUserMode?: (mode: DynamicWorkflowMode | undefined) => void;
++  /**
++   * 上下文压缩策略变化后的转发口（docs/compaction-profiles.md「Host → CLI 同步」）：
++   * Desktop Host 把本机设置里的策略推给本窗口所有在线的 desktop-attached remote Host。
++   */
++  forwardCompactionPolicy?: (policy: AppCompactionPolicy) => void;
+   /** Desktop Host 请求 Main 登记已校验的插件 UI HTML，换取沙箱句柄。 */
+   registerPluginSandbox?: (input: PluginSandboxRegisterInput) => Promise<PluginSandboxHandle>;
+   feedback?: Partial<
+@@ -1609,6 +1623,12 @@ export function createLocalServices(options: {
      | Pick<IZCodeAgentService, "testModelConnectivity">
      | undefined;
    const providerRuntime = createProviderRuntimeFromConfigRuntime({
@@ -1225,7 +1429,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
      configRuntime: providerConfigRuntime,
      accountSource: accountProviderConfigSource,
      modelSelectionConfiguredDefaultSource,
-@@ -1628,6 +1641,34 @@ export function createLocalServices(options: {
+@@ -1628,6 +1648,34 @@ export function createLocalServices(options: {
        accountProviderConfigSource.dispose();
      },
    });
@@ -1260,7 +1464,27 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
    handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
      accountProviderCredentialStore,
      refreshAccountProviders: (reason: string) => accountProviderConfigSource.refresh(reason),
-@@ -2215,6 +2256,7 @@ export function createLocalServices(options: {
+@@ -2116,6 +2164,19 @@ export function createLocalServices(options: {
+   const resolveDynamicWorkflowUserMode = isDesktopAttachedRemote
+     ? undefined
+     : async () => (await settingService.get()).dynamicWorkflowMode;
++  // 压缩策略（docs/compaction-profiles.md）：本机 Host 以持久化 AppSettings 为权威，每次执行同步队列时
++  // 读取最新值；desktop-attached remote Host 读不到桌面设置，策略由 desktop 推送
++  // （zcodeAgentService.syncCompactionPolicy），这里不注入，确保不回落本机。
++  const resolveCompactionPolicy = isDesktopAttachedRemote
++    ? undefined
++    : async (): Promise<AppCompactionPolicy> => {
++        const settings = await settingService.get();
++        return {
++          profile: settings.compactionProfile === "compact" ? "compact" : "detailed",
++          tailBudgetTokens: settings.compactionTailBudgetTokens ?? 15_000,
++          summaryMaxOutputTokens: settings.compactionSummaryMaxOutputTokens ?? 8_000,
++        };
++      };
+   const codingPlanSubscriptionService = createCodingPlanSubscriptionService({
+     apiClient,
+     credentialService,
+@@ -2215,6 +2276,7 @@ export function createLocalServices(options: {
      workspaceIdentity: undefined,
    });
    const zcodeAgentService = createZCodeAgentService({
@@ -1268,7 +1492,39 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
      prepareProjectExecution,
      prepareSessionCreation: async (target) =>
        (await taskIndexRepo.getProjectRepository()).reserveCreatedTask({
-@@ -2964,6 +3006,7 @@ export function createLocalServices(options: {
+@@ -2239,6 +2301,8 @@ export function createLocalServices(options: {
+       codingPlanSubscriptionService.getDynamicWorkflowClientConfig(),
+     ...(resolveDynamicWorkflowUserMode ? { resolveDynamicWorkflowUserMode } : {}),
+     forwardDynamicWorkflowUserMode: options?.forwardDynamicWorkflowUserMode,
++    ...(resolveCompactionPolicy ? { resolveCompactionPolicy } : {}),
++    forwardCompactionPolicy: options?.forwardCompactionPolicy,
+     commandResolver: options?.zcodeAgentCommandResolver,
+     presentationSurface: resolveZCodeAgentPresentationSurface({
+       runtimeSurface: options?.agentTelemetry?.runtimeSurface,
+@@ -2536,11 +2600,22 @@ export function createLocalServices(options: {
+               : [],
+           ),
+         readRuntimePreferences: async () => {
++          // 一份持久化快照同时提供交互偏好与压缩策略，避免读两次设置。
+           const settings = await settingService.get();
+           return {
+             askUserQuestionAutoResolutionEnabled:
+               settings.askUserQuestionAutoResolutionEnabled !== false,
+             modelIoFullRetentionEnabled: settings.modelIoFullRetentionEnabled === true,
++            // desktop-attached remote 无本机设置权威：省略，保留 desktop 已推送策略。
++            ...(resolveCompactionPolicy
++              ? {
++                  compactionPolicy: normalizeAppCompactionPolicy({
++                    profile: settings.compactionProfile,
++                    tailBudgetTokens: settings.compactionTailBudgetTokens,
++                    summaryMaxOutputTokens: settings.compactionSummaryMaxOutputTokens,
++                  }),
++                }
++              : {}),
+           };
+         },
+         warn: (message) => botLog.warn(message),
+@@ -2964,6 +3039,7 @@ export function createLocalServices(options: {
    offPeakRequestAuthBuilders.set(services, buildOffPeakRequestAuthForTicket);
  
    providerRuntimes.set(services, providerRuntime);
@@ -1276,7 +1532,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
    providerProvisioningSources.set(services, providerProvisioningSource);
    providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
    // desktop-attached-remote 的组织态在远端 Host 库里，由远端自己的扫描器归档；本机不扫。
-@@ -2980,6 +3023,14 @@ export function createLocalServices(options: {
+@@ -2980,6 +3056,14 @@ export function createLocalServices(options: {
      });
    }
    services
@@ -1291,7 +1547,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
      .register(IProviderSettingsService, providerRuntime.providerSettings)
      .register(IModelSelectionService, providerRuntime.modelSelection);
    if (isDesktopAttachedRemote || options.providerProvisioningTargetEnabled === true) {
-@@ -3130,6 +3181,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
+@@ -3130,6 +3214,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
    // 关闭共享 tasks-index sqlite 句柄（Windows 上悬着句柄会让后续目录清理撞 EBUSY）
    for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
    sharedSqliteRepos.delete(services);
@@ -1299,7 +1555,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..1f7f71e88a17cc60b5309652960e6a0c
    providerRuntimes.get(services)?.dispose();
    for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
    providerProvisioningTriggerDisposers.delete(services);
-@@ -3174,6 +3226,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
+@@ -3174,6 +3259,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
    // 关闭共享 tasks-index sqlite 句柄（同 disposeServiceResources，异步收口路径也要释放）
    for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
    sharedSqliteRepos.delete(services);
@@ -1816,11 +2072,91 @@ index 0000000000000000000000000000000000000000..ae722dea0fce471fdbbc691619f61028
 +  provides: ["provider-model-discovery"],
 +  publicEntrypoints: ["index.ts", "contract.ts"],
 +} as const;
+diff --git a/packages/services/src/zcode-agent/zcodeAgent.ts b/packages/services/src/zcode-agent/zcodeAgent.ts
+index ea141344ff174c265a41925eaea7b90de18cf6e5..c710276bd453de1cf6d48b93e4b95a1345bb6a68 100644
+--- a/packages/services/src/zcode-agent/zcodeAgent.ts
++++ b/packages/services/src/zcode-agent/zcodeAgent.ts
+@@ -8,7 +8,7 @@ import type {
+ import type { Event, IDisposable } from "@zcode/rpc";
+ import { ServiceChannels } from "@zcode/shared";
+ import type { AppUsageRange, AppUsageSnapshot, ZCodeTaskTokenUsageResult } from "@zcode/shared";
+-import type { DynamicWorkflowMode } from "@zcode/shared";
++import type { AppCompactionPolicy, DynamicWorkflowMode } from "@zcode/shared";
+ import type { ZCodeAutomation, ZCodeAutomationRun } from "@zcode/shared";
+ import type {
+   ZCodeStorageStartupState,
+@@ -604,6 +604,9 @@ export interface ZCodeAgentAppRuntimePreferences {
+   modelIoFullRetentionEnabled?: boolean;
+ }
+ 
++/** Host 已归一的上下文压缩策略；只在 workspace/updateCompactionPolicy 成功后作为该 workspace 的已发策略缓存。 */
++export type ZCodeAgentCompactionPolicy = AppCompactionPolicy;
++
+ export interface ZCodeAgentLocalRuntimeChildProcesses {
+   pid: number;
+   provider: string;
+@@ -637,6 +640,12 @@ export interface IZCodeAgentService {
+    * desktop-attached remote Host 以传入值为准（缺席 = 跟随服务端）。不得为此启动空闲 Agent。
+    */
+   syncDynamicWorkflowUserMode(params: { mode?: DynamicWorkflowMode }): Promise<void>;
++  /**
++   * 上下文压缩策略变化（docs/compaction-profiles.md「Host → CLI 同步」）：Host 按 workspace 串行重发
++   * workspace/updateCompactionPolicy。有本机设置权威的 Host 在队列执行时读取最新持久化 AppSettings；
++   * desktop-attached remote Host 以传入值为准。不得为此启动空闲 Agent。
++   */
++  syncCompactionPolicy(policy: ZCodeAgentCompactionPolicy): Promise<void>;
+   getWorkspaceRuntimeIdentity(
+     params: ZCodeAgentWorkspaceTarget,
+   ): Promise<ZCodeAgentWorkspaceRuntimeIdentity>;
 diff --git a/packages/services/src/zcode-agent/zcodeAgentService.ts b/packages/services/src/zcode-agent/zcodeAgentService.ts
-index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fedbcc4b63 100644
+index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d8235b7df 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentService.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentService.ts
-@@ -996,6 +996,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -154,6 +154,9 @@ import {
+   type ZCodeAutomationRun,
+   zcodeWorkspaceUpdateOffPeakToolPolicyResultSchema,
+   zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema,
++  zcodeWorkspaceUpdateCompactionPolicyResultSchema,
++  DEFAULT_APP_COMPACTION_POLICY,
++  normalizeAppCompactionPolicy,
+   type DynamicWorkflowClientConfig,
+   type DynamicWorkflowMode,
+   applyDynamicWorkflowUserMode,
+@@ -197,6 +200,7 @@ import type {
+   IZCodeAgentService,
+   ZCodeAgentBackgroundBashOutputParams,
+   ZCodeAgentAppRuntimePreferences,
++  ZCodeAgentCompactionPolicy,
+   ZCodeAgentRuntimeLifecycleEvent,
+   ZCodeAgentAddPluginMarketplaceParams,
+   ZCodeAgentAppUsageParams,
+@@ -932,6 +936,10 @@ function createProviderReadinessSnapshotFromSelectionView(
+   };
+ }
+ 
++function compactionPolicyKey(policy: ZCodeAgentCompactionPolicy): string {
++  return `${policy.profile}:${policy.tailBudgetTokens}:${policy.summaryMaxOutputTokens}`;
++}
++
+ interface WaitingWorkspaceStartup {
+   cancelled: boolean;
+   lastLoggedRevision?: string;
+@@ -953,6 +961,14 @@ interface ActiveWorkspaceClient {
+    * 只在 workspace/updateDynamicWorkflowPolicy 成功后更新；重同步据此跳过没有变化的请求。
+    */
+   dynamicWorkflowPolicyMode: DynamicWorkflowMode;
++  /**
++   * 该 CLI 进程已成功接受的压缩策略 key（docs/compaction-profiles.md）。`undefined` 表示尚未同步
++   * （新 client 或被 existing-only 提升的 client，其进程可能已有非默认策略），因此首次同步必须
++   * 真实请求一次，成功后写入 key。重同步据此跳过没有变化的请求。
++   */
++  compactionPolicyKey?: string;
++  /** 旧 CLI 对 workspace/updateCompactionPolicy 返回 -32601 后置位：同一 client 不再重试该方法。 */
++  compactionUnsupported?: boolean;
+ }
+ 
+ function requiresProviderRegistryRefresh(commandType: string): boolean {
+@@ -996,6 +1012,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    mcpStatusIdleTimeoutMs?: number;
    accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
    accountRequestAuthService?: IAccountRequestAuthService;
@@ -1828,7 +2164,33 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fe
    /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
    authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
    modelSelectionReadinessSource?: ModelSelectionReadinessSource;
-@@ -1440,6 +1441,11 @@ export function createZCodeAgentService(
+@@ -1042,6 +1059,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+   resolveDynamicWorkflowUserMode?: () => Promise<DynamicWorkflowMode | undefined>;
+   /** 用户选择同步后交给装配层转发（Desktop Host 推给本窗口的远程 Host）；值取自本机设置。 */
+   forwardDynamicWorkflowUserMode?: (mode: DynamicWorkflowMode | undefined) => void;
++  /**
++   * 上下文压缩策略的持久化读取点（docs/compaction-profiles.md「Host → CLI 同步」）：拥有本机设置权威的
++   * Host 注入，每次执行 workspace 串行队列时读取最新 AppSettings；desktop-attached remote Host 不注入，
++   * 改用 desktop 推来的值（syncCompactionPolicy），绝不回落本机设置。
++   */
++  resolveCompactionPolicy?: () => Promise<ZCodeAgentCompactionPolicy | undefined>;
++  /** 压缩策略同步后交给装配层转发（Desktop Host 推给本窗口的远程 Host）；值取自生效策略。 */
++  forwardCompactionPolicy?: (policy: ZCodeAgentCompactionPolicy) => void;
+   resolveOffPeakTaskService?: () =>
+     | Pick<IOffPeakTaskService, "createTask" | "list" | "getCodingPlanSupport">
+     | undefined;
+@@ -1361,6 +1386,10 @@ export function createZCodeAgentService(
+   let pushedDynamicWorkflowUserMode: DynamicWorkflowMode | undefined;
+   /** 每个 workspace 的策略同步链：后入队的步骤在前一步落地后才读取生效模式并发送。 */
+   const dynamicWorkflowPolicySyncByWorkspaceKey = new Map<string, Promise<void>>();
++  /** desktop 推来的压缩策略；只在没有本机设置权威（未注入 resolveCompactionPolicy）时使用。 */
++  let pushedCompactionPolicy: ZCodeAgentCompactionPolicy | undefined;
++  /** 每个 workspace 的压缩策略同步链：执行时才读取最新持久化设置，慢旧写不会覆盖新策略。 */
++  const compactionPolicySyncByWorkspaceKey = new Map<string, Promise<void>>();
+   const waitingWorkspaceStartups = new Map<string, WaitingWorkspaceStartup>();
+   function cancelWaitingWorkspaceStartup(workspaceKey: string): void {
+     const waiting = waitingWorkspaceStartups.get(workspaceKey);
+@@ -1440,6 +1469,11 @@ export function createZCodeAgentService(
    async function resolveAccountRequestAuth(
      request: ZCodeProviderRuntimeHeadersRequestParams,
    ): Promise<AccountRequestAuthMaterial | undefined> {
@@ -1840,7 +2202,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fe
      if (!request.accountAccess || !accountRequestAuthService) {
        return undefined;
      }
-@@ -2648,9 +2654,10 @@ export function createZCodeAgentService(
+@@ -2648,9 +2682,10 @@ export function createZCodeAgentService(
            });
            const accountAccess = parsed.data.accountAccess;
            if (
@@ -1854,7 +2216,152 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..78264c4328f50d333421abcab0e682fe
            ) {
              // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
              // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-@@ -5713,6 +5720,7 @@ export function createZCodeAgentService(
+@@ -3320,6 +3355,11 @@ export function createZCodeAgentService(
+     if (active && isReusableActiveClientEntry(params, active)) {
+       active.workspace = params;
+       await active.interactionPreferencesReady;
++      // 已提升的 client 可能由 existing-only 路径登记（key 未知），跳过了启动阶段的策略同步；
++      // 创建/恢复前补一次。正常启动 entries 已成功同步过，key 命中时不发请求。
++      if (active.compactionPolicyKey === undefined) {
++        await enqueueCompactionPolicySync(active);
++      }
+       return active;
+     }
+ 
+@@ -3340,6 +3380,7 @@ export function createZCodeAgentService(
+       modelExecutionEnabled: false,
+       workspace: params,
+       dynamicWorkflowPolicyMode: "disabled",
++      // 不清空 compactionPolicyKey：undefined 表示新 client 尚未同步，首次必定请求一次。
+     };
+     activeClientsByWorkspaceKey.set(workspaceKey, entry);
+     const interactionPreferencesReady = (async () => {
+@@ -3382,10 +3423,14 @@ export function createZCodeAgentService(
+     // 生效模式为关闭时不发请求（CLI 缺省即关闭，对旧 CLI/测试假客户端零打扰）；之后用户改选择时
+     // 经同一条 workspace 串行链重发（launch.md「The user's choice」）。
+     const dynamicWorkflowPolicyReady = enqueueDynamicWorkflowPolicySync(entry);
++    // 压缩策略与动态工作流同为 workspace 级事实：在允许任何 session 工作（创建/恢复）前同步，
++    // 之后设置变化经同一 workspace 串行链重发。CLI 缺省即默认策略，相同值不发请求。
++    const compactionPolicyReady = enqueueCompactionPolicySync(entry);
+     entry.interactionPreferencesReady = Promise.all([
+       interactionPreferencesReady,
+       offPeakToolPolicyReady,
+       dynamicWorkflowPolicyReady,
++      compactionPolicyReady,
+     ]).then(() => undefined);
+     try {
+       // 新建或重启 runtime 在允许任何 session 工作前追平缓存；同步期间的新开关
+@@ -3509,6 +3554,8 @@ export function createZCodeAgentService(
+         workspace: params,
+         // 只提升已有 client，不重放就绪阶段的策略同步；按 CLI 缺省记为关闭，用户改选择时再补发。
+         dynamicWorkflowPolicyMode: "disabled",
++        // 提升的 client 可能已有非默认压缩策略，不能假设 CLI 缺省；key 保持 undefined，
++        // 下一次创建/恢复前真实推送一次当前 Host 策略。
+       });
+       return existingClient;
+     }
+@@ -3744,6 +3791,80 @@ export function createZCodeAgentService(
+     return current;
+   }
+ 
++  /**
++   * 生效压缩策略：拥有设置权威的 Host 每次读取最新持久化值（Host 为权威，远程不能回落本机）；
++   * desktop-attached remote Host 用最近一次推送。读取失败按默认 detailed 处理，不阻断就绪。
++   */
++  async function resolveCompactionPolicy(): Promise<ZCodeAgentCompactionPolicy> {
++    const read = options?.resolveCompactionPolicy;
++    if (read) {
++      try {
++        const value = await read();
++        if (value) return normalizeAppCompactionPolicy(value);
++      } catch (error) {
++        // 读取失败不把本机即时值当成权威：退回最近一次推送（同一次设置变更提供）或默认值。
++        logger.warn(undefined, "压缩策略读取失败，按最近一次推送或默认 detailed 处理", {
++          errorMessage: error instanceof Error ? error.message : String(error),
++        });
++      }
++    }
++    return normalizeAppCompactionPolicy(pushedCompactionPolicy ?? DEFAULT_APP_COMPACTION_POLICY);
++  }
++
++  /**
++   * 把压缩策略同步给一个 workspace 的 CLI（docs/compaction-profiles.md「Host → CLI 同步」）。
++   * 同一 workspace 串行：每一步在执行时才读取最新持久化设置，后入队的步骤必然读到更新的值。
++   * 与 CLI 已接受的策略相同就不发；-32601 是旧 CLI 的正常降级，不重试风暴、不阻断就绪；
++   * 其它失败只记 warn，不篡改已接受状态，让下一次同步继续尝试。
++   */
++  function enqueueCompactionPolicySync(entry: ActiveWorkspaceClient): Promise<void> {
++    const workspaceKey = resolveWorkspaceKey(entry.workspace);
++    const previous = compactionPolicySyncByWorkspaceKey.get(workspaceKey) ?? Promise.resolve();
++    const current = previous
++      .catch(() => {
++        // 前一次失败不能打断之后设置的提交顺序；当前策略仍需继续尝试。
++      })
++      .then(async () => {
++        // 旧 CLI 已确认不支持该方法：在同一 client 生命周期内不再发送未知方法，直到 entry
++        // 随新 client 重建（启动或现有进程提升）后重新尝试一次。
++        if (entry.compactionUnsupported) return;
++        const policy = await resolveCompactionPolicy();
++        // undefined = 新 client 尚未同步（即使值等于默认也要推一次，因为进程可能已有非默认策略）。
++        if (
++          entry.compactionPolicyKey !== undefined &&
++          compactionPolicyKey(policy) === entry.compactionPolicyKey
++        ) {
++          return;
++        }
++        try {
++          const result = await entry.client.request(
++            zcodeProtocolMethods.workspaceUpdateCompactionPolicy,
++            { workspace: buildWorkspaceRef(entry.workspace), ...policy },
++            zcodeWorkspaceUpdateCompactionPolicyResultSchema,
++          );
++          entry.compactionPolicyKey = compactionPolicyKey(
++            normalizeAppCompactionPolicy({
++              profile: result.profile,
++              tailBudgetTokens: result.tailBudgetTokens,
++              summaryMaxOutputTokens: result.summaryMaxOutputTokens,
++            }),
++          );
++        } catch (error) {
++          if (isProtocolMethodNotFoundError(error)) {
++            // -32601 是旧 CLI 的正常降级：本 client 不再重试，避免每次设置变化都发送未知方法。
++            entry.compactionUnsupported = true;
++            return;
++          }
++          logger.warn(undefined, "压缩策略同步失败，CLI 维持原策略", {
++            workspaceKey,
++            errorMessage: error instanceof Error ? error.message : String(error),
++          });
++        }
++      });
++    compactionPolicySyncByWorkspaceKey.set(workspaceKey, current);
++    return current;
++  }
++
+   /** 三条创建路径共用：布尔 + mode 的下发对（关闭时两者都缺席）。 */
+   async function resolveDynamicWorkflowSessionFlags(): Promise<{
+     dynamicWorkflowEnabled: boolean;
+@@ -3925,6 +4046,19 @@ export function createZCodeAgentService(
+       );
+     },
+ 
++    async syncCompactionPolicy(policy: ZCodeAgentCompactionPolicy): Promise<void> {
++      // docs/compaction-profiles.md：本机有设置权威时传入值只是变更信号，以持久化设置为准；
++      // desktop-attached remote Host 没有本机设置，推来的值就是策略。设置变化后转发给
++      // Desktop 本窗口的远程 Host，再让所有活跃 workspace 走各自串行链重发。
++      pushedCompactionPolicy = normalizeAppCompactionPolicy(policy);
++      options?.forwardCompactionPolicy?.(await resolveCompactionPolicy());
++      await Promise.all(
++        [...activeClientsByWorkspaceKey.values()].map((entry) =>
++          enqueueCompactionPolicySync(entry),
++        ),
++      );
++    },
++
+     async getWorkspaceRuntimeIdentity(params: ZCodeAgentWorkspaceTarget) {
+       // 查询 runtime identity 只能观察现有进程，不能把 dormant workspace 变成活动进程。
+       await getReadOnlyClient(params, "existing-only");
+@@ -5713,6 +5847,7 @@ export function createZCodeAgentService(
            ? {
                ...(accountRequestAuth?.apiKey ? { apiKey: accountRequestAuth.apiKey } : {}),
                ...(accountRequestAuth?.apiKeyId ? { apiKeyId: accountRequestAuth.apiKeyId } : {}),
@@ -3020,5 +3527,322 @@ index 0000000000000000000000000000000000000000..73cfe62a45187872ebbfb9eb053d911e
 +    s.owner.dispose();
 +    await task;
 +    expect(s.merge).not.toHaveBeenCalled();
++  });
++});
+diff --git a/packages/services/test/zcodeAgentService.compactionPolicy.test.ts b/packages/services/test/zcodeAgentService.compactionPolicy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b60b5631fb3e42511f0895c6d8f38837249a7832
+--- /dev/null
++++ b/packages/services/test/zcodeAgentService.compactionPolicy.test.ts
+@@ -0,0 +1,311 @@
++import { describe, expect, it, vi } from "vitest";
++import { zcodeProtocolMethods, type AppCompactionPolicy } from "@zcode/shared";
++import { offPeakSelectionView } from "./fixtures/offPeakSelection.js";
++
++// docs/compaction-profiles.md「Host → CLI 同步」：压缩策略是 workspace 级事实，每个 workspace
++// 复用已有 client 串行同步；执行队列时读取最新持久化设置（Host 为权威），成功才记录已发策略。
++
++const WORKSPACE_PATH = "/workspace/compaction";
++const OTHER_WORKSPACE_PATH = "/workspace/other";
++
++const COMPACT: AppCompactionPolicy = {
++  profile: "compact",
++  tailBudgetTokens: 32_000,
++  summaryMaxOutputTokens: 12_000,
++};
++
++const DETAILED_DEFAULTS: AppCompactionPolicy = {
++  profile: "detailed",
++  tailBudgetTokens: 15_000,
++  summaryMaxOutputTokens: 8_000,
++};
++
++class MockProcessManagerBase {
++  onRuntimeLifecycle() {
++    return { dispose() {} };
++  }
++  onRuntimeRestarted() {
++    return { dispose() {} };
++  }
++  markReady() {}
++  getRuntimeIdentity(workspace: { workspacePath: string }) {
++    return {
++      generation: 1,
++      identity: "test-runtime",
++      workspaceKey: workspace.workspacePath,
++    };
++  }
++}
++
++function createFakeClient(request: (method: string, requestParams?: unknown) => Promise<unknown>) {
++  return {
++    request: vi.fn(request),
++    transportKind: "stdio" as const,
++    onNotification: () => ({ dispose() {} }),
++    onRequest: () => ({ dispose() {} }),
++    onClose: () => ({ dispose() {} }),
++  };
++}
++
++async function setup(params: {
++  resolver?: () => Promise<AppCompactionPolicy | undefined>;
++  policyResponse?: (requestParams: unknown) => unknown | Promise<unknown>;
++  requestsByWorkspace?: Map<string, (method: string, requestParams?: unknown) => Promise<unknown>>;
++}) {
++  const request = vi.fn(async (method: string, requestParams?: unknown) => {
++    if (method === zcodeProtocolMethods.workspaceUpdateCompactionPolicy) {
++      if (params.policyResponse) return params.policyResponse(requestParams);
++      return requestParams;
++    }
++    throw new Error(`Unexpected method ${method}`);
++  });
++  const clientsByWorkspace = new Map<string, ReturnType<typeof createFakeClient>>();
++  const getClient = vi.fn(async (workspace: { workspacePath: string }) => {
++    let client = clientsByWorkspace.get(workspace.workspacePath);
++    if (!client) {
++      const workspaceRequest = params.requestsByWorkspace?.get(workspace.workspacePath);
++      client = createFakeClient(workspaceRequest ?? request);
++      clientsByWorkspace.set(workspace.workspacePath, client);
++    }
++    return client;
++  });
++  vi.resetModules();
++  vi.doMock("../src/zcode-agent/zcodeAgentProcessManager.js", () => ({
++    ZCodeAgentProcessManager: class extends MockProcessManagerBase {
++      getClient = getClient;
++      getExistingClient = (workspace: { workspacePath: string }) =>
++        clientsByWorkspace.get(workspace.workspacePath) ?? null;
++      disposeWorkspace = async (workspace: { workspacePath: string }) => {
++        clientsByWorkspace.delete(workspace.workspacePath);
++      };
++      disposeAll() {}
++    },
++  }));
++  const { createZCodeAgentService } = await import("../src/zcode-agent/zcodeAgentService.js");
++  const service = createZCodeAgentService({
++    modelSelectionReadinessSource: { getView: async () => offPeakSelectionView() },
++    ...(params.resolver ? { resolveCompactionPolicy: params.resolver } : {}),
++  });
++  return { service, getClient, clientsByWorkspace, request };
++}
++
++function compactionCalls(request: ReturnType<typeof vi.fn>) {
++  return request.mock.calls.filter(
++    ([method]) => method === zcodeProtocolMethods.workspaceUpdateCompactionPolicy,
++  );
++}
++
++describe("workspace/updateCompactionPolicy 同步（Host 权威）", () => {
++  it("未装配 resolver 时首次连接仍推送一次默认 detailed 策略", async () => {
++    const { service, request } = await setup({});
++    try {
++      await expect(service.initialize({ workspacePath: WORKSPACE_PATH })).resolves.toEqual(
++        expect.objectContaining({ available: true }),
++      );
++      expect(compactionCalls(request)).toHaveLength(1);
++      expect(compactionCalls(request)[0]?.[1]).toMatchObject(DETAILED_DEFAULTS);
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("默认值也在首次连接时推送一次，之后相同值去重", async () => {
++    const { service, request } = await setup({
++      resolver: async () => DETAILED_DEFAULTS,
++    });
++    try {
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(1);
++      await service.syncCompactionPolicy(DETAILED_DEFAULTS);
++      expect(compactionCalls(request)).toHaveLength(1);
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("resolver 返回非整数/越界值时归一为默认，不把脏值下发给 strict CLI", async () => {
++    const { service, request } = await setup({
++      resolver: async () =>
++        ({
++          profile: "compact",
++          tailBudgetTokens: 1.2,
++          summaryMaxOutputTokens: 99_999,
++        }) as unknown as AppCompactionPolicy,
++    });
++    try {
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(1);
++      expect(compactionCalls(request)[0]?.[1]).toMatchObject({
++        profile: "compact",
++        tailBudgetTokens: 15_000,
++        summaryMaxOutputTokens: 8_000,
++      });
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("客户端就绪前推送当前策略；相同值再次同步时去重", async () => {
++    const { service, request } = await setup({
++      resolver: async () => COMPACT,
++    });
++    try {
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(1);
++      expect(compactionCalls(request)[0]?.[1]).toEqual({
++        workspace: expect.objectContaining({ workspacePath: WORKSPACE_PATH }),
++        profile: "compact",
++        tailBudgetTokens: 32_000,
++        summaryMaxOutputTokens: 12_000,
++      });
++
++      await service.syncCompactionPolicy(COMPACT);
++      expect(compactionCalls(request)).toHaveLength(1);
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("同一 workspace 串行：慢请求返回前不发下一条，最后落地的是最新设置", async () => {
++    let policy: AppCompactionPolicy = DETAILED_DEFAULTS;
++    let releaseFirst: (() => void) | undefined;
++    let compactionRequests = 0;
++    const { service, request } = await setup({
++      resolver: async () => policy,
++      policyResponse: async (value) => {
++        compactionRequests += 1;
++        // 第 1 次是首次连接的默认策略推送；让第 2 次（第一次设置变化）保持未完成。
++        if (compactionRequests === 2) {
++          await new Promise<void>((resolve) => {
++            releaseFirst = resolve;
++          });
++        }
++        return value;
++      },
++    });
++    try {
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(1);
++
++      policy = COMPACT;
++      const slow = service.syncCompactionPolicy(COMPACT);
++      await vi.waitFor(() => expect(releaseFirst).toBeDefined());
++      expect(compactionCalls(request)).toHaveLength(2);
++
++      const latest: AppCompactionPolicy = {
++        profile: "compact",
++        tailBudgetTokens: 40_000,
++        summaryMaxOutputTokens: 10_000,
++      };
++      policy = latest;
++      const fast = service.syncCompactionPolicy(latest);
++      // 第一条请求未返回时，下一次同步只能排队，不能并发覆盖。
++      expect(compactionCalls(request)).toHaveLength(2);
++
++      releaseFirst?.();
++      await Promise.all([slow, fast]);
++      const sent = compactionCalls(request).map(([, value]) => value);
++      expect(sent).toHaveLength(3);
++      expect(sent[2]).toMatchObject({
++        profile: "compact",
++        tailBudgetTokens: 40_000,
++        summaryMaxOutputTokens: 10_000,
++      });
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("existing-only 提升的 client 不假设 CLI 缺省：创建/恢复前补推一次（含默认值）", async () => {
++    const { service, getClient, request } = await setup({
++      resolver: async () => DETAILED_DEFAULTS,
++    });
++    try {
++      // 先让 processManager 持有一个已有 client（不经过 service 的 active entry）。
++      await getClient({ workspacePath: WORKSPACE_PATH });
++      await service.getWorkspaceRuntimeIdentity({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(0);
++
++      // 提升后的 entry key 未知，initialize（创建/恢复前）必须真实推送一次。
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(1);
++      expect(compactionCalls(request)[0]?.[1]).toMatchObject({
++        workspace: expect.objectContaining({ workspacePath: WORKSPACE_PATH }),
++        ...DETAILED_DEFAULTS,
++      });
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("-32601 后同一 client 不再重试；新 client 重建 entry 后重新尝试一次", async () => {
++    const { service, request } = await setup({
++      resolver: async () => COMPACT,
++      policyResponse: () => {
++        throw Object.assign(new Error("Method not found"), { code: -32601 });
++      },
++    });
++    try {
++      await expect(service.initialize({ workspacePath: WORKSPACE_PATH })).resolves.toEqual(
++        expect.objectContaining({ available: true }),
++      );
++      expect(compactionCalls(request)).toHaveLength(1);
++
++      // 同一 client 生命周期内设置变化/重复同步都不再发送未知方法（避免风暴）。
++      await service.syncCompactionPolicy(COMPACT);
++      await service.syncCompactionPolicy(DETAILED_DEFAULTS);
++      expect(compactionCalls(request)).toHaveLength(1);
++
++      // 新 client 重建 entry：unsupported 标记随之清除，再尝试一次。
++      await service.disposeWorkspace({ workspacePath: WORKSPACE_PATH });
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      expect(compactionCalls(request)).toHaveLength(2);
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it("非 -32601 失败只告警且不影响其它 workspace 的同步", async () => {
++    const failing = vi.fn(async (method: string) => {
++      if (method === zcodeProtocolMethods.workspaceUpdateCompactionPolicy) {
++        throw new Error("request timed out");
++      }
++      throw new Error(`Unexpected method ${method}`);
++    });
++    const succeeding = vi.fn(async (method: string, requestParams?: unknown) => {
++      if (method === zcodeProtocolMethods.workspaceUpdateCompactionPolicy) return requestParams;
++      throw new Error(`Unexpected method ${method}`);
++    });
++    const { service, clientsByWorkspace } = await setup({
++      resolver: async () => COMPACT,
++      requestsByWorkspace: new Map([
++        [WORKSPACE_PATH, failing],
++        [OTHER_WORKSPACE_PATH, succeeding],
++      ]),
++    });
++    try {
++      await service.initialize({ workspacePath: WORKSPACE_PATH });
++      await service.initialize({ workspacePath: OTHER_WORKSPACE_PATH });
++      await expect(service.syncCompactionPolicy(COMPACT)).resolves.toBeUndefined();
++
++      // 失败方首次就绪同步 + 显式同步各尝试一次，都没有写入已接受缓存。
++      expect(clientsByWorkspace.get(WORKSPACE_PATH)?.request).toHaveBeenCalledTimes(2);
++      const otherCalls = clientsByWorkspace.get(OTHER_WORKSPACE_PATH)?.request.mock.calls ?? [];
++      expect(
++        otherCalls.filter(
++          ([method]) => method === zcodeProtocolMethods.workspaceUpdateCompactionPolicy,
++        ),
++      ).toEqual([
++        [
++          zcodeProtocolMethods.workspaceUpdateCompactionPolicy,
++          expect.objectContaining({
++            workspace: expect.objectContaining({ workspacePath: OTHER_WORKSPACE_PATH }),
++          }),
++          expect.anything(),
++        ],
++      ]);
++    } finally {
++      service.disposeAll();
++    }
 +  });
 +});

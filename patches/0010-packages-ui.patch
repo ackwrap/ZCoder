@@ -505,10 +505,53 @@ index 0000000000000000000000000000000000000000..1532cc2caec461c6f8acf9b0bdc0fd1d
 +  );
 +}
 diff --git a/packages/ui/src/Root.tsx b/packages/ui/src/Root.tsx
-index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..629e92051c4b8351c3d3d2209c3a55cc135027ca 100644
+index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..0310ec81a8c9a102a6b2e05c89e8cf6066955e60 100644
 --- a/packages/ui/src/Root.tsx
 +++ b/packages/ui/src/Root.tsx
-@@ -584,6 +584,8 @@ function RootInner({
+@@ -19,8 +19,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
+ import { LucideProvider, RefreshCw } from "lucide-react";
+ import {
+   APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL,
++  COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL,
+   DesktopCommandIds,
+   appRuntimePreferencesChangedBroadcastPayloadSchema,
++  normalizeAppCompactionPolicy,
+ } from "@zcode/shared";
+ import { TooltipProvider } from "@/components/ui/tooltip.js";
+ import { Button } from "@/components/ui/button.js";
+@@ -353,6 +355,31 @@ function RootInner({
+         return;
+       }
+ 
++      if (message.channel === COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL) {
++        // 广播频道跨窗口，payload 可能来自另一个 Host 的写入；不信任裸 policy。每个 Host
++        // 读取自身最新持久化设置后再同步，避免把其他 Host 的策略覆盖到本 Host / 远程 runtime。
++        void (async () => {
++          const settings = await services.settingService.get();
++          const policy = normalizeAppCompactionPolicy({
++            profile: settings.compactionProfile,
++            tailBudgetTokens: settings.compactionTailBudgetTokens,
++            summaryMaxOutputTokens: settings.compactionSummaryMaxOutputTokens,
++          });
++          const results = await Promise.allSettled([
++            services.zcodeAgentService.syncCompactionPolicy(policy),
++            services.botsService.syncCompactionPolicy(policy),
++          ]);
++          for (const result of results) {
++            if (result.status === "rejected") {
++              logger.warn("[settings] 跨窗口同步压缩策略失败", result.reason);
++            }
++          }
++        })().catch((error) => {
++          logger.warn("[settings] 读取压缩策略失败", error);
++        });
++        return;
++      }
++
+       if (message.channel === CODE_COMMENT_PREVIEW_RESTORE_BROADCAST_CHANNEL) {
+         if (!isCodeCommentPayload(message.payload) || !message.payload.id) {
+           return;
+@@ -584,6 +611,8 @@ function RootInner({
    const { startupCheckCompleted: providerAvailabilityStartupCheckCompleted } =
      useProviderAvailabilityLoginEntryGuard({
        enabled: providerAvailabilityLoginEntryGuardEnabled,
@@ -518,10 +561,18 @@ index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..629e92051c4b8351c3d3d2209c3a55cc
        isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
        providerFamilyDomain: appSettings?.providerFamilyDomain,
 diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
-index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e43608c2c 100644
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..d5dbd0b5d40d980320521d04a399566afaaf2305 100644
 --- a/packages/ui/src/SettingsPage.tsx
 +++ b/packages/ui/src/SettingsPage.tsx
-@@ -72,7 +72,6 @@ import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
+@@ -20,6 +20,7 @@ import {
+ } from "react";
+ import type {
+   AppSettings,
++  CompactionProfile,
+   DesktopCloseToTrayCapability,
+   IntegratedTerminalShellOption,
+   IntegratedTerminalShellSelection,
+@@ -72,7 +73,6 @@ import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
  import { ArchiveManagement, useOptionalProjectDirectory } from "@/project-sidebar/index.js";
  import { resolveRecentRemoteProjectPreference } from "@/project-sidebar/remote-project-connection.js";
  import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
@@ -529,7 +580,15 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e
  import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
  import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
  import {
-@@ -323,15 +322,7 @@ export function SettingsPage({
+@@ -116,6 +116,7 @@ import type { CreateTaskRequest, RemoteConnectionOpenPreference } from "@/app-sh
+ import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+ import { resolveModelProviderConnectivityWorkspacePath } from "@/lib/modelProviderConnectivityTarget.js";
+ import {
++  AdvancedSection,
+   createSettingsPageConfig,
+   GeneralSectionContent,
+   GeneralSectionHeader,
+@@ -323,15 +324,7 @@ export function SettingsPage({
    user?: UserInfo | null;
  }) {
    const { intl, localePreference, setLocalePreference } = useZCodeIntl();
@@ -546,7 +605,7 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e
    const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
    const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
    const platform = usePlatform();
-@@ -628,7 +619,6 @@ export function SettingsPage({
+@@ -628,7 +621,6 @@ export function SettingsPage({
      usageBigmodelEnterpriseProducts.loading ||
      usageZaiEnterpriseProducts.loading;
    const [initialModelProviderTarget] = useState(() => consumePendingSettingsModelProviderTarget());
@@ -554,7 +613,7 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e
    const [pendingModelProviderTarget, setPendingModelProviderTarget] = useState<
      SettingsModelProviderTarget | undefined
    >(() => initialModelProviderTarget);
-@@ -682,18 +672,6 @@ export function SettingsPage({
+@@ -682,18 +674,6 @@ export function SettingsPage({
        setActiveSettingsSection("general");
      }
    }, [activeSection, isDesktop, setActiveSettingsSection]);
@@ -573,7 +632,32 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e
    const handleOpenModelProviderSettings = useCallback(() => {
      setActiveSettingsSection("modelProvider");
    }, [setActiveSettingsSection]);
-@@ -1690,11 +1668,13 @@ export function SettingsPage({
+@@ -1059,6 +1039,24 @@ export function SettingsPage({
+     },
+     [updateSharedSettings],
+   );
++  const handleCompactionProfileChange = useCallback(
++    async (profile: CompactionProfile) => {
++      await updateSharedSettings({ compactionProfile: profile });
++    },
++    [updateSharedSettings],
++  );
++  const handleCompactionTailBudgetTokensChange = useCallback(
++    async (tokens: number) => {
++      await updateSharedSettings({ compactionTailBudgetTokens: tokens });
++    },
++    [updateSharedSettings],
++  );
++  const handleCompactionSummaryMaxOutputTokensChange = useCallback(
++    async (tokens: number) => {
++      await updateSharedSettings({ compactionSummaryMaxOutputTokens: tokens });
++    },
++    [updateSharedSettings],
++  );
+   const handleMemoryEnabledChange = useCallback(
+     async (enabled: boolean) => {
+       await runSettingsActionAsync({
+@@ -1690,11 +1688,13 @@ export function SettingsPage({
                    onThemeChange={handleFooterThemeChange}
                    onSettingsButtonClick={onBack}
                    onUsageClick={handleOpenUsageSettings}
@@ -588,6 +672,30 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..a365ca99448bb78e4b2c6db8e07d433e
                    // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
                    // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
                    isDesktop={isDesktop}
+@@ -2081,6 +2081,23 @@ export function SettingsPage({
+                             />
+                           ) : activeSection === "shortcuts" ? (
+                             <ShortcutSettingsSection isDesktop={Boolean(isDesktop)} />
++                          ) : activeSection === "advanced" ? (
++                            <AdvancedSection
++                              compactionProfile={sharedSettings?.compactionProfile ?? "detailed"}
++                              compactionTailBudgetTokens={
++                                sharedSettings?.compactionTailBudgetTokens ?? 15_000
++                              }
++                              compactionSummaryMaxOutputTokens={
++                                sharedSettings?.compactionSummaryMaxOutputTokens ?? 8_000
++                              }
++                              onCompactionProfileChange={handleCompactionProfileChange}
++                              onCompactionTailBudgetTokensChange={
++                                handleCompactionTailBudgetTokensChange
++                              }
++                              onCompactionSummaryMaxOutputTokensChange={
++                                handleCompactionSummaryMaxOutputTokensChange
++                              }
++                            />
+                           ) : activeSection === "modelProvider" ? (
+                             <ServiceProvider services={localHostServices}>
+                               {/* 模型配置属于本机全局事实源；激活远端 workspace 时也不能注入远端 Host。 */}
 diff --git a/packages/ui/src/ToolCallBlocks.tsx b/packages/ui/src/ToolCallBlocks.tsx
 index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fdd11869b2 100644
 --- a/packages/ui/src/ToolCallBlocks.tsx
@@ -642,6 +750,104 @@ index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fd
          ) : (
            <ToolCallRenderer {...renderContext} />
          )}
+diff --git a/packages/ui/src/ToolCallBlocks/ToolLayout.tsx b/packages/ui/src/ToolCallBlocks/ToolLayout.tsx
+index 4116f285980a0c3ce0c30727c603ac75df7e7c80..07280516ed761dd2db46393b0f7e2b026b4e901d 100644
+--- a/packages/ui/src/ToolCallBlocks/ToolLayout.tsx
++++ b/packages/ui/src/ToolCallBlocks/ToolLayout.tsx
+@@ -62,6 +62,7 @@ interface ToolLayoutProps {
+   content?: ReactNode;
+   renderContent?: () => ReactNode;
+   summaryAction?: ToolSummaryAction;
++  summaryAdornment?: ReactNode;
+ }
+ 
+ function ToolLayoutComponent({
+@@ -102,6 +103,7 @@ function ToolLayoutComponent({
+   content,
+   renderContent,
+   summaryAction,
++  summaryAdornment,
+ }: ToolLayoutProps) {
+   const { intl } = useZCodeIntl();
+   const resolvedPersistOpenKey = persistOpenKey ?? toolId;
+@@ -301,6 +303,35 @@ function ToolLayoutComponent({
+       statusWordNode
+     );
+ 
++  const summary = (
++    <ToolSummaryRow
++      action={summaryAction}
++      animateContent={animateSummaryContent}
++      canToggle={canToggle}
++      contentKey={resolvedSummaryContentKey}
++      contentRefreshVersion={summaryContentRefreshVersion}
++      diffCount={shouldShowDiffCount ? diffCount : undefined}
++      disableContentAnimation={disableSummaryContentAnimation}
++      forceOpen={forceOpen}
++      icon={summaryIcon}
++      isExpanded={isExpanded}
++      kindDetail={summaryKindDetail}
++      kindLabel={summaryKindLabel}
++      kindLabelClassName={kindLabelClassName}
++      primaryText={summaryPrimaryText}
++      prioritizePrimaryText={prioritizePrimaryText}
++      secondaryText={summarySecondaryText}
++      separator={summaryContentSeparator}
++      showIcon={showIcon}
++      sourceLabel={sourceLabel}
++      statusNode={statusNode}
++      title={summaryTitle}
++      toggleAriaLabel={intl.formatMessage({
++        id: isExpanded ? "chat.toolCall.collapseDetails" : "chat.toolCall.expandDetails",
++      })}
++      toolId={toolId}
++    />
++  );
+   return (
+     <Collapsible
+       open={!hasSummaryAction && (forceOpen || (canToggle && isOpen))}
+@@ -316,33 +347,14 @@ function ToolLayoutComponent({
+       }}
+       className="w-full flex flex-col"
+     >
+-      <ToolSummaryRow
+-        action={summaryAction}
+-        animateContent={animateSummaryContent}
+-        canToggle={canToggle}
+-        contentKey={resolvedSummaryContentKey}
+-        contentRefreshVersion={summaryContentRefreshVersion}
+-        diffCount={shouldShowDiffCount ? diffCount : undefined}
+-        disableContentAnimation={disableSummaryContentAnimation}
+-        forceOpen={forceOpen}
+-        icon={summaryIcon}
+-        isExpanded={isExpanded}
+-        kindDetail={summaryKindDetail}
+-        kindLabel={summaryKindLabel}
+-        kindLabelClassName={kindLabelClassName}
+-        primaryText={summaryPrimaryText}
+-        prioritizePrimaryText={prioritizePrimaryText}
+-        secondaryText={summarySecondaryText}
+-        separator={summaryContentSeparator}
+-        showIcon={showIcon}
+-        sourceLabel={sourceLabel}
+-        statusNode={statusNode}
+-        title={summaryTitle}
+-        toggleAriaLabel={intl.formatMessage({
+-          id: isExpanded ? "chat.toolCall.collapseDetails" : "chat.toolCall.expandDetails",
+-        })}
+-        toolId={toolId}
+-      />
++      {summaryAdornment ? (
++        <div className="flex min-w-0 items-center gap-1">
++          <div className="min-w-0">{summary}</div>
++          {summaryAdornment}
++        </div>
++      ) : (
++        summary
++      )}
+       {!hasSummaryAction && canToggle ? (
+         <CollapsibleContent className={TOOL_CONTENT_SHELL_CLASSNAME}>
+           {/* padding 直接挂在高度动画节点上时，主体归零后仍会停在 8px，
 diff --git a/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx b/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx
 index e50ee6c34b5b45d62e545d7ddac2fc2dcbcb1d4d..f3eba24f2fe7175eec3060fab89a1ecb51175c81 100644
 --- a/packages/ui/src/ToolCallBlocks/ToolPresentation.tsx
@@ -677,108 +883,24 @@ index e50ee6c34b5b45d62e545d7ddac2fc2dcbcb1d4d..f3eba24f2fe7175eec3060fab89a1ecb
 +    );
    return <Renderer {...context} />;
  }
-diff --git a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx b/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
-index 69a3da030d2537cf09d2e433ae44d8872db9f329..5708be4778aae24657235da57b08eed58301032d 100644
---- a/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
-+++ b/packages/ui/src/ToolCallBlocks/renderers/edit.tsx
-@@ -21,15 +21,28 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+diff --git a/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx b/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx
+index c159bb72edcf0bd7ebb8106e0e856be78e153b9f..7c2c978c8784b84c4bfedb3a07c95c9bfd3ace3d 100644
+--- a/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx
++++ b/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx
+@@ -2,6 +2,11 @@ import { createContext, useContext, type ReactNode } from "react";
+ import type { AgentColor, ApplicationIconRequest, FileMediaPreview } from "@zcode/shared";
  
- const EDIT_TOOL_ICON = <PencilIcon className="size-4 shrink-0 text-foreground-subtle" />;
- 
--const EDIT_SINGLE_LAYOUT = {
--  canToggle: true,
--  forceOpen: false,
--} as const;
-+/**
-+ * 运行中的文件修改卡片默认展开，方便边写边看 diff；
-+ * 完成后不单独收起，交给整条 assistant 消息的默认折叠边界统一收口。
-+ * 用户手动折叠优先：autoOpen 只在首次挂载时展开一次。
-+ */
-+export function resolveEditToolLayout({
-+  hasMultipleFiles,
-+  isRunning,
-+}: {
-+  hasMultipleFiles: boolean;
-+  isRunning: boolean;
-+}): { canToggle: boolean; forceOpen: boolean; autoOpen: boolean } {
-+  return {
-+    canToggle: true,
-+    forceOpen: false,
-+    autoOpen: hasMultipleFiles ? false : isRunning,
-+  };
-+}
- 
--const EDIT_CHILD_LAYOUT = {
--  canToggle: true,
--  forceOpen: false,
--} as const;
-+export function resolveEditChildAutoOpen(isRunning: boolean): boolean {
-+  return isRunning;
-+}
- 
- function isRawToolCallFailed(raw: unknown) {
-   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-@@ -160,13 +173,7 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
-       } satisfies EditKindSource,
-     ),
-   });
--  const layoutConfig = hasMultipleFiles
--    ? {
--        canToggle: true,
--        forceOpen: false,
--        autoOpen: false,
--      }
--    : EDIT_SINGLE_LAYOUT;
-+  const layoutConfig = resolveEditToolLayout({ hasMultipleFiles, isRunning });
-   const expandedPrimaryText = useMemo(
-     () =>
-       rawFileSummaries.length > 1 ? (
-@@ -460,8 +467,11 @@ function EditFileSummaryBlock({
-         toolId={toolId}
-         icon={EDIT_TOOL_ICON}
-         showIcon={showIcon !== false}
--        // 多文件 edit 的每个子文件都有自己的 diff content，必须允许单独展开查看。
--        {...EDIT_CHILD_LAYOUT}
-+        // 多文件 edit 的每个子文件都有自己的 diff content，必须允许单独展开。
-+        // 运行中默认展开，完成后不单独收起，由整条消息的折叠边界统一收口。
-+        canToggle
-+        forceOpen={false}
-+        autoOpen={resolveEditChildAutoOpen(isRunning)}
-         kindLabel={kindLabel}
-         sourceLabel={sourceLabel}
-         primaryText={primaryText}
-diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
-index 44c956a6034ecd0e63d9a41b02f9e686f3340bbe..e95896f1d13dba0f0b62d57d579eaec9c8f894e5 100644
---- a/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
-+++ b/packages/ui/src/ToolCallBlocks/renderers/execute-group.tsx
-@@ -112,6 +112,10 @@ export function ExecuteGroupToolCallBlock(context: ToolCallBlockRenderContext) {
-       icon={EXECUTE_GROUP_ICON}
-       canToggle={!isOfficeMode && (context.canToggle ?? true)}
-       forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
-+      // 与单条命令一致：运行中的命令组默认展开，实时显示子命令与输出；
-+      // 执行结束后自动收起为汇总，用户仍可手动再次展开。
-+      autoOpen={!isOfficeMode && isRunning}
-+      autoCollapseOnComplete={!isOfficeMode}
-       kindLabel={intl.formatMessage({ id: "chat.toolCall.executeGroup.label" })}
-       expandedKindLabel={intl.formatMessage({
-         id: "chat.toolCall.executeGroup.label",
-diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-index 37ac09799834fcfdb8d0c29853166af7f8a30046..3219a724bf13dee618b60d0c49d6151d2831182c 100644
---- a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-+++ b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-@@ -347,6 +347,10 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
-         showIcon={context.showIcon !== false}
-         canToggle={!isOfficeMode && (context.canToggle ?? true)}
-         forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
-+        // 运行中的命令默认展开，实时显示输出；执行结束后自动收起为摘要，
-+        // 用户仍可手动再次展开查看完整输出。
-+        autoOpen={!isOfficeMode && isRunning}
-+        autoCollapseOnComplete={!isOfficeMode}
-         hideSecondaryTextWhenOpen
-         kindLabel={
-           (isOfficeMode
+ export interface ToolPresentationCapabilities {
++  readTaskOutputRange?: (params: {
++    path: string;
++    offset: number;
++    length: number;
++  }) => Promise<Uint8Array>;
+   readMediaPreview?: (path: string) => Promise<FileMediaPreview>;
+   getApplicationIcon?: (
+     request: ApplicationIconRequest | string,
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
-index 40352b38d217883006fc1436db83664013ea1a38..a94bacc0bc4c631ba7fad98f4d2c805bc99b7452 100644
+index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6d3c746fa 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
 +++ b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
 @@ -11,9 +11,10 @@ import { renderFilePath } from "@/ToolCallBlocks/shared.js";
@@ -964,18 +1086,7 @@ index 40352b38d217883006fc1436db83664013ea1a38..a94bacc0bc4c631ba7fad98f4d2c805b
        context.workspacePath,
      ],
    );
-@@ -479,6 +571,10 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
-         icon={EXPLORE_TOOL_ICON}
-         canToggle={context.canToggle ?? true}
-         forceOpen={context.forceOpen ?? false}
-+        // 运行中的探索阶段默认展开，保证正在执行的命令与思考内容可见；
-+        // 阶段结束后回到“探索 · 查阅/思考次数”摘要，用户可以再手动展开。
-+        autoOpen={isRunning}
-+        autoCollapseOnComplete
-         kindLabel={kindLabel}
-         expandedKindLabel={kindLabel}
-         sourceLabel={context.sourceLabel}
-@@ -497,7 +593,7 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -497,7 +589,7 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
          statusTooltip={toolCall.status === "failed" ? errorText : undefined}
          showFailureStatus={toolCall.status === "failed"}
          isRunning={isRunning}
@@ -984,6 +1095,239 @@ index 40352b38d217883006fc1436db83664013ea1a38..a94bacc0bc4c631ba7fad98f4d2c805b
          expandedTitle={toolCall.title}
          renderContent={renderContent}
        />
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx b/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx
+index 6d7c206c6d5a537e37823701053111ed33c3ffba..8a5c63a0a63c08dfde20c70556b317b60140bee6 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx
+@@ -1,5 +1,7 @@
+-import { FileOutputIcon } from "lucide-react";
+-import { useCallback, useMemo } from "react";
++import { CheckIcon, CopyIcon, FileOutputIcon } from "lucide-react";
++import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
++import { Button } from "@/components/ui/button.js";
++import { useToolPresentationCapabilities } from "@/ToolCallBlocks/presentationCapabilities.js";
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+ import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
+@@ -41,6 +43,51 @@ function isStoppedTaskStatus(status: string | undefined): boolean {
+   return normalized === "cancelled" || normalized === "killed" || normalized === "stopped";
+ }
+ 
++export function readCompleteTaskOutput(
++  text: unknown,
++  taskId: string | undefined,
++  truncated: unknown,
++): string | undefined {
++  if (typeof text !== "string" || !taskId || truncated || text.length > 8 * 1024 * 1024)
++    return undefined;
++  const match =
++    /^<retrieval_status>(?:success|not_ready|timeout)<\/retrieval_status>\n\n<task_id>([^\n]+)<\/task_id>\n\n<task_type>([^\n]+)<\/task_type>\n\n<status>[^\n]+<\/status>(?:\n\n<exit_code>-?\d+<\/exit_code>)?\n\n<output>\n([\s\S]*)\n<\/output>(?:\n\n<error>[\s\S]*<\/error>)?$/u.exec(
++      text,
++    );
++  if (
++    !match ||
++    match[1] !== taskId ||
++    match[2] === "local_agent" ||
++    !match[3]?.trim() ||
++    match[3].includes("[Truncated.") ||
++    match[3].includes("[Tool output truncated")
++  )
++    return undefined;
++  return match[3];
++}
++
++export async function readTaskOutputCopySource(
++  source: { path: string; bytes: number },
++  readRange: (params: { path: string; offset: number; length: number }) => Promise<Uint8Array>,
++  isCurrent: () => boolean = () => true,
++): Promise<string> {
++  if (!Number.isInteger(source.bytes) || source.bytes <= 0 || source.bytes > 8 * 1024 * 1024)
++    throw new Error("Invalid output size");
++  const bytes = new Uint8Array(source.bytes);
++  let offset = 0;
++  while (offset < source.bytes) {
++    if (!isCurrent()) throw new Error("Stale copy");
++    const length = Math.min(256 * 1024, source.bytes - offset);
++    const chunk = await readRange({ path: source.path, offset, length });
++    if (!isCurrent() || chunk.byteLength !== length) throw new Error("Incomplete output");
++    bytes.set(chunk, offset);
++    offset += chunk.byteLength;
++  }
++  if ((await readRange({ path: source.path, offset, length: 1 })).byteLength !== 0 || !isCurrent())
++    throw new Error("Output changed");
++  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
++}
++
+ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
+   const { intl } = useZCodeIntl();
+   const { toolCall } = context.toolCallNode;
+@@ -56,6 +103,109 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
+   const showFailureStatus = !isDenied && !isStopped && (isExecutionFailed || isTaskFailed);
+   const output = taskOutputDisplay?.output;
+   const hasOutput = output !== undefined;
++  const capabilities = useToolPresentationCapabilities();
++  const source = taskOutputDisplay?.copySource;
++  const inlineOutput = readCompleteTaskOutput(
++    toolCall.output,
++    taskId,
++    toRecord(toolCall.raw)?.outputTruncated ||
++      toolCall.snapshotRefs?.some((ref) => ref.field === "output"),
++  );
++  const canCopy =
++    !context.isRunning &&
++    !isExecutionFailed &&
++    !isDenied &&
++    !isStopped &&
++    Boolean((source && capabilities.readTaskOutputRange && !capabilities.readonly) || inlineOutput);
++  const [copyState, setCopyState] = useState<"idle" | "loading" | "copied" | "failed">("idle");
++  const copyGeneration = useRef(0);
++  const copyBusy = useRef(false);
++  useLayoutEffect(() => {
++    copyGeneration.current += 1;
++    copyBusy.current = false;
++    setCopyState("idle");
++    return () => {
++      copyGeneration.current += 1;
++    };
++  }, [
++    toolCall.toolId,
++    source?.path,
++    source?.bytes,
++    inlineOutput,
++    capabilities.readTaskOutputRange,
++  ]);
++  const handleCopy = useCallback(async () => {
++    if (!canCopy || copyBusy.current) return;
++    copyBusy.current = true;
++    const generation = copyGeneration.current;
++    const isCurrent = () => generation === copyGeneration.current;
++    setCopyState("loading");
++    try {
++      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
++      const textPromise =
++        source && capabilities.readTaskOutputRange && !capabilities.readonly
++          ? readTaskOutputCopySource(source, capabilities.readTaskOutputRange, isCurrent)
++          : Promise.resolve(inlineOutput);
++      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
++        const content = textPromise.then((text) => {
++          if (!isCurrent() || text === undefined) throw new Error("Full output unavailable");
++          return new Blob([text], { type: "text/plain" });
++        });
++        // WebKit requires write admission during the original user gesture, before Host IO.
++        void content.catch(() => undefined);
++        await navigator.clipboard.write([new ClipboardItem({ "text/plain": content })]);
++      } else {
++        const text = await textPromise;
++        if (!isCurrent()) return;
++        if (text === undefined) throw new Error("Full output unavailable");
++        await navigator.clipboard.writeText(text);
++      }
++      if (isCurrent()) setCopyState("copied");
++    } catch {
++      if (isCurrent()) setCopyState("failed");
++    } finally {
++      if (isCurrent()) copyBusy.current = false;
++    }
++  }, [canCopy, source, capabilities.readTaskOutputRange, capabilities.readonly, inlineOutput]);
++  const copyLabel = intl.formatMessage({
++    id: !canCopy
++      ? "chat.toolCall.taskOutput.copyUnavailable"
++      : copyState === "idle"
++        ? "chat.toolCall.taskOutput.copy"
++        : `chat.toolCall.taskOutput.copy.${copyState}`,
++  });
++  const copyAction = useMemo(
++    () =>
++      hasOutput ? (
++        <span className="inline-flex shrink-0 items-center">
++          <Button
++            type="button"
++            variant="ghost"
++            size="icon-sm"
++            disabled={!canCopy || copyState === "loading"}
++            aria-label={copyLabel}
++            title={copyLabel}
++            onClick={(event) => {
++              event.stopPropagation();
++              void handleCopy();
++            }}
++          >
++            {copyState === "copied" ? (
++              <CheckIcon className="size-3.5" />
++            ) : (
++              <CopyIcon className="size-3.5" />
++            )}
++          </Button>
++          <span
++            role="status"
++            className={copyState === "failed" ? "text-ui-xs text-foreground-subtle" : "sr-only"}
++          >
++            {copyState !== "idle" ? copyLabel : ""}
++          </span>
++        </span>
++      ) : undefined,
++    [hasOutput, canCopy, copyState, copyLabel, handleCopy],
++  );
+ 
+   let outcomeLabel: string | undefined;
+   if (isExecutionFailed) {
+@@ -117,6 +267,7 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
+         kindLabel={kindLabel}
+         sourceLabel={context.sourceLabel}
+         primaryText={primaryText}
++        summaryAdornment={copyAction}
+         statusLabel={outcomeLabel}
+         showStatusLabel={outcomeLabel != null}
+         statusTooltip={isExecutionFailed ? context.errorText : undefined}
+diff --git a/packages/ui/src/ToolCallBlocks/toolResultDisplay.ts b/packages/ui/src/ToolCallBlocks/toolResultDisplay.ts
+index 1e1f61905ac192b0d5d4cf835a73253c988b40d5..eade5ae13921916d27d82c8b54d482cc53534865 100644
+--- a/packages/ui/src/ToolCallBlocks/toolResultDisplay.ts
++++ b/packages/ui/src/ToolCallBlocks/toolResultDisplay.ts
+@@ -31,6 +31,7 @@ export interface TaskStopToolResultDisplay {
+ 
+ export interface TaskOutputToolResultDisplay {
+   kind: "task_output";
++  copySource?: { path: string; bytes: number };
+   retrievalStatus: "success" | "not_ready" | "timeout";
+   taskStatus?: string;
+   output?: string;
+@@ -91,8 +92,7 @@ const WORKFLOW_DISPLAY_PARSERS_BY_KIND: Record<
+   (value: Record<string, unknown>) => ToolResultDisplay | undefined
+ > = {
+   get_workflow_run: (value) => parseWorkflowDisplay(toolCallGetWorkflowRunDisplaySchema, value),
+-  list_workflow_runs: (value) =>
+-    parseWorkflowDisplay(toolCallListWorkflowRunsDisplaySchema, value),
++  list_workflow_runs: (value) => parseWorkflowDisplay(toolCallListWorkflowRunsDisplaySchema, value),
+   eval_workflow_snippet: (value) =>
+     parseWorkflowDisplay(toolCallEvalWorkflowSnippetDisplaySchema, value),
+   saved_workflow_list: (value) =>
+@@ -172,6 +172,18 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
+     }
+     const taskStatus = readOptionalString(value, "taskStatus");
+     const output = readOptionalString(value, "output");
++    const source = value.copySource;
++    const copySource =
++      isRecord(source) &&
++      typeof source.path === "string" &&
++      source.path.length > 0 &&
++      source.path.length <= 4_096 &&
++      typeof source.bytes === "number" &&
++      Number.isInteger(source.bytes) &&
++      source.bytes > 0 &&
++      source.bytes <= 8 * 1024 * 1024
++        ? { path: source.path, bytes: source.bytes }
++        : undefined;
+     const truncated = value.truncated;
+     if (
+       taskStatus === null ||
+@@ -185,6 +197,7 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
+     return {
+       kind: "task_output",
+       retrievalStatus: value.retrievalStatus,
++      ...(copySource ? { copySource } : {}),
+       ...(taskStatus !== undefined ? { taskStatus } : {}),
+       ...(output !== undefined ? { output } : {}),
+       ...(truncated === true ? { truncated: true } : {}),
 diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
 index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c613a18fbe1 100644
 --- a/packages/ui/src/WorkspaceSidebarFooter.tsx
@@ -2720,8 +3064,90 @@ index 0000000000000000000000000000000000000000..234d8a51a7d6296387e04fe6e2b1e579
 +  }, [providerId, service]);
 +  return { state, refresh };
 +}
+diff --git a/packages/ui/src/hooks/useSettingService.ts b/packages/ui/src/hooks/useSettingService.ts
+index fcc05c37144e5dbfce7111d3097f5a6ef7a326e9..f9a489c3fda1f170f005933913ded9572189f474 100644
+--- a/packages/ui/src/hooks/useSettingService.ts
++++ b/packages/ui/src/hooks/useSettingService.ts
+@@ -2,7 +2,12 @@
+  * useSettingService —— 设置服务 hooks
+  */
+ import { useState, useEffect, useCallback } from "react";
+-import { APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL, type AppSettings } from "@zcode/shared";
++import {
++  APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL,
++  COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL,
++  normalizeAppCompactionPolicy,
++  type AppSettings,
++} from "@zcode/shared";
+ import type { IServiceAccessor, ISettingService } from "@zcode/services";
+ import { useServices } from "./useServices.js";
+ import { usePlatform } from "./usePlatform.js";
+@@ -19,6 +24,14 @@ const INITIAL_SETTINGS_SNAPSHOT: SettingsSnapshot = {
+   error: null,
+ };
+ const snapshots = new Map<string, SettingsSnapshot>();
++
++function touchesCompactionPolicy(patch: Partial<AppSettings>): boolean {
++  return (
++    "compactionProfile" in patch ||
++    "compactionTailBudgetTokens" in patch ||
++    "compactionSummaryMaxOutputTokens" in patch
++  );
++}
+ const inflightRefreshes = new Map<string, Promise<void>>();
+ const listenersByKey = new Map<string, Set<(snapshot: SettingsSnapshot) => void>>();
+ const defaultCacheKeyByServices = new WeakMap<object, string>();
+@@ -185,6 +198,34 @@ export function useSettings(options: { cacheKey?: string; services?: IServiceAcc
+           throw syncError;
+         }
+       }
++      // docs/compaction-profiles.md：三个压缩设置持久化成功后才同步。独立方法把策略作为
++      // 归一后的 workspace 级事实下发，不塞进 strict interaction preferences。广播沿用同一
++      // broadcast 机制；其它窗口收到后同样只同步、不写设置。远端 Host 由各自 Source 路径负责。
++      if (touchesCompactionPolicy(patch)) {
++        const currentSettings = getSettingsSnapshot(cacheKey).settings;
++        const policy = normalizeAppCompactionPolicy({
++          profile: patch.compactionProfile ?? currentSettings?.compactionProfile,
++          tailBudgetTokens:
++            patch.compactionTailBudgetTokens ?? currentSettings?.compactionTailBudgetTokens,
++          summaryMaxOutputTokens:
++            patch.compactionSummaryMaxOutputTokens ??
++            currentSettings?.compactionSummaryMaxOutputTokens,
++        });
++        const syncResults = await Promise.allSettled([
++          zcodeAgentService.syncCompactionPolicy(policy),
++          botsService.syncCompactionPolicy(policy),
++        ]);
++        const syncError = syncResults.find(
++          (result): result is PromiseRejectedResult => result.status === "rejected",
++        )?.reason;
++        await broadcastService.send({
++          channel: COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL,
++          payload: policy,
++        });
++        if (syncError) {
++          throw syncError;
++        }
++      }
+     },
+     [botsService, broadcastService, cacheKey, settingService, zcodeAgentService, platform, refresh],
+   );
+diff --git a/packages/ui/src/hooks/useToolPresentationHostCapabilities.ts b/packages/ui/src/hooks/useToolPresentationHostCapabilities.ts
+index 5c849ba8b42ba2ccb969076a74ce89644ed72e39..f91d37e3f5707df5fcdf776758f2447975f9d98c 100644
+--- a/packages/ui/src/hooks/useToolPresentationHostCapabilities.ts
++++ b/packages/ui/src/hooks/useToolPresentationHostCapabilities.ts
+@@ -27,6 +27,9 @@ export function useToolPresentationHostCapabilities(
+       : useSubagentsStore.getState().agents;
+   return useMemo(
+     () => ({
++      readTaskOutputRange: services
++        ? (params) => services.fileService.readFileRange(params)
++        : undefined,
+       readMediaPreview: services
+         ? (path: string) => services.fileService.readMediaPreview({ path })
+         : undefined,
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8473fba9c 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03d827428e 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,62 @@
@@ -2787,7 +3213,32 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "preview.image.copy": "Copy image",
    "preview.image.actions": "Image actions",
    "preview.image.added": "Added to chat",
-@@ -4558,8 +4614,6 @@ const enUS: Record<string, string> = {
+@@ -3052,6 +3108,24 @@ const enUS: Record<string, string> = {
+   "settings.appearanceTitle": "Appearance",
+   "settings.shortcuts.saveFailed": "Failed to save shortcuts. Try again.",
+   "settings.shortcuts.title": "Keyboard Shortcuts",
++  "settings.advanced.title": "Advanced",
++  "settings.advanced.compactionProfile": "Context compaction",
++  "settings.advanced.compactionProfileDescription":
++    "Choose how much detail the summary keeps when the conversation is compacted.",
++  "settings.advanced.compactionProfile.detailed": "Detailed summary",
++  "settings.advanced.compactionProfile.detailedDescription":
++    "Keeps the full sectioned summary with a fixed 20K output cap. Best when you continue deep work after compacting.",
++  "settings.advanced.compactionProfile.compact": "Compact summary",
++  "settings.advanced.compactionProfile.compactDescription":
++    "Keeps a shorter continuation summary to save context. Custom token budgets apply only in this mode.",
++  "settings.advanced.compactionTailBudgetTokens": "Recent context budget",
++  "settings.advanced.compactionTailBudgetTokensDescription":
++    "Estimated tokens kept from the newest user turns in compact mode (1,000–100,000).",
++  "settings.advanced.compactionSummaryMaxOutputTokens": "Summary output limit",
++  "settings.advanced.compactionSummaryMaxOutputTokensDescription":
++    "Maximum tokens for the compact summary (1,000–20,000), still bounded by the model.",
++  "settings.advanced.tokenRangeError": "Enter an integer from {min} to {max}.",
++  "settings.advanced.saveFailed": "Failed to save. Try again.",
+   "settings.shortcuts.searchPlaceholder": "Search shortcuts",
+   "settings.shortcuts.keySearchAria": "Search by key combination",
+   "settings.shortcuts.keySearchPlaceholder": "Press a key combination to search…",
+@@ -4558,8 +4632,6 @@ const enUS: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "Not configured",
    "sidebar.usage.summaryTitle": "Last 30 days",
    "sidebar.usage.plan.title": "Usage remaining",
@@ -2796,7 +3247,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "sidebar.usage.plan.codingPlanTitle": "Coding Plan",
    "sidebar.usage.plan.audienceIndividual": "Individual",
    "sidebar.usage.plan.audienceTeam": "Team",
-@@ -5691,6 +5745,7 @@ const enUS: Record<string, string> = {
+@@ -5691,6 +5763,7 @@ const enUS: Record<string, string> = {
    "chat.message.toolSnapshot.loading": "Loading...",
    "chat.message.toolSnapshot.retry": "Load failed, retry",
    "chat.message.time.yesterday": "Yesterday {time}",
@@ -2804,7 +3255,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "chat.message.retry": "Retry",
    "chat.history.workingFor": "Working for {duration}",
    "chat.history.workedFor": "Worked for {duration}",
-@@ -5829,6 +5884,13 @@ const enUS: Record<string, string> = {
+@@ -5829,6 +5902,13 @@ const enUS: Record<string, string> = {
    "chat.target.resume": "Resume goal",
    "chat.target.clear": "Clear goal",
    "chat.summaryPanel.title": "Status",
@@ -2818,7 +3269,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "chat.summaryPanel.duration.hours": "h",
    "chat.summaryPanel.duration.minutes": "m",
    "chat.summaryPanel.duration.seconds": "s",
-@@ -5905,6 +5967,39 @@ const enUS: Record<string, string> = {
+@@ -5905,6 +5985,39 @@ const enUS: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
    "chat.slash.app.plan.label": "Plan mode",
    "chat.slash.app.plan.description": "Enable Plan mode",
@@ -2858,7 +3309,19 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "chat.compact.runningBlocked": "Compact context after the current task finishes.",
    "chat.compact.queued": "Compaction queued and will run in order.",
    "chat.compact.duplicateBlocked": "A compaction is already running or queued.",
-@@ -6790,6 +6885,19 @@ const enUS: Record<string, string> = {
+@@ -6075,6 +6188,11 @@ const enUS: Record<string, string> = {
+   "chat.toolCall.taskOutput.stopped": "Fetch stopped",
+   "chat.toolCall.taskOutput.taskStopped": "Task stopped",
+   "chat.toolCall.taskOutput.truncated": "Remaining output omitted.",
++  "chat.toolCall.taskOutput.copy": "Copy full retrieved output",
++  "chat.toolCall.taskOutput.copy.loading": "Copying…",
++  "chat.toolCall.taskOutput.copy.copied": "Full output copied",
++  "chat.toolCall.taskOutput.copy.failed": "Copy failed. Try again",
++  "chat.toolCall.taskOutput.copyUnavailable": "Full output unavailable; cannot copy",
+   "chat.toolCall.taskStop.stopping": "Stopping",
+   "chat.toolCall.taskStop.stopped": "Stopped",
+   "chat.toolCall.taskStop.failed": "Failed to stop task",
+@@ -6790,6 +6908,19 @@ const enUS: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "Result",
    "chat.toolCall.sessionContext.noResult": "No context returned.",
    "chat.toolCall.explore.label": "Explore",
@@ -2879,7 +3342,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8
    "chat.toolCall.explore.bucket.search.other": "searches",
    "chat.toolCall.explore.bucket.list.one": "list",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967b055aa32 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d83c6c2ef 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,56 @@
@@ -2939,7 +3402,31 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967
    "preview.image.copy": "复制图片",
    "preview.image.actions": "图片操作",
    "preview.image.added": "已添加到聊天",
-@@ -4281,8 +4331,6 @@ const zhCN: Record<string, string> = {
+@@ -2856,6 +2906,23 @@ const zhCN: Record<string, string> = {
+   "settings.appearanceTitle": "外观",
+   "settings.shortcuts.saveFailed": "快捷键保存失败，请重试。",
+   "settings.shortcuts.title": "键盘快捷键",
++  "settings.advanced.title": "高级设置",
++  "settings.advanced.compactionProfile": "上下文压缩方式",
++  "settings.advanced.compactionProfileDescription": "选择对话被压缩时摘要保留的详细程度。",
++  "settings.advanced.compactionProfile.detailed": "详细摘要",
++  "settings.advanced.compactionProfile.detailedDescription":
++    "保留完整的分节摘要，输出上限固定 20K，适合压缩后继续深入处理。",
++  "settings.advanced.compactionProfile.compact": "精简摘要",
++  "settings.advanced.compactionProfile.compactDescription":
++    "使用更短的续接摘要以减少上下文占用，自定义 token 预算仅在此模式生效。",
++  "settings.advanced.compactionTailBudgetTokens": "最近上下文预算",
++  "settings.advanced.compactionTailBudgetTokensDescription":
++    "精简模式从最新用户轮次向前保留的估算 token 上限（1,000–100,000）。",
++  "settings.advanced.compactionSummaryMaxOutputTokens": "摘要输出上限",
++  "settings.advanced.compactionSummaryMaxOutputTokensDescription":
++    "精简摘要的最大输出 token（1,000–20,000），仍受模型能力限制。",
++  "settings.advanced.tokenRangeError": "请输入 {min}–{max} 之间的整数。",
++  "settings.advanced.saveFailed": "保存失败，请重试。",
+   "settings.shortcuts.searchPlaceholder": "搜索快捷键",
+   "settings.shortcuts.keySearchAria": "按组合键搜索",
+   "settings.shortcuts.keySearchPlaceholder": "按下要搜索的组合键…",
+@@ -4281,8 +4348,6 @@ const zhCN: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "未配置",
    "sidebar.usage.summaryTitle": "最近 30 天",
    "sidebar.usage.plan.title": "剩余额度",
@@ -2948,7 +3435,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967
    "sidebar.usage.plan.codingPlanTitle": "编程套餐",
    "sidebar.usage.plan.audienceIndividual": "个人",
    "sidebar.usage.plan.audienceTeam": "团队",
-@@ -5318,6 +5366,7 @@ const zhCN: Record<string, string> = {
+@@ -5318,6 +5383,7 @@ const zhCN: Record<string, string> = {
    "chat.message.toolSnapshot.loading": "正在加载...",
    "chat.message.toolSnapshot.retry": "加载失败，重试",
    "chat.message.time.yesterday": "昨天 {time}",
@@ -2956,7 +3443,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967
    "chat.message.retry": "重试",
    "chat.history.workingFor": "工作中 {duration}",
    "chat.history.workedFor": "已工作 {duration}",
-@@ -5451,6 +5500,13 @@ const zhCN: Record<string, string> = {
+@@ -5451,6 +5517,13 @@ const zhCN: Record<string, string> = {
    "chat.target.resume": "继续目标",
    "chat.target.clear": "清空目标",
    "chat.summaryPanel.title": "状态",
@@ -2970,7 +3457,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967
    "chat.summaryPanel.duration.hours": "小时",
    "chat.summaryPanel.duration.minutes": "分",
    "chat.summaryPanel.duration.seconds": "秒",
-@@ -5530,6 +5586,37 @@ const zhCN: Record<string, string> = {
+@@ -5530,6 +5603,37 @@ const zhCN: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal 无法在 Plan 模式下使用，请切换模式。",
    "chat.slash.app.plan.label": "计划模式",
    "chat.slash.app.plan.description": "开启计划模式",
@@ -3008,7 +3495,19 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967
    "chat.compact.runningBlocked": "运行中不能压缩上下文，请等待当前任务结束。",
    "chat.compact.queued": "已加入队列，将按顺序压缩上下文。",
    "chat.compact.duplicateBlocked": "已有压缩任务正在运行或排队。",
-@@ -6463,6 +6550,19 @@ const zhCN: Record<string, string> = {
+@@ -5697,6 +5801,11 @@ const zhCN: Record<string, string> = {
+   "chat.toolCall.taskOutput.stopped": "获取已停止",
+   "chat.toolCall.taskOutput.taskStopped": "任务已停止",
+   "chat.toolCall.taskOutput.truncated": "后续内容已省略。",
++  "chat.toolCall.taskOutput.copy": "复制本次完整输出",
++  "chat.toolCall.taskOutput.copy.loading": "正在复制…",
++  "chat.toolCall.taskOutput.copy.copied": "已复制完整输出",
++  "chat.toolCall.taskOutput.copy.failed": "复制失败，请重试",
++  "chat.toolCall.taskOutput.copyUnavailable": "完整输出不可用，无法复制",
+   "chat.toolCall.taskStop.stopping": "正在停止任务",
+   "chat.toolCall.taskStop.stopped": "已停止",
+   "chat.toolCall.taskStop.failed": "停止任务失败",
+@@ -6463,6 +6572,19 @@ const zhCN: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "结果",
    "chat.toolCall.sessionContext.noResult": "没有返回上下文。",
    "chat.toolCall.explore.label": "查阅",
@@ -3044,10 +3543,20 @@ index 0000000000000000000000000000000000000000..6071d27feddecc28228c078ef4b40c69
 +  return MCP_STATUS_COMMAND_PATTERN.test(text.trim());
 +}
 diff --git a/packages/ui/src/lib/settingsNavigation.ts b/packages/ui/src/lib/settingsNavigation.ts
-index 637dcfa5f47cd90bff2897653bfae916169d4e0d..eecb9104e201811a24ec7fc5b363aa6b4cabfc6f 100644
+index 637dcfa5f47cd90bff2897653bfae916169d4e0d..ccc8d6b6b48ffcc5bf85f285c447e4c37bc64a95 100644
 --- a/packages/ui/src/lib/settingsNavigation.ts
 +++ b/packages/ui/src/lib/settingsNavigation.ts
-@@ -46,6 +46,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
+@@ -21,7 +21,8 @@ export type SettingsSectionId =
+   | "workspaceFileSearch"
+   | "computerUse"
+   | "automations"
+-  | "shortcuts";
++  | "shortcuts"
++  | "advanced";
+ 
+ export type SettingsUsageTabTarget = "app" | "codingPlan";
+ export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
+@@ -46,6 +47,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
    // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
    // 编辑页代码保留，放开时从这里移除即可。
    "workspaceFileSearch",
@@ -3057,6 +3566,16 @@ index 637dcfa5f47cd90bff2897653bfae916169d4e0d..eecb9104e201811a24ec7fc5b363aa6b
  ]);
  
  export interface SettingsSectionIntentEventDetail {
+@@ -84,7 +88,8 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
+     value === "workspaceFileSearch" ||
+     value === "computerUse" ||
+     value === "automations" ||
+-    value === "shortcuts"
++    value === "shortcuts" ||
++    value === "advanced"
+   );
+ }
+ 
 diff --git a/packages/ui/src/project-sidebar/index.tsx b/packages/ui/src/project-sidebar/index.tsx
 index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e686d35637 100644
 --- a/packages/ui/src/project-sidebar/index.tsx
@@ -3354,10 +3873,10 @@ index 0000000000000000000000000000000000000000..0293e29bc6544490051dfaf044391d60
 +}
 diff --git a/packages/ui/src/session-diagnostics/InspectorCard.tsx b/packages/ui/src/session-diagnostics/InspectorCard.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..5e2df69034bb400e333459693a4a7c7147e2e521
+index 0000000000000000000000000000000000000000..005e9b95bd7cddf0c00de73aa93946ca41050003
 --- /dev/null
 +++ b/packages/ui/src/session-diagnostics/InspectorCard.tsx
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,79 @@
 +import { type ComponentProps, type ReactNode } from "react";
 +import { ChevronDownIcon } from "lucide-react";
 +import {
@@ -3374,8 +3893,10 @@ index 0000000000000000000000000000000000000000..5e2df69034bb400e333459693a4a7c71
 +  id: string;
 +  title: string;
 +  children: ReactNode;
-+  /** 标题行右侧的附加内容（例如后台任务总数）。 */
++  /** 折叠触发器内的非交互状态内容（例如后台任务总数）。 */
 +  trailing?: ReactNode;
++  /** 与折叠触发器同级的标题行操作。 */
++  actions?: ReactNode;
 +  /** 展开内容的附加类名（例如滚动上限）。 */
 +  contentClassName?: string;
 +  /** 受控开合；省略时默认展开。 */
@@ -3390,6 +3911,7 @@ index 0000000000000000000000000000000000000000..5e2df69034bb400e333459693a4a7c71
 + * 避免各卡随时间长出不同的圆角、内边距或折叠箭头。
 + */
 +export function InspectorCard({
++  actions,
 +  children,
 +  className,
 +  contentClassName,
@@ -3410,17 +3932,24 @@ index 0000000000000000000000000000000000000000..5e2df69034bb400e333459693a4a7c71
 +      onOpenChange={onOpenChange}
 +      className={cn("min-w-0 rounded-xl border border-card-border bg-card p-3", className)}
 +    >
-+      <CollapsibleTrigger
-+        data-testid={`inspector-${id}-trigger`}
-+        className="group flex w-full items-center gap-1 text-left text-ui-sm text-foreground-subtle"
-+      >
-+        <span>{title}</span>
-+        {trailing ? <span className="shrink-0 tabular-nums">{trailing}</span> : null}
-+        <ChevronDownIcon
-+          aria-hidden="true"
-+          className="size-3.5 shrink-0 transition-transform group-data-[state=closed]:-rotate-90"
-+        />
-+      </CollapsibleTrigger>
++      <div className="flex min-w-0 items-center gap-1">
++        <CollapsibleTrigger
++          data-testid={`inspector-${id}-trigger`}
++          className="group flex min-w-0 flex-1 items-center gap-1 text-left text-ui-sm text-foreground-subtle"
++        >
++          <span>{title}</span>
++          {trailing ? <span className="shrink-0 tabular-nums">{trailing}</span> : null}
++          <ChevronDownIcon
++            aria-hidden="true"
++            className="size-3.5 shrink-0 transition-transform group-data-[state=closed]:-rotate-90"
++          />
++        </CollapsibleTrigger>
++        {actions ? (
++          <div className="inline-flex shrink-0 items-center gap-1 text-ui-sm text-foreground-subtle">
++            {actions}
++          </div>
++        ) : null}
++      </div>
 +      <CollapsibleContent>
 +        <div className={cn("min-w-0 space-y-2 pt-2", contentClassName)}>{children}</div>
 +      </CollapsibleContent>
@@ -5391,10 +5920,18 @@ index 726228b7474916dd2e7bd19ed64c10876e00b4ab..134ff2875b8d570c65cc099eac1e564d
                  const label = resolveProviderTemplateName(template.templateId, template, locale);
                  return (
 diff --git a/packages/ui/src/settings/settingsPageConfig.ts b/packages/ui/src/settings/settingsPageConfig.ts
-index 845aaccc18df72db668a38e1a71331938eb7f55b..28b79e327dc54afbc526873f96a410ffe070c57d 100644
+index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac286d6d2df 100644
 --- a/packages/ui/src/settings/settingsPageConfig.ts
 +++ b/packages/ui/src/settings/settingsPageConfig.ts
-@@ -130,7 +130,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+@@ -20,6 +20,7 @@ import {
+   HardDrive,
+   Keyboard,
+   FileSearch,
++  SlidersHorizontal,
+ } from "lucide-react";
+ import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
+ import type { Theme } from "@/useTheme.js";
+@@ -130,7 +131,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
      titleId: "settings.browser.title",
      groupId: "basics",
    },
@@ -5403,7 +5940,7 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..28b79e327dc54afbc526873f96a410ff
    {
      id: "remoteDevices",
      icon: HardDrive,
-@@ -138,15 +138,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+@@ -138,21 +139,20 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
      contentTitleId: "settings.remoteDevicesTitle",
      groupId: "basics",
    },
@@ -5420,7 +5957,20 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..28b79e327dc54afbc526873f96a410ff
    {
      id: "shortcuts",
      icon: Keyboard,
-@@ -180,26 +172,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+     titleId: "settings.shortcuts.title",
+     groupId: "basics",
+   },
++  // 高级设置紧随键盘快捷键，集中放置上下文压缩等低频精调项。
++  {
++    id: "advanced",
++    icon: SlidersHorizontal,
++    titleId: "settings.advanced.title",
++    groupId: "basics",
++  },
+   // 工作区搜索范围（.zcodeignore）：面向所有用户的基础工作区行为配置，收在基础设置末尾。
+   {
+     id: "workspaceFileSearch",
+@@ -180,26 +180,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
    // },
  ];
  
@@ -5450,6 +6000,312 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..28b79e327dc54afbc526873f96a410ff
      return isSettingsSectionEnabled(section.id);
    });
    const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
+diff --git a/packages/ui/src/settingsPageHelpers.tsx b/packages/ui/src/settingsPageHelpers.tsx
+index 3d617806a0502502402250df86d455050b35a11a..ae71d291eccec249e91b3ee7e347486647e174b2 100644
+--- a/packages/ui/src/settingsPageHelpers.tsx
++++ b/packages/ui/src/settingsPageHelpers.tsx
+@@ -1,6 +1,7 @@
+ /* oxlint-disable eslint(max-lines) -- settings helper 聚合多个设置分组；终端、网络与自动归档多侧能力暂时超过行数限制。 */
+ import type {
+   AppToolSearchMode,
++  CompactionProfile,
+   IntegratedTerminalShellOption,
+   IntegratedTerminalShellSelection,
+   LocalePreference,
+@@ -13,7 +14,7 @@ import {
+   TID_SETTINGS_TOOL_SEARCH_SELECT,
+   TID_SETTINGS_TOOL_SEARCH_OPTION,
+ } from "@zcode/shared/test-ids";
+-import { useState, useCallback, useEffect } from "react";
++import { useState, useCallback, useEffect, useRef } from "react";
+ import type { IPlatformService } from "@zcode/shared";
+ import {
+   TID_SETTINGS_LOCALE_SELECT_ITEM,
+@@ -30,7 +31,9 @@ import {
+ import { Switch } from "@/components/ui/switch.js";
+ import { Input } from "@/components/ui/input.js";
+ import { Button } from "@/components/ui/button.js";
++import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.js";
+ import { SettingsBadge, SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
++import { cn } from "@/components/lib/utils.js";
+ import { DataBaseDirControl } from "@/settings/DataBaseDirControl.js";
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ import { useOptionalServices } from "@/hooks/useServices.js";
+@@ -54,6 +57,274 @@ export { isSettingsSectionAvailable };
+ 
+ const TASK_AUTO_ARCHIVE_DAY_OPTIONS = [3, 7, 14, 30] as const;
+ const ZCODE_INTERACTION_BEHAVIOR_OPTIONS: readonly ZCodeInteractionBehavior[] = ["queue", "guide"];
++const COMPACTION_PROFILE_OPTIONS: readonly CompactionProfile[] = ["detailed", "compact"];
++const COMPACTION_TAIL_BUDGET_RANGE = { min: 1_000, max: 100_000 } as const;
++const COMPACTION_SUMMARY_MAX_OUTPUT_RANGE = { min: 1_000, max: 20_000 } as const;
++
++function parseCompactionTokenValue(
++  raw: string,
++  range: { min: number; max: number },
++): number | undefined {
++  const trimmed = raw.trim();
++  if (!/^\d+$/.test(trimmed)) {
++    return undefined;
++  }
++  const value = Number(trimmed);
++  return Number.isSafeInteger(value) && value >= range.min && value <= range.max
++    ? value
++    : undefined;
++}
++
++function CompactionTokenBudgetRow({
++  label,
++  description,
++  value,
++  range,
++  disabled,
++  testId,
++  onSave,
++}: {
++  label: string;
++  description: string;
++  value: number;
++  range: { min: number; max: number };
++  disabled?: boolean;
++  testId: string;
++  onSave: (value: number) => Promise<void>;
++}) {
++  const { intl } = useZCodeIntl();
++  const [draft, setDraft] = useState(String(value));
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  // ref 在事件处理间同步生效，防止 blur/Enter 在同一帧内重复提交。
++  const pendingRef = useRef(false);
++
++  useEffect(() => {
++    setDraft(String(value));
++  }, [value]);
++
++  const commit = useCallback(async () => {
++    if (pendingRef.current || disabled) {
++      return;
++    }
++    const parsed = parseCompactionTokenValue(draft, range);
++    if (parsed === undefined) {
++      // 越界或非整数只停留在本地校验；不能把非法值提交给 Host。
++      setError(
++        intl.formatMessage(
++          { id: "settings.advanced.tokenRangeError" },
++          { min: String(range.min), max: String(range.max) },
++        ),
++      );
++      return;
++    }
++    if (parsed === value) {
++      setDraft(String(parsed));
++      setError(null);
++      return;
++    }
++
++    setPending(true);
++    pendingRef.current = true;
++    setError(null);
++    try {
++      await onSave(parsed);
++      setDraft(String(parsed));
++    } catch {
++      // 保存失败保留本地输入，用户修正后可直接重试。
++      setError(intl.formatMessage({ id: "settings.advanced.saveFailed" }));
++    } finally {
++      pendingRef.current = false;
++      setPending(false);
++    }
++  }, [disabled, draft, intl, onSave, range, value]);
++
++  return (
++    <SettingsRow
++      label={label}
++      description={description}
++      detail={
++        error ? (
++          <p role="alert" data-testid={`${testId}-error`} className="text-ui-sm text-destructive">
++            {error}
++          </p>
++        ) : null
++      }
++      control={
++        <Input
++          size="lg"
++          type="number"
++          inputMode="numeric"
++          min={range.min}
++          max={range.max}
++          step={1}
++          value={draft}
++          disabled={disabled || pending}
++          aria-label={label}
++          aria-invalid={Boolean(error)}
++          data-testid={testId}
++          className="w-full tabular-nums"
++          onChange={(event) => {
++            setDraft(event.currentTarget.value);
++          }}
++          onBlur={() => {
++            void commit();
++          }}
++          onKeyDown={(event) => {
++            if (event.key === "Enter") {
++              event.preventDefault();
++              void commit();
++            }
++          }}
++        />
++      }
++    />
++  );
++}
++
++export function AdvancedSection({
++  compactionProfile,
++  compactionTailBudgetTokens,
++  compactionSummaryMaxOutputTokens,
++  onCompactionProfileChange,
++  onCompactionTailBudgetTokensChange,
++  onCompactionSummaryMaxOutputTokensChange,
++}: {
++  compactionProfile: CompactionProfile;
++  compactionTailBudgetTokens: number;
++  compactionSummaryMaxOutputTokens: number;
++  onCompactionProfileChange: (profile: CompactionProfile) => Promise<void>;
++  onCompactionTailBudgetTokensChange: (tokens: number) => Promise<void>;
++  onCompactionSummaryMaxOutputTokensChange: (tokens: number) => Promise<void>;
++}) {
++  const { intl } = useZCodeIntl();
++  const [profilePending, setProfilePending] = useState(false);
++  const [profileError, setProfileError] = useState<string | null>(null);
++  const profilePendingRef = useRef(false);
++
++  const handleProfileChange = useCallback(
++    async (nextProfile: string) => {
++      if (nextProfile !== "detailed" && nextProfile !== "compact") {
++        return;
++      }
++      if (profilePendingRef.current || nextProfile === compactionProfile) {
++        return;
++      }
++      profilePendingRef.current = true;
++      setProfilePending(true);
++      setProfileError(null);
++      try {
++        await onCompactionProfileChange(nextProfile);
++      } catch {
++        setProfileError(intl.formatMessage({ id: "settings.advanced.saveFailed" }));
++      } finally {
++        profilePendingRef.current = false;
++        setProfilePending(false);
++      }
++    },
++    [compactionProfile, intl, onCompactionProfileChange],
++  );
++
++  return (
++    <div className="space-y-4">
++      <SettingsGroupCard>
++        <div className="px-4 py-3">
++          <div className="text-ui-base font-medium text-foreground">
++            {intl.formatMessage({ id: "settings.advanced.compactionProfile" })}
++          </div>
++          <div className="mt-1 text-ui-sm leading-5 text-foreground-subtle">
++            {intl.formatMessage({ id: "settings.advanced.compactionProfileDescription" })}
++          </div>
++          <RadioGroup
++            aria-label={intl.formatMessage({ id: "settings.advanced.compactionProfile" })}
++            data-testid="compaction-profile-group"
++            value={compactionProfile}
++            disabled={profilePending}
++            className="mt-3 grid gap-2 sm:grid-cols-2"
++            onValueChange={(value) => {
++              void handleProfileChange(value);
++            }}
++          >
++            {COMPACTION_PROFILE_OPTIONS.map((profile) => {
++              const checked = compactionProfile === profile;
++              return (
++                <label
++                  key={profile}
++                  htmlFor={`compaction-profile-${profile}`}
++                  className={cn(
++                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
++                    checked
++                      ? "border-input-border-focused bg-card-selected"
++                      : "border-border bg-surface hover:bg-surface-hover",
++                    profilePending && "cursor-not-allowed opacity-60",
++                  )}
++                >
++                  <RadioGroupItem
++                    id={`compaction-profile-${profile}`}
++                    value={profile}
++                    data-testid={`compaction-profile-${profile}`}
++                    aria-label={intl.formatMessage({
++                      id: `settings.advanced.compactionProfile.${profile}`,
++                    })}
++                    className="mt-0.5"
++                  />
++                  <span className="min-w-0">
++                    <span className="block text-ui-base font-medium text-foreground">
++                      {intl.formatMessage({
++                        id: `settings.advanced.compactionProfile.${profile}`,
++                      })}
++                    </span>
++                    <span className="mt-1 block text-ui-sm leading-5 text-foreground-subtle">
++                      {intl.formatMessage({
++                        id: `settings.advanced.compactionProfile.${profile}Description`,
++                      })}
++                    </span>
++                  </span>
++                </label>
++              );
++            })}
++          </RadioGroup>
++          {profileError ? (
++            <p
++              role="alert"
++              data-testid="compaction-profile-error"
++              className="mt-2 text-ui-sm text-destructive"
++            >
++              {profileError}
++            </p>
++          ) : null}
++        </div>
++        <CompactionTokenBudgetRow
++          label={intl.formatMessage({
++            id: "settings.advanced.compactionTailBudgetTokens",
++          })}
++          description={intl.formatMessage({
++            id: "settings.advanced.compactionTailBudgetTokensDescription",
++          })}
++          value={compactionTailBudgetTokens}
++          range={COMPACTION_TAIL_BUDGET_RANGE}
++          // 两个预算只在精简模式生效；详细模式保留固定 20K 上限，输入保持可见但禁用。
++          disabled={compactionProfile !== "compact" || profilePending}
++          testId="compaction-tail-budget-input"
++          onSave={onCompactionTailBudgetTokensChange}
++        />
++        <CompactionTokenBudgetRow
++          label={intl.formatMessage({
++            id: "settings.advanced.compactionSummaryMaxOutputTokens",
++          })}
++          description={intl.formatMessage({
++            id: "settings.advanced.compactionSummaryMaxOutputTokensDescription",
++          })}
++          value={compactionSummaryMaxOutputTokens}
++          range={COMPACTION_SUMMARY_MAX_OUTPUT_RANGE}
++          disabled={compactionProfile !== "compact" || profilePending}
++          testId="compaction-summary-max-output-input"
++          onSave={onCompactionSummaryMaxOutputTokensChange}
++        />
++      </SettingsGroupCard>
++    </div>
++  );
++}
+ 
+ /**
+  * 归档偏好与归档列表集中展示，设置值和保存动作继续由 SettingsPage 持有。
 diff --git a/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx b/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
 index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1bf553a1d9 100644
 --- a/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
@@ -5650,7 +6506,7 @@ index a367bba0009b0e7d593b5b6095559b6577e1cf80..ccb7a30094e9942b5da2ab9f66efee1a
        {unit.leadingBoundaryRows.map((row) =>
          renderReadonlyRow(
 diff --git a/packages/ui/src/v4/ConversationStatusPanel.tsx b/packages/ui/src/v4/ConversationStatusPanel.tsx
-index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b6152162ced 100644
+index f272d19a838855802d46294f16ab4f03afd1d04d..b5a92ce2553666dac39680ac52965f2f6c62bb96 100644
 --- a/packages/ui/src/v4/ConversationStatusPanel.tsx
 +++ b/packages/ui/src/v4/ConversationStatusPanel.tsx
 @@ -73,6 +73,7 @@ import {
@@ -5670,7 +6526,263 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
  }
  
  // memo 组件默认 props 不内联创建数组，避免每次渲染生成新引用触发稳定引用边界测试。
-@@ -877,10 +880,16 @@ export function buildSessionPlanOpenRequest(
+@@ -461,11 +464,14 @@ function GitStatusSection({
+ }
+ 
+ function GoalStatusSection({
++  card = false,
+   model,
+   onPauseGoal,
+   onResumeGoal,
+   separated,
+ }: {
++  /** 嵌入信息栏时与计划/后台任务卡片同一容器；面板外壳此时是透明的。 */
++  card?: boolean;
+   model: ConversationStatusPanelModel;
+   onPauseGoal?: () => void;
+   onResumeGoal?: () => void;
+@@ -529,60 +535,86 @@ function GoalStatusSection({
+     />
+   ) : null;
+ 
++  const trailing = (
++    <>
++      <span
++        className="shrink-0 tabular-nums"
++        data-goal-elapsed-seconds={getConversationGoalElapsedSeconds(goal, now)}
++      >
++        {elapsed}
++      </span>
++      {control ? <span className="shrink-0">·</span> : null}
++      {control}
++    </>
++  );
++  const iterations = (
++    <div className="space-y-0">
++      {iterationRows.map((row) => {
++        const title =
++          row.title ??
++          intl.formatMessage(
++            { id: "chat.summaryPanel.goalIterationValue" },
++            { count: String(row.iteration) },
++          );
++        return (
++          <div
++            key={row.iteration}
++            data-goal-iteration={row.iteration}
++            data-goal-iteration-completed={row.completed}
++            data-goal-verification-outcome={row.verificationOutcome ?? undefined}
++            className="flex min-w-0 cursor-default items-start gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-hover)]"
++            title={title}
++          >
++            {row.completed ? (
++              <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--color-success)] text-ui-xs tabular-nums text-[var(--color-success)]">
++                {row.iteration}
++              </span>
++            ) : (
++              <GoalIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
++            )}
++            <p className="line-clamp-3 min-w-0 flex-1 text-ui-base leading-4 text-[var(--color-foreground)]">
++              {title}
++            </p>
++            {row.totalCount > 0 ? (
++              <span className="shrink-0 text-ui-sm tabular-nums text-[var(--color-foreground-subtle)]">
++                {row.completedCount}/{row.totalCount}
++              </span>
++            ) : null}
++          </div>
++        );
++      })}
++    </div>
++  );
++
++  if (card) {
++    return (
++      <InspectorCard
++        id="goal"
++        data-status-section="goal"
++        title={intl.formatMessage({ id: "chat.statusPanel.goal" })}
++        actions={trailing}
++      >
++        <div
++          data-status-section-scroll="goal"
++          className={cn(
++            STATUS_SECTION_SCROLL_POLICY.goal,
++            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
++          )}
++        >
++          {iterations}
++        </div>
++      </InspectorCard>
++    );
++  }
++
+   return (
+     <StatusSection
+       section="goal"
+       separated={separated}
+       title={intl.formatMessage({ id: "chat.statusPanel.goal" })}
+-      trailing={() => (
+-        <>
+-          <span
+-            className="shrink-0 tabular-nums"
+-            data-goal-elapsed-seconds={getConversationGoalElapsedSeconds(goal, now)}
+-          >
+-            {elapsed}
+-          </span>
+-          {control ? <span className="shrink-0">·</span> : null}
+-          {control}
+-        </>
+-      )}
++      trailing={() => trailing}
+     >
+-      <div className="space-y-0">
+-        {iterationRows.map((row) => {
+-          const title =
+-            row.title ??
+-            intl.formatMessage(
+-              { id: "chat.summaryPanel.goalIterationValue" },
+-              { count: String(row.iteration) },
+-            );
+-          return (
+-            <div
+-              key={row.iteration}
+-              data-goal-iteration={row.iteration}
+-              data-goal-iteration-completed={row.completed}
+-              data-goal-verification-outcome={row.verificationOutcome ?? undefined}
+-              className="flex min-w-0 cursor-default items-start gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-hover)]"
+-              title={title}
+-            >
+-              {row.completed ? (
+-                <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--color-success)] text-ui-xs tabular-nums text-[var(--color-success)]">
+-                  {row.iteration}
+-                </span>
+-              ) : (
+-                <GoalIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
+-              )}
+-              <p className="line-clamp-3 min-w-0 flex-1 text-ui-base leading-4 text-[var(--color-foreground)]">
+-                {title}
+-              </p>
+-              {row.totalCount > 0 ? (
+-                <span className="shrink-0 text-ui-sm tabular-nums text-[var(--color-foreground-subtle)]">
+-                  {row.completedCount}/{row.totalCount}
+-                </span>
+-              ) : null}
+-            </div>
+-          );
+-        })}
+-      </div>
++      {iterations}
+     </StatusSection>
+   );
+ }
+@@ -813,11 +845,14 @@ function PlanStatusItems({
+ }
+ 
+ function SessionPlansStatusSection({
++  card = false,
+   model,
+   onOpenPlanDetail,
+   parentSessionId,
+   separated,
+ }: {
++  /** 嵌入信息栏时与计划卡片同一容器；面板外壳此时是透明的。 */
++  card?: boolean;
+   model: ConversationStatusPanelModel;
+   onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
+   parentSessionId?: string;
+@@ -827,39 +862,63 @@ function SessionPlansStatusSection({
+   const sessionPlans = model.sessionPlans;
+   if (!sessionPlans) return null;
+ 
++  const items = (
++    <ul className="space-y-0">
++      {sessionPlans.items.map((item) => {
++        const title = item.title ?? intl.formatMessage({ id: "chat.statusPanel.planFallback" });
++        const canOpen = Boolean(parentSessionId && onOpenPlanDetail);
++        return (
++          <li key={item.toolCallId}>
++            <button
++              type="button"
++              data-plan-directory-tool-call-id={item.toolCallId}
++              disabled={!canOpen}
++              aria-label={intl.formatMessage({ id: "chat.statusPanel.openPlan" }, { title })}
++              onClick={() => {
++                if (!parentSessionId) return;
++                onOpenPlanDetail?.(buildSessionPlanOpenRequest(parentSessionId, item));
++              }}
++              className={cn(
++                "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-base text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-input-border-focused)]",
++                canOpen && "hover:bg-[var(--color-hover)]",
++              )}
++            >
++              <ListChecksIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
++              <span className="min-w-0 flex-1 truncate">{title}</span>
++            </button>
++          </li>
++        );
++      })}
++    </ul>
++  );
++
++  if (card) {
++    return (
++      <InspectorCard
++        id="sessionPlans"
++        data-status-section="sessionPlans"
++        title={intl.formatMessage({ id: "chat.statusPanel.sessionPlans" })}
++      >
++        <div
++          data-status-section-scroll="sessionPlans"
++          className={cn(
++            STATUS_SECTION_SCROLL_POLICY.sessionPlans,
++            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
++          )}
++        >
++          {items}
++        </div>
++      </InspectorCard>
++    );
++  }
++
+   return (
+     <StatusSection
+       section="sessionPlans"
+       separated={separated}
+       title={intl.formatMessage({ id: "chat.statusPanel.sessionPlans" })}
+     >
+-      <ul className="space-y-0">
+-        {sessionPlans.items.map((item) => {
+-          const title = item.title ?? intl.formatMessage({ id: "chat.statusPanel.planFallback" });
+-          const canOpen = Boolean(parentSessionId && onOpenPlanDetail);
+-          return (
+-            <li key={item.toolCallId}>
+-              <button
+-                type="button"
+-                data-plan-directory-tool-call-id={item.toolCallId}
+-                disabled={!canOpen}
+-                aria-label={intl.formatMessage({ id: "chat.statusPanel.openPlan" }, { title })}
+-                onClick={() => {
+-                  if (!parentSessionId) return;
+-                  onOpenPlanDetail?.(buildSessionPlanOpenRequest(parentSessionId, item));
+-                }}
+-                className={cn(
+-                  "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-base text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-input-border-focused)]",
+-                  canOpen && "hover:bg-[var(--color-hover)]",
+-                )}
+-              >
+-                <ListChecksIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
+-                <span className="min-w-0 flex-1 truncate">{title}</span>
+-              </button>
+-            </li>
+-          );
+-        })}
+-      </ul>
++      {items}
+     </StatusSection>
+   );
+ }
+@@ -877,10 +936,16 @@ export function buildSessionPlanOpenRequest(
  }
  
  function PlanStatusSection({
@@ -5687,7 +6799,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    model: ConversationStatusPanelModel;
    popoverSide: "bottom" | "left";
    separated: boolean;
-@@ -889,30 +898,55 @@ function PlanStatusSection({
+@@ -889,30 +954,55 @@ function PlanStatusSection({
    const plan = model.plan;
    if (!plan) return null;
    const isCompleted = plan.totalCount > 0 && plan.completedCount >= plan.totalCount;
@@ -5760,7 +6872,259 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
      </StatusSection>
    );
  }
-@@ -1431,6 +1465,7 @@ function WorkflowStatusSection({
+@@ -1024,6 +1114,7 @@ function RunningStatusItem({
+ }
+ 
+ function BackgroundWorkStatusSection({
++  card = false,
+   onOpenBackgroundBash,
+   onCancelBackgroundWork,
+   onOpenChange,
+@@ -1033,6 +1124,8 @@ function BackgroundWorkStatusSection({
+   title,
+   works,
+ }: {
++  /** 嵌入信息栏时与计划/后台任务卡片同一容器；面板外壳此时是透明的。 */
++  card?: boolean;
+   onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
+   onCancelBackgroundWork?: (workId: string) => void;
+   onOpenChange?: (open: boolean) => void;
+@@ -1065,6 +1158,56 @@ function BackgroundWorkStatusSection({
+     Math.max(1, Math.floor(getLongestRunningWorkElapsedMs(works, now) / 1000)),
+     intl.formatMessage,
+   );
++  const runningCountLabel = (
++    <span>
++      {intl.formatMessage(
++        {
++          id:
++            works.length === 1
++              ? "chat.statusPanel.runningStatusValue"
++              : "chat.statusPanel.runningStatusValuePlural",
++        },
++        { count: String(works.length) },
++      )}
++    </span>
++  );
++  const list = (
++    <ul className="space-y-0">
++      {orderedRunningWorks.map((work) => (
++        <RunningStatusItem
++          key={work.workId}
++          work={work}
++          now={now}
++          onOpenBackgroundBash={onOpenBackgroundBash}
++          onCancelBackgroundWork={onCancelBackgroundWork}
++        />
++      ))}
++    </ul>
++  );
++
++  if (card) {
++    return (
++      <InspectorCard
++        id={section}
++        data-status-section={section}
++        title={title}
++        defaultOpen={false}
++        open={open}
++        onOpenChange={onOpenChange}
++        trailing={runningCountLabel}
++      >
++        <div
++          data-status-section-scroll={section}
++          className={cn(
++            STATUS_SECTION_SCROLL_POLICY[section],
++            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
++          )}
++        >
++          {list}
++        </div>
++      </InspectorCard>
++    );
++  }
+ 
+   return (
+     <StatusSection
+@@ -1076,17 +1219,7 @@ function BackgroundWorkStatusSection({
+       title={title}
+       trailing={(isOpen) =>
+         isOpen ? (
+-          <span>
+-            {intl.formatMessage(
+-              {
+-                id:
+-                  works.length === 1
+-                    ? "chat.statusPanel.runningStatusValue"
+-                    : "chat.statusPanel.runningStatusValuePlural",
+-              },
+-              { count: String(works.length) },
+-            )}
+-          </span>
++          runningCountLabel
+         ) : (
+           <>
+             <span className="min-w-0 truncate">{collapsedElapsedLabel}</span>
+@@ -1096,17 +1229,7 @@ function BackgroundWorkStatusSection({
+         )
+       }
+     >
+-      <ul className="space-y-0">
+-        {orderedRunningWorks.map((work) => (
+-          <RunningStatusItem
+-            key={work.workId}
+-            work={work}
+-            now={now}
+-            onOpenBackgroundBash={onOpenBackgroundBash}
+-            onCancelBackgroundWork={onCancelBackgroundWork}
+-          />
+-        ))}
+-      </ul>
++      {list}
+     </StatusSection>
+   );
+ }
+@@ -1338,6 +1461,7 @@ function WorkflowRunRow({
+  * startedAt 排是因为它们的投影无序；这里重排反而会让行在每次投影更新时跳位。
+  */
+ function WorkflowStatusSection({
++  card = false,
+   endedRunCount,
+   onCancelBackgroundWork,
+   onOpenChange,
+@@ -1349,6 +1473,8 @@ function WorkflowStatusSection({
+   separated,
+   title,
+ }: {
++  /** 嵌入信息栏时与计划/后台任务卡片同一容器；面板外壳此时是透明的。 */
++  card?: boolean;
+   endedRunCount: number;
+   onCancelBackgroundWork?: (workId: string) => void;
+   onOpenChange?: (open: boolean) => void;
+@@ -1374,6 +1500,71 @@ function WorkflowStatusSection({
+   // 都不在跑，于是入口连带目录页一起消失——而重启后回看被打断的 run 正是它的主要用途。
+   if (runs.length === 0 && endedRunCount <= 0) return null;
+ 
++  const trailing =
++    runs.length > 0 ? (
++      <>
++        <WorkflowRunLamp status="running" />
++        <span>
++          {intl.formatMessage(
++            { id: "chat.statusPanel.workflowsLive" },
++            { count: String(runs.length) },
++          )}
++        </span>
++      </>
++    ) : null;
++  // 已结束的 run 折进这条页脚行（与 Agents 分区共用同一个 affordance）：终态 run 不占
++  // 活动列表的位置，但入口必须留着——被打断的那些正是最需要点进去的。
++  const endedDirectoryRow = (
++    <EndedDirectoryRow
++      count={endedRunCount}
++      icon={<CheckCircle2Icon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />}
++      label={intl.formatMessage({ id: "chat.statusPanel.endedWorkflows" })}
++      separated={runs.length > 0}
++      testId="workflow-run-directory-trigger"
++      onOpen={
++        parentSessionId && onOpenDirectory ? () => onOpenDirectory({ parentSessionId }) : undefined
++      }
++    />
++  );
++  const list = (
++    <ul className="space-y-0">
++      {runs.map((run) => (
++        <WorkflowRunRow
++          key={run.runId}
++          run={run}
++          now={now}
++          onCancelBackgroundWork={onCancelBackgroundWork}
++          onOpenWorkflowRun={onOpenWorkflowRun}
++        />
++      ))}
++    </ul>
++  );
++
++  if (card) {
++    return (
++      <InspectorCard
++        id="workflow"
++        data-status-section="workflow"
++        title={title}
++        defaultOpen={runs.length > 0}
++        open={open}
++        onOpenChange={onOpenChange}
++        trailing={trailing}
++      >
++        <div
++          data-status-section-scroll="workflow"
++          className={cn(
++            STATUS_SECTION_SCROLL_POLICY.workflow,
++            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
++          )}
++        >
++          {list}
++        </div>
++        {endedDirectoryRow}
++      </InspectorCard>
++    );
++  }
++
+   return (
+     <StatusSection
+       section="workflow"
+@@ -1383,54 +1574,16 @@ function WorkflowStatusSection({
+       onOpenChange={onOpenChange}
+       separated={separated}
+       title={title}
+-      trailing={() =>
+-        runs.length > 0 ? (
+-          <>
+-            <WorkflowRunLamp status="running" />
+-            <span>
+-              {intl.formatMessage(
+-                { id: "chat.statusPanel.workflowsLive" },
+-                { count: String(runs.length) },
+-              )}
+-            </span>
+-          </>
+-        ) : null
+-      }
+-      // 已结束的 run 折进这条页脚行（与 Agents 分区共用同一个 affordance）：终态 run 不占
+-      // 活动列表的位置，但入口必须留着——被打断的那些正是最需要点进去的。
+-      footer={
+-        <EndedDirectoryRow
+-          count={endedRunCount}
+-          icon={
+-            <CheckCircle2Icon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
+-          }
+-          label={intl.formatMessage({ id: "chat.statusPanel.endedWorkflows" })}
+-          separated={runs.length > 0}
+-          testId="workflow-run-directory-trigger"
+-          onOpen={
+-            parentSessionId && onOpenDirectory
+-              ? () => onOpenDirectory({ parentSessionId })
+-              : undefined
+-          }
+-        />
+-      }
++      trailing={() => trailing}
++      footer={endedDirectoryRow}
+     >
+-      <ul className="space-y-0">
+-        {runs.map((run) => (
+-          <WorkflowRunRow
+-            key={run.runId}
+-            run={run}
+-            now={now}
+-            onCancelBackgroundWork={onCancelBackgroundWork}
+-            onOpenWorkflowRun={onOpenWorkflowRun}
+-          />
+-        ))}
+-      </ul>
++      {list}
+     </StatusSection>
+   );
  }
  
  function SubagentStatusSection({
@@ -5768,7 +7132,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    endedSubagentCount,
    onCancelBackgroundWork,
    onOpenChange,
-@@ -1443,6 +1478,8 @@ function SubagentStatusSection({
+@@ -1443,6 +1596,8 @@ function SubagentStatusSection({
    title,
    subagents,
  }: {
@@ -5777,7 +7141,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    endedSubagentCount: number;
    onCancelBackgroundWork?: (workId: string) => void;
    onOpenChange?: (open: boolean) => void;
-@@ -1457,6 +1494,7 @@ function SubagentStatusSection({
+@@ -1457,6 +1612,7 @@ function SubagentStatusSection({
  }) {
    const { intl } = useZCodeIntl();
    const [now, setNow] = useState(() => Date.now());
@@ -5785,7 +7149,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    const ordered = useMemo(
      () => [...subagents].sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0)),
      [subagents],
-@@ -1472,33 +1510,33 @@ function SubagentStatusSection({
+@@ -1472,33 +1628,33 @@ function SubagentStatusSection({
      0,
    );
  
@@ -5846,7 +7210,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
        <ul className="space-y-0">
          {ordered.map((subagent) => {
            const request = buildRunningSubagentOpenRequest({
-@@ -1569,6 +1607,44 @@ function SubagentStatusSection({
+@@ -1569,6 +1725,44 @@ function SubagentStatusSection({
          onOpen={onOpenSubagentDirectory}
          separated={subagents.length > 0}
        />
@@ -5891,7 +7255,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
      </StatusSection>
    );
  }
-@@ -1720,12 +1796,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
+@@ -1720,12 +1914,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
  }
  
  function StatusSummaryRow({
@@ -5908,7 +7272,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    /** 已结束 run 的目录计数；宿主给 0 表示目录入口不可渲染（缺会话或缺回调）。 */
    endedWorkflowRunCount: number;
    gitWorktreeChangeSummary?: { added: number; removed: number } | null;
-@@ -1845,6 +1925,14 @@ function StatusSummaryRow({
+@@ -1845,6 +2043,14 @@ function StatusSummaryRow({
          {endedWorkflowRunCount}
        </span>
      </StatusSummaryMetric>
@@ -5923,7 +7287,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    ) : null;
  
    if (!summaryMetric) {
-@@ -1871,6 +1959,8 @@ function StatusSummaryRow({
+@@ -1871,6 +2077,8 @@ function StatusSummaryRow({
  }
  
  function ConversationStatusPanelImpl({
@@ -5932,7 +7296,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    workspacePath,
    workspaceIdentity,
    gitSummary,
-@@ -1955,7 +2045,10 @@ function ConversationStatusPanelImpl({
+@@ -1955,7 +2163,10 @@ function ConversationStatusPanelImpl({
    const panelMenuLabel = intl.formatMessage({
      id: "chat.summaryPanel.displayMode",
    });
@@ -5944,7 +7308,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
    const canRenderGoal = Boolean(model.goal);
    const canRenderSessionPlans = Boolean(model.sessionPlans);
    const canRenderPlan = Boolean(model.plan);
-@@ -1995,7 +2088,7 @@ function ConversationStatusPanelImpl({
+@@ -1995,7 +2206,7 @@ function ConversationStatusPanelImpl({
    // 会话会连整个胶囊一起消失——而那正是重启后打开一条旧对话的样子，run 目录的入口于是又没了。
    // 已结束的 run 因此单独开这道门。（Agents 的已结束行有同一个洞：`endedSubagentCount` 也
    // 没进 `hasContent`。那是既有行为，不在本轮一起翻。）
@@ -5953,7 +7317,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
      return null;
    }
  
-@@ -2010,6 +2103,7 @@ function ConversationStatusPanelImpl({
+@@ -2010,6 +2221,7 @@ function ConversationStatusPanelImpl({
            : layoutMode === "auto"
              ? "inset-x-0 flex justify-end px-4 @min-[1280px]/conversation:left-auto @min-[1280px]/conversation:right-4 @min-[1280px]/conversation:px-0"
              : "inset-x-0 flex justify-end px-4",
@@ -5961,7 +7325,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
          className,
        )}
      >
-@@ -2020,6 +2114,7 @@ function ConversationStatusPanelImpl({
+@@ -2020,6 +2232,7 @@ function ConversationStatusPanelImpl({
          data-testid={TID_CHAT_SUMMARY_PANEL}
          data-state={variant === "mini" ? "collapsed" : "expanded"}
          data-display-mode={variant}
@@ -5969,7 +7333,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
          data-goal-status={model.goal?.status}
          data-goal-objective={model.goal?.objective}
          data-running-background-count={
-@@ -2040,8 +2135,22 @@ function ConversationStatusPanelImpl({
+@@ -2040,8 +2253,22 @@ function ConversationStatusPanelImpl({
            variant === "mini"
              ? "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col"
              : variant === "panel"
@@ -5994,7 +7358,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
          )}
        >
          {variant !== "mini" ? (
-@@ -2104,8 +2213,10 @@ function ConversationStatusPanelImpl({
+@@ -2104,8 +2331,10 @@ function ConversationStatusPanelImpl({
              className={cn(
                "min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto p-2",
                variant === "auto" ? "hidden @min-[1280px]/conversation:flex" : "flex",
@@ -6005,7 +7369,23 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
              {canRenderGit ? (
                <GitStatusSection
                  model={model}
-@@ -2138,6 +2249,7 @@ function ConversationStatusPanelImpl({
+@@ -2122,6 +2351,7 @@ function ConversationStatusPanelImpl({
+             ) : null}
+             {canRenderGoal ? (
+               <GoalStatusSection
++                card={Boolean(inspector)}
+                 model={model}
+                 separated={canRenderGit}
+                 onPauseGoal={onPauseGoal}
+@@ -2130,6 +2360,7 @@ function ConversationStatusPanelImpl({
+             ) : null}
+             {canRenderSessionPlans ? (
+               <SessionPlansStatusSection
++                card={Boolean(inspector)}
+                 model={model}
+                 parentSessionId={parentSessionId}
+                 onOpenPlanDetail={onOpenPlanDetail}
+@@ -2138,6 +2369,7 @@ function ConversationStatusPanelImpl({
              ) : null}
              {canRenderPlan ? (
                <PlanStatusSection
@@ -6013,7 +7393,23 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
                  model={model}
                  popoverSide={useVerticalFloatingPanels ? "bottom" : "left"}
                  separated={canRenderGit || canRenderGoal || canRenderSessionPlans}
-@@ -2177,6 +2289,7 @@ function ConversationStatusPanelImpl({
+@@ -2145,6 +2377,7 @@ function ConversationStatusPanelImpl({
+             ) : null}
+             {canRenderTerminals ? (
+               <BackgroundWorkStatusSection
++                card={Boolean(inspector)}
+                 onOpenBackgroundBash={onOpenBackgroundBash}
+                 section="terminal"
+                 title={intl.formatMessage({ id: "chat.statusPanel.terminals" })}
+@@ -2157,6 +2390,7 @@ function ConversationStatusPanelImpl({
+             ) : null}
+             {canRenderWorkflows ? (
+               <WorkflowStatusSection
++                card={Boolean(inspector)}
+                 title={intl.formatMessage({ id: "chat.statusPanel.workflows" })}
+                 runs={model.runningWorkflowRuns}
+                 endedRunCount={canRenderEndedWorkflows ? endedWorkflowRunCount : 0}
+@@ -2177,6 +2411,7 @@ function ConversationStatusPanelImpl({
              ) : null}
              {canRenderAgents ? (
                <SubagentStatusSection
@@ -6021,7 +7417,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
                  title={intl.formatMessage({ id: "chat.statusPanel.agents" })}
                  subagents={model.runningSubagentWorks}
                  endedSubagentCount={canRenderEndedAgents ? endedSubagentCount : 0}
-@@ -2197,6 +2310,7 @@ function ConversationStatusPanelImpl({
+@@ -2197,6 +2432,7 @@ function ConversationStatusPanelImpl({
                  onOpenSubagentDirectory={onOpenSubagentDirectory}
                />
              ) : null}
@@ -6029,7 +7425,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b61
            </div>
          ) : null}
          <div
-@@ -2211,6 +2325,8 @@ function ConversationStatusPanelImpl({
+@@ -2211,6 +2447,8 @@ function ConversationStatusPanelImpl({
            )}
          >
            <StatusSummaryRow
@@ -7247,6 +8643,135 @@ index 0000000000000000000000000000000000000000..1311cfafb4081a3535ac46961dcdc21c
 +      }
 +    });
 +  }
+diff --git a/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx b/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx
+index f6cce303982e747c4fb6c728a40b9b38da78bc8e..921f6308639ec9cc3a3511b263af2abc6204855d 100644
+--- a/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx
++++ b/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx
+@@ -1,5 +1,6 @@
+-import { useState } from "react";
++import { useRef, useState } from "react";
+ import { createRoot } from "react-dom/client";
++import type { CompactionProfile } from "@zcode/shared";
+ import { parseZCodeBuiltinModelConfigRules } from "@zcode/provider";
+ import type { IServiceAccessor, ProviderSettingsView } from "@zcode/services";
+ import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
+@@ -8,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.js";
+ import { ProviderTemplatePicker } from "@/settings/model-provider-section/ProviderTemplatePicker.js";
+ import { ProviderDetailFeedbackBoundary } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
+ import { InlineEditableProviderCard } from "@/settings/model-provider-section/InlineEditableProviderCard.js";
++import { AdvancedSection } from "@/settingsPageHelpers.js";
+ import {
+   BooleanModelOption,
+   JsonSlotEditor,
+@@ -28,6 +30,7 @@ import { OffPeakEligibilityFixture } from "./offpeak-eligibility.fixture.js";
+ import { OffPeakTeamEntryFixture } from "./offpeak-team-entry.fixture.js";
+ import "@/styles.css";
+ import { Checkbox } from "@/components/ui/checkbox.js";
++import { Button } from "@/components/ui/button.js";
+ 
+ const params = new URLSearchParams(location.search);
+ document.documentElement.className =
+@@ -84,6 +87,89 @@ function createProvider(templateId: string): ProviderSettingsFormProvider {
+     })),
+   };
+ }
++function AdvancedFixture() {
++  const [policy, setPolicy] = useState(() => {
++    const requestedProfile = params.get("profile");
++    const requestedTail = Number(params.get("tail"));
++    const requestedSummary = Number(params.get("summary"));
++    return {
++      compactionProfile: (requestedProfile === "compact"
++        ? "compact"
++        : "detailed") as CompactionProfile,
++      compactionTailBudgetTokens:
++        Number.isInteger(requestedTail) && requestedTail >= 1_000 && requestedTail <= 100_000
++          ? requestedTail
++          : 15_000,
++      compactionSummaryMaxOutputTokens:
++        Number.isInteger(requestedSummary) &&
++        requestedSummary >= 1_000 &&
++        requestedSummary <= 20_000
++          ? requestedSummary
++          : 8_000,
++    };
++  });
++  const [failNext, setFailNext] = useState(params.get("failNext") === "1");
++  const failNextRef = useRef(failNext);
++
++  const armFailNext = (armed: boolean) => {
++    failNextRef.current = armed;
++    setFailNext(armed);
++  };
++
++  const persist = async (patch: Partial<typeof policy>) => {
++    // 在保存开始时锁定是否失败，确保开关只影响随后开始的那一次保存。
++    const rejectSave = failNextRef.current;
++    if (rejectSave) {
++      armFailNext(false);
++    }
++    // 本地 SettingService 替身：延迟让 pending 可观察，且不发起任何真实 Host/模型/凭据请求。
++    await new Promise((resolve) => setTimeout(resolve, 400));
++    if (rejectSave) {
++      throw new Error("fixture rejected compaction settings save");
++    }
++    setPolicy((current) => ({ ...current, ...patch }));
++  };
++
++  return (
++    <main className="min-h-screen bg-background p-4 text-foreground">
++      <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="advanced-fixture">
++        <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-card p-4">
++          <Button
++            type="button"
++            size="sm"
++            variant={failNext ? "destructive" : "outline"}
++            data-testid="advanced-fail-next"
++            aria-pressed={failNext}
++            onClick={() => armFailNext(!failNext)}
++          >
++            {failNext ? "Fail next save: armed" : "Fail next save: idle"}
++          </Button>
++          <output
++            data-testid="saved-policy"
++            className="min-w-0 break-all font-mono text-ui-sm text-foreground-subtle"
++          >
++            {JSON.stringify(policy)}
++          </output>
++        </div>
++        <AdvancedSection
++          compactionProfile={policy.compactionProfile}
++          compactionTailBudgetTokens={policy.compactionTailBudgetTokens}
++          compactionSummaryMaxOutputTokens={policy.compactionSummaryMaxOutputTokens}
++          onCompactionProfileChange={async (profile) => {
++            await persist({ compactionProfile: profile });
++          }}
++          onCompactionTailBudgetTokensChange={async (tokens) => {
++            await persist({ compactionTailBudgetTokens: tokens });
++          }}
++          onCompactionSummaryMaxOutputTokensChange={async (tokens) => {
++            await persist({ compactionSummaryMaxOutputTokens: tokens });
++          }}
++        />
++      </div>
++    </main>
++  );
++}
++
+ function Fixture() {
+   const [provider, setProvider] = useState(() => createProvider("bigmodel-api"));
+   const [picker, setPicker] = useState(!params.has("access"));
+@@ -263,7 +349,9 @@ createRoot(document.getElementById("root")!).render(
+   >
+     <TooltipProvider>
+       <ZCodeIntlProvider initialLocale={params.get("locale") === "zh-CN" ? "zh-CN" : "en-US"}>
+-        {params.has("teamEntry") ? (
++        {params.get("advanced") === "1" ? (
++          <AdvancedFixture />
++        ) : params.has("teamEntry") ? (
+           <OffPeakTeamEntryFixture />
+         ) : params.has("offpeak") ? (
+           <OffPeakEligibilityFixture />
 diff --git a/packages/ui/test/browser/manual-review/pending/session-diagnostics.fixture.tsx b/packages/ui/test/browser/manual-review/pending/session-diagnostics.fixture.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..84d714a0135310d013d87456aaa8b3294db49278
@@ -7457,17 +8982,19 @@ index 0000000000000000000000000000000000000000..f02a00eb293d9b06d5dde93a1f7c0914
 +    }
 diff --git a/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx b/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249a43a7173
+index 0000000000000000000000000000000000000000..c4e83de10ec60cfbf67b4ca4238ea2d2fc580b5c
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,299 @@
 +import { useCallback, useState } from "react";
 +import { createRoot } from "react-dom/client";
 +import type { GitRepositorySummary, ZCodeSessionRunningSubagent } from "@zcode/shared";
 +import type {
 +  BackgroundWorkSummary,
++  GoalState,
 +  PlanState,
 +  SessionResourcesState,
++  WorkflowRunState,
 +} from "@zcode/shared/zcode-protocol-v4";
 +import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 +import { TooltipProvider } from "@/components/ui/tooltip.js";
@@ -7542,6 +9069,26 @@ index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249
 +    { id: "fixture-4", content: "定向验证、独立审核并按规则交付", status: "pending" },
 +  ],
 +};
++const initialGoal: GoalState = {
++  targetId: "fixture-goal",
++  objective: "Verify independent goal controls",
++  summaryTitle: null,
++  timeUsedSeconds: 12,
++  activeRunStartedAtMs: null,
++  status: "active",
++  iteration: 1,
++  verifications: [],
++  iterations: [],
++};
++const workflowRuns: WorkflowRunState[] = Array.from({ length: 8 }, (_, index) => ({
++  runId: `fixture-run-${index + 1}`,
++  toolCallId: `fixture-workflow-${index + 1}`,
++  status: "running",
++  usage: { spentTokens: 0, nodesUsed: 0 },
++  actors: [],
++  nodes: [],
++  lastEventSequence: 1,
++}));
 +const initialResources: SessionResourcesState = {
 +  policy: { revision: 0, disabledSkills: [], disabledMcpServers: [] },
 +  skills: [
@@ -7598,6 +9145,8 @@ index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249
 +  const [command, setCommand] = useState("");
 +  const [cancelled, setCancelled] = useState("");
 +  const [openedBash, setOpenedBash] = useState("");
++  const [goal, setGoal] = useState(initialGoal);
++  const [openedWorkflowDirectory, setOpenedWorkflowDirectory] = useState("");
 +  const send: SessionResourceControlsProps["send"] = useCallback(async (type, payload) => {
 +    setCommand(JSON.stringify({ type, payload }));
 +    if (type === "setSessionResource")
@@ -7650,6 +9199,14 @@ index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249
 +          layoutMode={layout}
 +          summaryPanelVariantOverride={variant}
 +          onVariantChange={setVariant}
++          goal={scenario === "card-regressions" ? goal : null}
++          onPauseGoal={() => setGoal((previous) => ({ ...previous, status: "paused" }))}
++          onResumeGoal={() => setGoal((previous) => ({ ...previous, status: "active" }))}
++          workflowRuns={scenario === "card-regressions" ? workflowRuns : []}
++          endedWorkflowRunCount={scenario === "card-regressions" ? 3 : 0}
++          onOpenWorkflowRunDirectory={({ parentSessionId }) =>
++            setOpenedWorkflowDirectory(parentSessionId)
++          }
 +          backgroundWorks={scenario === "no-background" ? [] : backgroundWorks}
 +          runningSubagents={scenario === "no-background" ? [] : runningSubagents}
 +          endedSubagentCount={scenario === "no-background" ? 0 : 3}
@@ -7711,6 +9268,11 @@ index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249
 +      <output data-testid="fixture-opened-bash" hidden>
 +        {openedBash}
 +      </output>
++      {scenario === "card-regressions" ? (
++        <output className="shrink-0 text-ui-sm" data-testid="fixture-opened-workflow-directory">
++          {openedWorkflowDirectory ? `Opened workflow directory: ${openedWorkflowDirectory}` : ""}
++        </output>
++      ) : null}
 +    </main>
 +  );
 +}
@@ -8370,6 +9932,125 @@ index 84bd46b3d0b65edab8ff72a3dd45a08d029dba0e..7bda3f27575f9fcdc604247d5547d8cb
            if (id.endsWith("/WorkspaceSidebarFooterUsageSummary.tsx"))
              return 'import React from "react"; export const useWorkspaceSidebarFooterUsageSummaryState=()=>({}); export const WorkspaceSidebarFooterPlanBadge=()=>React.createElement("span",{className:"rounded-full border border-border bg-surface px-1 py-px text-ui-xs text-foreground-subtle"},"Pro"); export const WorkspaceSidebarFooterUsageSummaryContent=()=>null;';
          },
+diff --git a/packages/ui/test/browser/manual-review/pending/tool-presentation-failures.fixture.tsx b/packages/ui/test/browser/manual-review/pending/tool-presentation-failures.fixture.tsx
+index 44d75914fdfcd290e980a8930f343838d197bc3f..bde9a8f4636f0818977b962af09e5a14e859decd 100644
+--- a/packages/ui/test/browser/manual-review/pending/tool-presentation-failures.fixture.tsx
++++ b/packages/ui/test/browser/manual-review/pending/tool-presentation-failures.fixture.tsx
+@@ -1,7 +1,8 @@
+-import { useEffect, useState } from "react";
++import { useCallback, useEffect, useState } from "react";
+ import { createRoot } from "react-dom/client";
+ import type { FileMediaPreview, IPlatformService } from "@zcode/shared";
+ import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
++import { TaskOutputToolCallBlock } from "@/ToolCallBlocks/renderers/task-output.js";
+ import { ToolPresentationCapabilitiesProvider } from "@/ToolCallBlocks/presentationCapabilities.js";
+ import { OpenSplitButton } from "@/OpenSplitButton.js";
+ import { PlatformProvider } from "@/hooks/usePlatform.js";
+@@ -107,11 +108,103 @@ function Fixture() {
+     </main>
+   );
+ }
++function TaskCopyFixture() {
++  const [mode, setMode] = useState("success");
++  const [reads, setReads] = useState(0);
++  const [copied, setCopied] = useState("");
++  const text = `${"完整结果😀\\n".repeat(600)}END-OF-FULL-OUTPUT`;
++  const bytes = new TextEncoder().encode(text);
++  useEffect(() => {
++    const clipboard = {
++      async write(items: ClipboardItem[]) {
++        const blob = await items[0]!.getType("text/plain");
++        if (mode === "clipboard-failure") throw new Error("denied");
++        setCopied(await blob.text());
++      },
++      async writeText(value: string) {
++        setCopied(value);
++      },
++    };
++    Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
++  }, [mode]);
++  const readTaskOutputRange = useCallback(
++    async ({ offset, length }: { path: string; offset: number; length: number }) => {
++      setReads((value) => value + 1);
++      if (mode === "missing") throw new Error("missing");
++      return new TextEncoder()
++        .encode(`${"完整结果😀\\n".repeat(600)}END-OF-FULL-OUTPUT`)
++        .slice(offset, offset + length);
++    },
++    [mode],
++  );
++  return (
++    <main className="p-4 bg-background text-foreground min-h-screen space-y-4">
++      <h1>TaskOutput copy review</h1>
++      <div className="flex flex-wrap gap-2">
++        {["success", "missing", "clipboard-failure"].map((value) => (
++          <Button
++            key={value}
++            onClick={() => {
++              setMode(value);
++              setCopied("");
++            }}
++          >
++            {value}
++          </Button>
++        ))}
++      </div>
++      <ToolPresentationCapabilitiesProvider value={{ readTaskOutputRange }}>
++        <TaskOutputToolCallBlock
++          toolCallNode={{
++            toolCall: {
++              toolId: `copy-${mode}`,
++              toolName: "TaskOutput",
++              kind: "TaskOutput",
++              status: "completed",
++              input: { task_id: "exec_copy_fixture" },
++              raw: {
++                display: {
++                  kind: "task_output",
++                  retrievalStatus: "success",
++                  taskStatus: "completed",
++                  output: text.slice(0, 2000),
++                  truncated: true,
++                  copySource: { path: "/session/output-snapshot.txt", bytes: bytes.length },
++                },
++              },
++            },
++            childToolCalls: [],
++          }}
++          workspacePath="/workspace"
++          theme="light"
++          displayModel={{
++            inlinePreview: { type: "none" },
++            planResult: null,
++            viewerSource: null,
++            viewerLabelId: "codeViewer.viewCode",
++            showSummaryFileLink: false,
++            showInput: false,
++            showOutput: true,
++            showKind: false,
++          }}
++          viewerSource={null}
++          rawFileSummaries={[]}
++          isRunning={false}
++          statusLabel=""
++          childToolList={null}
++        />
++      </ToolPresentationCapabilitiesProvider>
++      <p>Host reads: {reads}</p>
++      <p>Copied chars: {copied.length}</p>
++      <textarea aria-label="Copied output" value={copied} readOnly className="w-full h-24" />
++    </main>
++  );
++}
+ createRoot(document.getElementById("root")!).render(
+   <ZCodeIntlProvider initialLocale={params.get("locale") === "en-US" ? "en-US" : "zh-CN"}>
+     <PlatformProvider platform={platform}>
+       <TabStoreProvider>
+-        <Fixture />
++        {params.get("task-copy") ? <TaskCopyFixture /> : <Fixture />}
+       </TabStoreProvider>
+     </PlatformProvider>
+   </ZCodeIntlProvider>,
 diff --git a/packages/ui/test/browser/manual-review/pending/turn-spacing.fixture.tsx b/packages/ui/test/browser/manual-review/pending/turn-spacing.fixture.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..85815a691a1610e032fb0318f02acbd1f39b3f58
@@ -9003,6 +10684,229 @@ index d18a50d6db0b9658b1984ef1e250f633a87fba9a..00000000000000000000000000000000
 -    expect(h.reportTelemetryEvent).toHaveBeenCalledTimes(2);
 -  });
 -});
+diff --git a/packages/ui/test/compactionProfileSettings.test.ts b/packages/ui/test/compactionProfileSettings.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a085d46648f62d0d9b28b09a21d78d68a8062a02
+--- /dev/null
++++ b/packages/ui/test/compactionProfileSettings.test.ts
+@@ -0,0 +1,217 @@
++// @vitest-environment jsdom
++// 高级设置里的上下文压缩方式：两个 radio 卡 + 仅精简模式生效的 token 预算。
++import { createElement, type ReactNode } from "react";
++import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type { CompactionProfile } from "@zcode/shared";
++import { AdvancedSection } from "../src/settingsPageHelpers.js";
++
++vi.mock("@/i18n/IntlProvider.js", () => ({
++  useZCodeIntl: () => ({
++    intl: {
++      formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>): string =>
++        values ? `${id}:${values.min}-${values.max}` : id,
++    },
++  }),
++}));
++
++// 只验证高级设置自身交互，避免加载共享设置页里与 Case 无关的代码预览依赖。
++vi.mock("@/settings/SettingsPageParts.js", () => ({
++  SettingsBadge: ({ children }: { children?: ReactNode }) => createElement("span", null, children),
++  SettingsGroupCard: ({ children }: { children?: ReactNode }) =>
++    createElement("section", null, children),
++  SettingsRow: ({
++    label,
++    description,
++    control,
++    detail,
++  }: {
++    label?: ReactNode;
++    description?: ReactNode;
++    control?: ReactNode;
++    detail?: ReactNode;
++  }) => createElement("div", null, label, description, control, detail),
++}));
++
++function renderSection(
++  overrides: {
++    compactionProfile?: CompactionProfile;
++    compactionTailBudgetTokens?: number;
++    compactionSummaryMaxOutputTokens?: number;
++    onCompactionTailBudgetTokensChange?: (tokens: number) => Promise<void>;
++    onCompactionSummaryMaxOutputTokensChange?: (tokens: number) => Promise<void>;
++  } = {},
++) {
++  const props = {
++    compactionProfile: overrides.compactionProfile ?? ("detailed" as CompactionProfile),
++    compactionTailBudgetTokens: overrides.compactionTailBudgetTokens ?? 15_000,
++    compactionSummaryMaxOutputTokens: overrides.compactionSummaryMaxOutputTokens ?? 8_000,
++    onCompactionProfileChange: vi.fn(async (_profile: CompactionProfile) => {}),
++    onCompactionTailBudgetTokensChange:
++      overrides.onCompactionTailBudgetTokensChange ?? vi.fn(async (_tokens: number) => {}),
++    onCompactionSummaryMaxOutputTokensChange:
++      overrides.onCompactionSummaryMaxOutputTokensChange ?? vi.fn(async (_tokens: number) => {}),
++  };
++  render(createElement(AdvancedSection, props));
++  return props;
++}
++
++afterEach(() => {
++  cleanup();
++  vi.restoreAllMocks();
++});
++
++describe("AdvancedSection 上下文压缩设置", () => {
++  it("默认显示详细摘要卡，详细模式下预算输入禁用", () => {
++    renderSection();
++
++    expect(screen.getByTestId("compaction-profile-detailed").getAttribute("aria-checked")).toBe(
++      "true",
++    );
++    expect(screen.getByTestId("compaction-profile-compact").getAttribute("aria-checked")).toBe(
++      "false",
++    );
++    expect((screen.getByTestId("compaction-tail-budget-input") as HTMLInputElement).disabled).toBe(
++      true,
++    );
++    expect(
++      (screen.getByTestId("compaction-summary-max-output-input") as HTMLInputElement).disabled,
++    ).toBe(true);
++  });
++
++  it("选择精简摘要时保存模式，并在精简模式展示可编辑预算", async () => {
++    const props = renderSection({ compactionProfile: "compact" });
++
++    expect(screen.getByTestId("compaction-profile-compact").getAttribute("aria-checked")).toBe(
++      "true",
++    );
++    expect((screen.getByTestId("compaction-tail-budget-input") as HTMLInputElement).value).toBe(
++      "15000",
++    );
++    expect(
++      (screen.getByTestId("compaction-summary-max-output-input") as HTMLInputElement).value,
++    ).toBe("8000");
++
++    await act(async () => {
++      fireEvent.click(screen.getByTestId("compaction-profile-detailed"));
++    });
++    expect(props.onCompactionProfileChange).toHaveBeenCalledWith("detailed");
++  });
++
++  it("模式保存失败时显示本地化错误并可重试", async () => {
++    const props = renderSection();
++    props.onCompactionProfileChange.mockRejectedValueOnce(new Error("disk full"));
++
++    await act(async () => {
++      fireEvent.click(screen.getByTestId("compaction-profile-compact"));
++    });
++
++    await waitFor(() =>
++      expect(screen.getByTestId("compaction-profile-error").textContent).toBe(
++        "settings.advanced.saveFailed",
++      ),
++    );
++    expect(props.onCompactionProfileChange).toHaveBeenCalledWith("compact");
++  });
++
++  it("合法预算在 blur 或 Enter 时保存", async () => {
++    const onTailChange = vi.fn(async (_tokens: number) => {});
++    renderSection({
++      compactionProfile: "compact",
++      onCompactionTailBudgetTokensChange: onTailChange,
++    });
++    const input = screen.getByTestId("compaction-tail-budget-input") as HTMLInputElement;
++
++    fireEvent.change(input, { target: { value: "20000" } });
++    await act(async () => {
++      fireEvent.blur(input);
++    });
++    expect(onTailChange).toHaveBeenCalledWith(20_000);
++
++    fireEvent.change(input, { target: { value: "100000" } });
++    await act(async () => {
++      fireEvent.keyDown(input, { key: "Enter" });
++    });
++    expect(onTailChange).toHaveBeenLastCalledWith(100_000);
++  });
++
++  it("越界或非整数预算不提交，并显示范围错误", async () => {
++    const onTailChange = vi.fn(async (_tokens: number) => {});
++    renderSection({
++      compactionProfile: "compact",
++      onCompactionTailBudgetTokensChange: onTailChange,
++    });
++    const input = screen.getByTestId("compaction-tail-budget-input") as HTMLInputElement;
++
++    for (const value of ["999", "100001", "15000.5", "abc"]) {
++      fireEvent.change(input, { target: { value } });
++      await act(async () => {
++        fireEvent.blur(input);
++      });
++    }
++
++    expect(onTailChange).not.toHaveBeenCalled();
++    expect(screen.getByTestId("compaction-tail-budget-input-error").textContent).toBe(
++      "settings.advanced.tokenRangeError:1000-100000",
++    );
++  });
++
++  it("摘要输出上限保存失败时显示错误并保留输入", async () => {
++    const onSummaryChange = vi.fn(async (_tokens: number) => {
++      throw new Error("write failed");
++    });
++    renderSection({
++      compactionProfile: "compact",
++      onCompactionSummaryMaxOutputTokensChange: onSummaryChange,
++    });
++    const input = screen.getByTestId("compaction-summary-max-output-input") as HTMLInputElement;
++
++    fireEvent.change(input, { target: { value: "12000" } });
++    await act(async () => {
++      fireEvent.blur(input);
++    });
++
++    await waitFor(() =>
++      expect(screen.getByTestId("compaction-summary-max-output-input-error").textContent).toBe(
++        "settings.advanced.saveFailed",
++      ),
++    );
++    expect(onSummaryChange).toHaveBeenCalledWith(12_000);
++    expect(input.value).toBe("12000");
++    expect(input.disabled).toBe(false);
++  });
++
++  it("保存期间禁用输入且不会重复提交", async () => {
++    let resolveSave: (() => void) | undefined = undefined;
++    const pendingSave = new Promise<void>((resolve) => {
++      resolveSave = resolve;
++    });
++    const onTailChange = vi.fn(async (_tokens: number) => {
++      await pendingSave;
++    });
++    renderSection({
++      compactionProfile: "compact",
++      onCompactionTailBudgetTokensChange: onTailChange,
++    });
++    const input = screen.getByTestId("compaction-tail-budget-input") as HTMLInputElement;
++
++    fireEvent.change(input, { target: { value: "25000" } });
++    await act(async () => {
++      fireEvent.blur(input);
++    });
++    expect(input.disabled).toBe(true);
++    expect(onTailChange).toHaveBeenCalledTimes(1);
++
++    await act(async () => {
++      fireEvent.blur(input);
++      fireEvent.keyDown(input, { key: "Enter" });
++    });
++    expect(onTailChange).toHaveBeenCalledTimes(1);
++
++    await act(async () => {
++      resolveSave?.();
++      await pendingSave;
++    });
++    await waitFor(() => expect(input.disabled).toBe(false));
++  });
++});
 diff --git a/packages/ui/test/composerToolbarFit.test.ts b/packages/ui/test/composerToolbarFit.test.ts
 index 36180737cb4961f813efd3469136f18850fc9381..6042c9c54e4749812103ac3f52cb2bbbf87ebdab 100644
 --- a/packages/ui/test/composerToolbarFit.test.ts
@@ -9386,6 +11290,114 @@ index 0000000000000000000000000000000000000000..e8336b292281e03d0c1f5e45c48541b1
 +    expect(openSettingsTab).toHaveBeenCalledOnce();
 +  });
 +});
+diff --git a/packages/ui/test/messageTaskControlToolCallBlock.test.ts b/packages/ui/test/messageTaskControlToolCallBlock.test.ts
+index 3f9b547bb25536f9d9c4892e4118b9ff157d2068..95b0f8317b5ab88f52c746ab23ccd914ce7342e3 100644
+--- a/packages/ui/test/messageTaskControlToolCallBlock.test.ts
++++ b/packages/ui/test/messageTaskControlToolCallBlock.test.ts
+@@ -6,7 +6,12 @@ import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
+ import { ToolCallBlock } from "@/ToolCallBlocks.js";
+ import { RespondToCoordinatorToolCallBlock } from "@/ToolCallBlocks/renderers/respond-to-coordinator.js";
+ import { SendMessageToolCallBlock } from "@/ToolCallBlocks/renderers/send-message.js";
+-import { TaskOutputToolCallBlock } from "@/ToolCallBlocks/renderers/task-output.js";
++import {
++  TaskOutputToolCallBlock,
++  readCompleteTaskOutput,
++  readTaskOutputCopySource,
++} from "@/ToolCallBlocks/renderers/task-output.js";
++import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+ import { TaskStopToolCallBlock } from "@/ToolCallBlocks/renderers/task-stop.js";
+ import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
+ 
+@@ -67,6 +72,89 @@ function renderDedicatedToolCall(
+   );
+ }
+ 
++describe("TaskOutput copy contract", () => {
++  const text = "完整输出😀\n".repeat(600);
++  const envelope = (output: string, type = "local_bash") =>
++    `<retrieval_status>success</retrieval_status>\n\n<task_id>task_copy</task_id>\n\n<task_type>${type}</task_type>\n\n<status>completed</status>\n\n<exit_code>0</exit_code>\n\n<output>\n${output}\n</output>`;
++  it("extracts the complete legacy body without XML or metadata", () => {
++    expect(readCompleteTaskOutput(envelope(text), "task_copy", false)).toBe(text);
++    for (const [body, id, truncated] of [
++      [envelope(text), "other", false],
++      [envelope(text), "task_copy", {}],
++      [envelope(text, "local_agent"), "task_copy", false],
++      [envelope("[Truncated. Full output: /private/log]\nTAIL"), "task_copy", false],
++      ["<persisted-output>preview</persisted-output>", "task_copy", false],
++      [JSON.stringify({ output: text }), "task_copy", false],
++    ] as const)
++      expect(readCompleteTaskOutput(body, id, truncated)).toBeUndefined();
++  });
++  it("reads all snapshot bytes across a split Unicode character", async () => {
++    const bytes = new TextEncoder().encode(`${"a".repeat(262143)}😀${text}`);
++    const calls: number[] = [];
++    const actual = await readTaskOutputCopySource(
++      { path: "/snapshot.txt", bytes: bytes.length },
++      async ({ offset, length }) => {
++        calls.push(offset);
++        return bytes.slice(offset, offset + length);
++      },
++    );
++    expect(actual).toBe(new TextDecoder().decode(bytes));
++    expect(calls).toEqual([0, 262144, bytes.length]);
++  });
++  it("rejects missing, changed, invalid UTF-8, oversized and stale snapshots", async () => {
++    const source = { path: "/snapshot.txt", bytes: 3 };
++    await expect(readTaskOutputCopySource(source, async () => new Uint8Array())).rejects.toThrow(
++      "Incomplete",
++    );
++    await expect(
++      readTaskOutputCopySource(source, async ({ length }) => new Uint8Array(length)),
++    ).rejects.toThrow("changed");
++    await expect(
++      readTaskOutputCopySource(source, async ({ offset }) =>
++        offset ? new Uint8Array() : new Uint8Array([255, 255, 255]),
++      ),
++    ).rejects.toThrow();
++    await expect(
++      readTaskOutputCopySource(
++        { ...source, bytes: 8 * 1024 * 1024 + 1 },
++        async () => new Uint8Array(),
++      ),
++    ).rejects.toThrow("size");
++    await expect(
++      readTaskOutputCopySource(
++        source,
++        async () => new Uint8Array(3),
++        () => false,
++      ),
++    ).rejects.toThrow("Stale");
++  });
++  it("keeps copy references bounded and never renders the full legacy body", () => {
++    const display = {
++      kind: "task_output",
++      retrievalStatus: "success",
++      output: text.slice(0, 2000),
++      truncated: true,
++      copySource: { path: "/snapshot.txt", bytes: 123 },
++    };
++    expect(readToolResultDisplay({ display })).toMatchObject({ copySource: display.copySource });
++    expect(
++      readToolResultDisplay({ display: { ...display, copySource: { path: "/bad", bytes: -1 } } }),
++    ).not.toHaveProperty("copySource");
++    const html = renderDedicatedToolCall(TaskOutputToolCallBlock, {
++      toolId: "copy-html",
++      toolName: "TaskOutput",
++      kind: "TaskOutput",
++      input: { task_id: "task_copy" },
++      output: envelope(text),
++      status: "completed",
++      raw: { display },
++    });
++    expect(html).toContain("复制本次完整输出");
++    expect(html).not.toContain(text);
++    expect(html).not.toContain("/snapshot.txt");
++  });
++});
++
+ describe("message and task control tool call routing", () => {
+   it("routes SendMessage to a semantic summary", () => {
+     const html = renderToolCall({
 diff --git a/packages/ui/test/modelProviderCodingPlan.test.ts b/packages/ui/test/modelProviderCodingPlan.test.ts
 index d3584ecb050b4527aabe580147cf9f13c1923e2b..c1e11e0b60223efafa367910a4cf59b332f75ac3 100644
 --- a/packages/ui/test/modelProviderCodingPlan.test.ts
@@ -9871,16 +11883,19 @@ index 0000000000000000000000000000000000000000..90f8a17d8e4513613063564d3235da1b
 +});
 diff --git a/packages/ui/test/sessionInspector.test.ts b/packages/ui/test/sessionInspector.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1c49721b75c43ae0314a744d2f5293fda47a6012
+index 0000000000000000000000000000000000000000..40f9f5c9627e841fda30a30a57029c1b44b9e355
 --- /dev/null
 +++ b/packages/ui/test/sessionInspector.test.ts
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,329 @@
 +// @vitest-environment jsdom
 +import { createElement } from "react";
 +import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 +import { afterEach, describe, expect, it, vi } from "vitest";
 +import type { GitRepositorySummary } from "@zcode/shared";
++import type { GoalState, WorkflowRunState } from "@zcode/shared/zcode-protocol-v4";
++import { TooltipProvider } from "@/components/ui/tooltip.js";
 +import { SessionInspector } from "@/session-diagnostics/contract.js";
++import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 +
 +vi.mock("@/hooks/useProviderSettingsView.js", () => ({
 +  useProviderSettingsView: () => ({
@@ -10110,6 +12125,97 @@ index 0000000000000000000000000000000000000000..1c49721b75c43ae0314a744d2f5293fd
 +    expect(screen.queryByTestId("inspector-open-changes")).toBeNull();
 +  });
 +});
++
++describe("status inspector cards", () => {
++  it.each(["active", "paused"] as const)(
++    "keeps the %s goal action independent from card expansion",
++    (status) => {
++      const goal: GoalState = {
++        targetId: "goal-card",
++        objective: "Verify goal controls",
++        summaryTitle: null,
++        timeUsedSeconds: 12,
++        activeRunStartedAtMs: null,
++        status,
++        iteration: 1,
++        verifications: [],
++        iterations: [],
++      };
++      const onPauseGoal = vi.fn();
++      const onResumeGoal = vi.fn();
++      const { container } = render(
++        createElement(
++          TooltipProvider,
++          null,
++          createElement(ConversationStatusPanel, {
++            workspacePath: "/repo",
++            inspector: createElement("div", { "data-inspector-card": "changes" }),
++            summaryPanelVariantOverride: "panel",
++            goal,
++            onPauseGoal,
++            onResumeGoal,
++          }),
++        ),
++      );
++      const trigger = screen.getByTestId("inspector-goal-trigger");
++      const action = screen.getByRole("button", {
++        name: status === "active" ? "chat.target.pause" : "chat.target.resume",
++      });
++      const callback = status === "active" ? onPauseGoal : onResumeGoal;
++      expect(container.querySelector("button button")).toBeNull();
++      expect(trigger.contains(action)).toBe(false);
++      expect(trigger.getAttribute("aria-expanded")).toBe("true");
++      fireEvent.click(action);
++      expect(callback).toHaveBeenCalledTimes(1);
++      expect(trigger.getAttribute("aria-expanded")).toBe("true");
++      fireEvent.click(trigger);
++      expect(trigger.getAttribute("aria-expanded")).toBe("false");
++      fireEvent.click(action);
++      expect(callback).toHaveBeenCalledTimes(2);
++      expect(trigger.getAttribute("aria-expanded")).toBe("false");
++      fireEvent.click(trigger);
++      expect(trigger.getAttribute("aria-expanded")).toBe("true");
++    },
++  );
++
++  it("keeps the ended workflow directory outside the live list scroll viewport", () => {
++    const workflowRuns: WorkflowRunState[] = Array.from({ length: 8 }, (_, index) => ({
++      runId: `run-${index}`,
++      toolCallId: `tool-${index}`,
++      status: "running",
++      usage: { spentTokens: 0, nodesUsed: 0 },
++      actors: [],
++      nodes: [],
++      lastEventSequence: 1,
++    }));
++    const onOpenWorkflowRunDirectory = vi.fn();
++    const { container } = render(
++      createElement(
++        TooltipProvider,
++        null,
++        createElement(ConversationStatusPanel, {
++          workspacePath: "/repo",
++          inspector: createElement("div", { "data-inspector-card": "changes" }),
++          summaryPanelVariantOverride: "panel",
++          workflowRuns,
++          endedWorkflowRunCount: 3,
++          parentSessionId: "parent-card",
++          onOpenWorkflowRunDirectory,
++        }),
++      ),
++    );
++    const card = container.querySelector('[data-inspector-card="workflow"]');
++    const viewport = card?.querySelector('[data-status-section-scroll="workflow"]');
++    const directory = screen.getByTestId("workflow-run-directory-trigger");
++    expect(viewport?.querySelectorAll("[data-workflow-run-id]")).toHaveLength(8);
++    expect(card?.contains(directory)).toBe(true);
++    expect(viewport?.contains(directory)).toBe(false);
++    fireEvent.click(directory);
++    expect(onOpenWorkflowRunDirectory).toHaveBeenCalledWith({ parentSessionId: "parent-card" });
++    fireEvent.click(screen.getByTestId("inspector-workflow-trigger"));
++    expect(screen.queryByTestId("workflow-run-directory-trigger")).toBeNull();
++  });
++});
 diff --git a/packages/ui/test/sessionResourceControlsSourceFilter.test.ts b/packages/ui/test/sessionResourceControlsSourceFilter.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..7c7ca0e7f888a9de6aff274b9e55489ac8ad04cb
@@ -10182,8 +12288,21 @@ index 0000000000000000000000000000000000000000..7c7ca0e7f888a9de6aff274b9e55489a
 +    expect(screen.queryByText("bundled")).toBeNull();
 +  });
 +});
+diff --git a/packages/ui/test/settingsNavigation.test.ts b/packages/ui/test/settingsNavigation.test.ts
+index 4d871ad7f8dc0ef6c09a672901d596f4c4d3d85a..d5bfa87c80055448dfec0b81cb130c82c9dffb4b 100644
+--- a/packages/ui/test/settingsNavigation.test.ts
++++ b/packages/ui/test/settingsNavigation.test.ts
+@@ -28,6 +28,8 @@ describe("settingsNavigation", () => {
+     expect(navigation.resolveSettingsSection("hooks", "modelProvider")).toBe("hooks");
+     expect(navigation.isSettingsSectionEnabled("memory")).toBe(true);
+     expect(navigation.resolveSettingsSection("memory", "general")).toBe("memory");
++    expect(navigation.isSettingsSectionEnabled("advanced")).toBe(true);
++    expect(navigation.resolveSettingsSection("advanced", "general")).toBe("advanced");
+   });
+ 
+   it("通知已打开的设置页切换到新的分区意图", async () => {
 diff --git a/packages/ui/test/settingsPageConfig.test.ts b/packages/ui/test/settingsPageConfig.test.ts
-index 734479eee628063c3d21b7fac88d5eecca8ffb3c..065f8d17a1b27100a532473461943bf26b58fa77 100644
+index 734479eee628063c3d21b7fac88d5eecca8ffb3c..d939b8a308f34002344ad951830a0ce3c2971705 100644
 --- a/packages/ui/test/settingsPageConfig.test.ts
 +++ b/packages/ui/test/settingsPageConfig.test.ts
 @@ -28,7 +28,7 @@ describe("settingsPageConfig", () => {
@@ -10195,7 +12314,42 @@ index 734479eee628063c3d21b7fac88d5eecca8ffb3c..065f8d17a1b27100a532473461943bf2
      expect(
        settingsSectionGroups.map((group) => ({
          id: group.id,
-@@ -78,20 +78,20 @@ describe("settingsPageConfig", () => {
+@@ -44,6 +44,7 @@ describe("settingsPageConfig", () => {
+           "browser",
+           "remoteDevices",
+           "shortcuts",
++          "advanced",
+         ],
+       },
+       {
+@@ -66,11 +67,26 @@ describe("settingsPageConfig", () => {
+       "browser",
+       "remoteDevices",
+       "shortcuts",
++      "advanced",
+       "usage",
+       "archives",
+     ]);
+   });
+ 
++  it("高级设置入口紧接键盘快捷键并提供双语文案", async () => {
++    const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
++    const { settingsSectionGroups } = createSettingsPageConfig();
++    const basicsIds =
++      settingsSectionGroups.find((group) => group.id === "basics")?.sections.map((s) => s.id) ?? [];
++
++    expect(basicsIds.at(-1)).toBe("advanced");
++    expect(basicsIds.at(-2)).toBe("shortcuts");
++    expect(enUS["settings.advanced.title"]).toBeTruthy();
++    expect(zhCN["settings.advanced.title"]).toBeTruthy();
++    expect(enUS["settings.advanced.compactionProfile"]).toBeTruthy();
++    expect(zhCN["settings.advanced.compactionProfile"]).toBeTruthy();
++  });
++
+   it("Usage 分区文案和头像菜单使用统计入口保持一致", () => {
+     expect(enUS["settings.usageTitle"]).toBe(enUS["sidebar.usage.plan.openStats"]);
+     expect(enUS["settings.usage.sectionTitle"]).toBe(enUS["sidebar.usage.plan.openStats"]);
+@@ -78,20 +94,20 @@ describe("settingsPageConfig", () => {
    });
  
    it.each([
@@ -10225,15 +12379,17 @@ index 734479eee628063c3d21b7fac88d5eecca8ffb3c..065f8d17a1b27100a532473461943bf2
      const basics = settingsSectionGroups.find((group) => group.id === "basics");
  
      expect(basics?.sections.map((section) => section.id)).toEqual([
-@@ -100,7 +100,6 @@ describe("settingsPageConfig", () => {
+@@ -100,8 +116,8 @@ describe("settingsPageConfig", () => {
        "modelProvider",
        "browser",
        "remoteDevices",
 -      "computerUse",
        "shortcuts",
++      "advanced",
      ]);
      expect(
-@@ -113,7 +112,7 @@ describe("settingsPageConfig", () => {
+       settingsSectionGroups
+@@ -113,7 +129,7 @@ describe("settingsPageConfig", () => {
    it("不可见的电脑控制落点回退到 general", async () => {
      const { createSettingsPageConfig, resolveSettingsSectionForPlatform } =
        await loadSettingsPageConfig("test");
@@ -10367,23 +12523,19 @@ index 0000000000000000000000000000000000000000..63d1e4c9820b07b3156179aa0b416a34
 +});
 diff --git a/packages/ui/test/toolLiveExpand.test.ts b/packages/ui/test/toolLiveExpand.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6698f8207a7bbac1f075bc494c8b54c88d064e70
+index 0000000000000000000000000000000000000000..1e5b721469df6c552a13a5f2656bb61d03c26032
 --- /dev/null
 +++ b/packages/ui/test/toolLiveExpand.test.ts
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,309 @@
 +// @vitest-environment jsdom
 +
-+import { cleanup, render } from "@testing-library/react";
++import { cleanup, fireEvent, render } from "@testing-library/react";
 +import { createElement } from "react";
 +import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 +import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 +import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
 +import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
-+import {
-+  EditToolCallBlock,
-+  resolveEditChildAutoOpen,
-+  resolveEditToolLayout,
-+} from "../src/ToolCallBlocks/renderers/edit.js";
++import { EditToolCallBlock } from "../src/ToolCallBlocks/renderers/edit.js";
 +import { ExecuteToolCallBlock } from "../src/ToolCallBlocks/renderers/execute.js";
 +import { ExecuteGroupToolCallBlock } from "../src/ToolCallBlocks/renderers/execute-group.js";
 +import { ExploreToolCallBlock } from "../src/ToolCallBlocks/renderers/explore.js";
@@ -10443,7 +12595,7 @@ index 0000000000000000000000000000000000000000..6698f8207a7bbac1f075bc494c8b54c8
 +    turnId: "turn",
 +    createdAt: 1,
 +    createdAtSeq: 1,
-+    // 固定 toolId：重渲染必须复用同一折叠状态，才能验证完成边沿的自动收起。
++    // 固定 toolId：重渲染必须复用用户选择的折叠状态。
 +    toolCallId: "exec-live-command",
 +    toolName: "Bash",
 +    status,
@@ -10608,38 +12760,25 @@ index 0000000000000000000000000000000000000000..6698f8207a7bbac1f075bc494c8b54c8
 +  });
 +});
 +
-+describe("edit live expand layout", () => {
-+  it("auto-opens a single-file edit only while it is running", () => {
-+    expect(resolveEditToolLayout({ hasMultipleFiles: false, isRunning: true })).toEqual({
-+      canToggle: true,
-+      forceOpen: false,
-+      autoOpen: true,
-+    });
-+    expect(resolveEditToolLayout({ hasMultipleFiles: false, isRunning: false }).autoOpen).toBe(
-+      false,
++describe("edit baseline collapsed layout", () => {
++  it.each(["running", "completed"] as const)("keeps a %s edit collapsed", (status) => {
++    const view = renderEdit(status);
++    const trigger = view.container.querySelector<HTMLElement>(
++      `[data-testid="tool-summary-trigger-edit-live-${status}"]`,
 +    );
-+  });
++    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
++    expect(view.container.textContent).not.toContain("const after = 2;");
 +
-+  it("keeps the multi-file container collapsed and auto-opens each child while running", () => {
-+    expect(resolveEditToolLayout({ hasMultipleFiles: true, isRunning: true }).autoOpen).toBe(false);
-+    expect(resolveEditChildAutoOpen(true)).toBe(true);
-+    expect(resolveEditChildAutoOpen(false)).toBe(false);
-+  });
-+
-+  it("renders the diff without a click while running and stays collapsed after completion", () => {
-+    const running = renderEdit("running");
-+    expect(running.container.textContent).toContain("const after = 2;");
-+
-+    cleanup();
-+    const completed = renderEdit("completed");
-+    expect(completed.container.textContent).not.toContain("const after = 2;");
++    fireEvent.click(trigger!);
++    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
++    expect(view.container.textContent).toContain("const after = 2;");
 +  });
 +});
 +
 +describe("execute live expand layout", () => {
-+  it("renders command output without a click while running", () => {
++  it("keeps command output collapsed while running", () => {
 +    const running = renderExecute("running");
-+    expect(running.container.textContent).toContain("latest-line-xyz");
++    expect(running.container.textContent).not.toContain("latest-line-xyz");
 +  });
 +
 +  it("keeps a completed command collapsed", () => {
@@ -10647,46 +12786,171 @@ index 0000000000000000000000000000000000000000..6698f8207a7bbac1f075bc494c8b54c8
 +    expect(completed.container.textContent).not.toContain("latest-line-xyz");
 +  });
 +
-+  it("collapses a running command once it finishes", () => {
++  it("preserves a manually opened command when it finishes", () => {
 +    const view = render(executeElement("running"));
 +    const trigger = () =>
 +      view.container.querySelector<HTMLElement>(
 +        '[data-testid="tool-summary-trigger-exec-live-command"]',
 +      );
 +
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    fireEvent.click(trigger()!);
 +    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
++    expect(view.container.textContent).toContain("latest-line-xyz");
 +
 +    view.rerender(executeElement("completed"));
-+    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
 +  });
 +});
 +
 +describe("grouped run live expand layout", () => {
-+  it("auto-opens a running explore run and folds it back after completion", () => {
++  it("keeps a running explore group collapsed and preserves manual expansion", () => {
 +    const view = render(exploreGroupElement(true));
 +    const trigger = () =>
 +      view.container.querySelector<HTMLElement>(
 +        '[data-testid="tool-summary-trigger-explore:group-live"]',
 +      );
 +
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    expect(view.container.textContent).not.toContain("detail");
++    fireEvent.click(trigger()!);
 +    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
 +    expect(view.container.textContent).toContain("detail");
 +
 +    view.rerender(exploreGroupElement(false));
-+    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
 +  });
 +
-+  it("auto-opens a running command group and folds it after completion", () => {
++  it("keeps a running command group collapsed and preserves manual expansion", () => {
 +    const view = render(executeGroupElement(true));
 +    const trigger = () =>
 +      view.container.querySelector<HTMLElement>(
 +        '[data-testid="tool-summary-trigger-execute:group-live"]',
 +      );
 +
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    fireEvent.click(trigger()!);
 +    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
 +
 +    view.rerender(executeGroupElement(false));
-+    expect(trigger()?.getAttribute("aria-expanded")).toBe("false");
++    expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
++  });
++});
+diff --git a/packages/ui/test/useSettingServiceCompactionPolicy.test.ts b/packages/ui/test/useSettingServiceCompactionPolicy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9a9a1f79996fdab51869f60da09e8e0862b92f14
+--- /dev/null
++++ b/packages/ui/test/useSettingServiceCompactionPolicy.test.ts
+@@ -0,0 +1,111 @@
++// @vitest-environment jsdom
++// docs/compaction-profiles.md「Host → CLI 同步」「设置契约」：三个压缩设置发生变化时，
++// persist 成功后同步 Host/Bot 并沿用现有 broadcast 机制；不混入 strict interaction preferences。
++import { act, renderHook, waitFor } from "@testing-library/react";
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL, type AppSettings } from "@zcode/shared";
++import type { IServiceAccessor } from "@zcode/services";
++
++const settingService = {
++  get: vi.fn<() => Promise<AppSettings>>(),
++  update: vi.fn<(patch: Partial<AppSettings>) => Promise<void>>(),
++};
++const broadcastService = {
++  send: vi.fn<(message: { channel: string; payload: unknown }) => Promise<void>>(),
++};
++const zcodeAgentService = {
++  syncAppRuntimePreferences: vi.fn(async () => undefined),
++  syncCompactionPolicy: vi.fn(async () => undefined),
++};
++const botsService = {
++  syncAppRuntimePreferences: vi.fn(async () => undefined),
++  syncCompactionPolicy: vi.fn(async () => undefined),
++};
++const services = {
++  broadcastService,
++  settingService,
++  zcodeAgentService,
++  botsService,
++} as unknown as IServiceAccessor;
++
++vi.mock("@/hooks/useServices.js", () => ({
++  useServices: () => services,
++}));
++
++vi.mock("@/hooks/usePlatform.js", () => ({
++  usePlatform: () => ({}),
++}));
++
++describe("useSettings compaction policy runtime sync", () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    settingService.get.mockResolvedValue({} as AppSettings);
++    settingService.update.mockResolvedValue(undefined);
++    broadcastService.send.mockResolvedValue(undefined);
++    zcodeAgentService.syncCompactionPolicy.mockResolvedValue(undefined);
++    botsService.syncCompactionPolicy.mockResolvedValue(undefined);
++  });
++
++  it.each([
++    [{ compactionProfile: "compact" as const }, "compact", 15_000, 8_000],
++    [{ compactionTailBudgetTokens: 40_000 }, "detailed", 40_000, 8_000],
++    [{ compactionSummaryMaxOutputTokens: 12_000 }, "detailed", 15_000, 12_000],
++  ])("persist 成功后同步归一策略并广播：%j", async (patch, profile, tailBudgetTokens, summary) => {
++    const { useSettings } = await import("@/hooks/useSettingService.js");
++    const hook = renderHook(() => useSettings());
++    await waitFor(() => expect(hook.result.current.loading).toBe(false));
++
++    await act(async () => {
++      await hook.result.current.update(patch);
++    });
++
++    const policy = { profile, tailBudgetTokens, summaryMaxOutputTokens: summary };
++    expect(settingService.update).toHaveBeenCalledWith(patch);
++    expect(zcodeAgentService.syncCompactionPolicy).toHaveBeenCalledWith(policy);
++    expect(botsService.syncCompactionPolicy).toHaveBeenCalledWith(policy);
++    expect(broadcastService.send).toHaveBeenCalledWith({
++      channel: COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL,
++      payload: policy,
++    });
++    // 三个压缩字段走独立方法，不塞进 strict interaction preferences。
++    expect(zcodeAgentService.syncAppRuntimePreferences).not.toHaveBeenCalled();
++    expect(botsService.syncAppRuntimePreferences).not.toHaveBeenCalled();
++    hook.unmount();
++  });
++
++  it("持久化失败时不触发同步或广播", async () => {
++    settingService.update.mockRejectedValueOnce(new Error("write failed"));
++    const { useSettings } = await import("@/hooks/useSettingService.js");
++    const hook = renderHook(() => useSettings());
++    await waitFor(() => expect(hook.result.current.loading).toBe(false));
++
++    await act(async () => {
++      await expect(hook.result.current.update({ compactionProfile: "compact" })).rejects.toThrow(
++        "write failed",
++      );
++    });
++
++    expect(zcodeAgentService.syncCompactionPolicy).not.toHaveBeenCalled();
++    expect(botsService.syncCompactionPolicy).not.toHaveBeenCalled();
++    expect(broadcastService.send).not.toHaveBeenCalled();
++    hook.unmount();
++  });
++
++  it("Host 同步失败仍广播，但把失败上报给保存方", async () => {
++    zcodeAgentService.syncCompactionPolicy.mockRejectedValueOnce(new Error("host gone"));
++    const { useSettings } = await import("@/hooks/useSettingService.js");
++    const hook = renderHook(() => useSettings());
++    await waitFor(() => expect(hook.result.current.loading).toBe(false));
++
++    await act(async () => {
++      await expect(hook.result.current.update({ compactionProfile: "compact" })).rejects.toThrow(
++        "host gone",
++      );
++    });
++
++    expect(broadcastService.send).toHaveBeenCalledWith(
++      expect.objectContaining({ channel: COMPACTION_POLICY_CHANGED_BROADCAST_CHANNEL }),
++    );
++    hook.unmount();
 +  });
 +});
 diff --git a/packages/ui/test/v4AssistantWorkRenderItems.test.ts b/packages/ui/test/v4AssistantWorkRenderItems.test.ts

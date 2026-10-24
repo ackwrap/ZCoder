@@ -8731,6 +8731,19 @@ index 5a889836f70ff32c1948b24bb10a5eed9c1f16de..b7a68d008fa67e3300a626f4b0165e31
    it.each(["openai", "openai-compatible"] as const)(
      "fails closed for a configured native WebSearch capability unsupported by API kind %s",
      (providerKind) => {
+diff --git a/apps/zcode-cli/packages/bootstrap/src/app/create-app.ts b/apps/zcode-cli/packages/bootstrap/src/app/create-app.ts
+index 7a1dfc384b4372612c7fce3967690a2b0cdfaa8d..6ad988ad366a4eddeb0145f9610f755f5a583985 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/app/create-app.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/app/create-app.ts
+@@ -1128,6 +1128,8 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
+         workspaceHookRuntimeSecurity?.reloadTrust() ?? Promise.resolve(),
+       setModelIoFullRetentionEnabled: (enabled) =>
+         modelAdapter.setModelIoFullRetentionEnabled(enabled),
++      // Host 同步的 workspace 级压缩策略：只 merge runtime 配置，下一次压缩才读取新值。
++      setCompactionPolicy: (policy) => getRuntime().setCompactionPolicy(policy),
+       readToolResultArtifact: (uri) =>
+         artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
+       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
 index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127eaed2006 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
@@ -8810,6 +8823,30 @@ index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127
          registered.push(definition.modelName);
        }
        appProvidedToolNames = registered;
+diff --git a/apps/zcode-cli/packages/bootstrap/src/app/types.ts b/apps/zcode-cli/packages/bootstrap/src/app/types.ts
+index e3bda0e37ceac56103f9f5f430cfefd20962e807..f0f455aa62766058768963c3019f3666887ebc25 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/app/types.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/app/types.ts
+@@ -73,6 +73,7 @@ import type {
+   AgentRuntimeConfig,
+   AmendWorkflowRunSettingsInput,
+   AmendWorkflowRunSettingsResult,
++  CompactionRuntimePolicy,
+   ExecuteTurnOptions,
+   ExpertWorkflowCommandResult,
+   McpAppProvidedToolDefinition,
+@@ -718,6 +719,11 @@ export interface ZCodeApp {
+     traceId: TraceContext["traceId"];
+   }>;
+   setModelIoFullRetentionEnabled?(enabled: boolean): void;
++  /**
++   * 运行中替换上下文压缩策略（docs/compaction-profiles.md「压缩核心」）。
++   * 只 merge 配置：不触发压缩、不改已有历史、不取消活动请求。
++   */
++  setCompactionPolicy?(policy: CompactionRuntimePolicy): void;
+   setModel(
+     modelId: string | ModelSelection,
+     options?: {
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 index 859fce79163da5beb7befe3eeac51ccba87442b4..d905739a21e5a6f77b2e71d14a3ef7e7c44003e1 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
@@ -9038,6 +9075,83 @@ index f2503bdbd528b26ac1418b079253440d13298084..d10676207ae55649ed27b0583692d724
      const sorted = [...(intervals?.values() ?? [])]
        .filter((interval) => interval.endedAt !== undefined)
        .sort((left, right) => left.startedAt - right.startedAt);
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
+index 1c047705173dca97b940ea507af53ddc802c5213..ff182580e4840188005d62100b62c3d68eedfb60 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
+@@ -1,5 +1,13 @@
+-import { zcodeWorkspaceUpdateModelIoPreferencesParamsSchema } from "@zcode/shared";
+-import { parseParams, type ZCodeProtocolAgentServerContext } from "./server-types.js";
++import type { CompactionRuntimePolicy } from "@zcode/core";
++import {
++  zcodeWorkspaceUpdateCompactionPolicyParamsSchema,
++  zcodeWorkspaceUpdateModelIoPreferencesParamsSchema,
++} from "@zcode/shared";
++import {
++  parseParams,
++  type CompactionPolicyPreference,
++  type ZCodeProtocolAgentServerContext,
++} from "./server-types.js";
+ 
+ /**
+  * ModelIO 写盘策略是 App 全局偏好，但每个 resident session 持有独立 adapter。
+@@ -26,3 +34,56 @@ export async function updateModelIoPreferences(
+     updatedSessionCount,
+   };
+ }
++
++/** 旧 Host 不发送压缩策略时保持 detailed / 15,000 / 8,000。 */
++export const DEFAULT_COMPACTION_POLICY: CompactionPolicyPreference = {
++  profile: "detailed",
++  tailBudgetTokens: 15_000,
++  summaryMaxOutputTokens: 8_000,
++};
++
++/** createRecord 写进 `runtimeConfig.compact`：只覆盖这三项，其他压缩策略保持 core 默认。 */
++export type CompactionPolicyRuntimeConfig = CompactionRuntimePolicy;
++
++export function resolveCompactionPolicyRuntimeConfig(
++  preference: CompactionPolicyPreference = DEFAULT_COMPACTION_POLICY,
++): CompactionPolicyRuntimeConfig {
++  return {
++    profile: preference.profile,
++    tailBudgetTokens: preference.tailBudgetTokens,
++    summaryMaxOutputTokens: preference.summaryMaxOutputTokens,
++  };
++}
++
++/**
++ * workspace/updateCompactionPolicy：缓存策略供 create/resume/冷恢复读取，并只同步
++ * workspaceKey 匹配的活跃 session（不跨 workspace，也不触发压缩）。
++ */
++export async function updateCompactionPolicy(
++  context: ZCodeProtocolAgentServerContext,
++  rawParams: unknown,
++) {
++  const params = parseParams(zcodeWorkspaceUpdateCompactionPolicyParamsSchema, rawParams);
++  const policy: CompactionPolicyPreference = {
++    profile: params.profile,
++    tailBudgetTokens: params.tailBudgetTokens,
++    summaryMaxOutputTokens: params.summaryMaxOutputTokens,
++  };
++  context.appRuntimePreferences.compactionPolicy = policy;
++
++  let updatedSessionCount = 0;
++  for (const record of context.sessions.values()) {
++    if (record.workspace.workspaceKey !== params.workspace.workspaceKey) continue;
++    if (typeof record.app.setCompactionPolicy !== "function") continue;
++    record.app.setCompactionPolicy(policy);
++    updatedSessionCount += 1;
++  }
++
++  return {
++    workspace: params.workspace,
++    profile: policy.profile,
++    tailBudgetTokens: policy.tailBudgetTokens,
++    summaryMaxOutputTokens: policy.summaryMaxOutputTokens,
++    updatedSessionCount,
++  };
++}
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
 index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9dc4dbbd90 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
@@ -9050,6 +9164,132 @@ index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9d
              ...(input.accountAccess ? { accountAccess: input.accountAccess } : {}),
              ...(input.expectedAccountScope
                ? { expectedAccountScope: input.expectedAccountScope }
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
+index 8ad2b295513baf95b4d7b7b5c16499599f37828e..d615eb034e7c21c42d150df57ad9452cafcfc75a 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
+@@ -12,6 +12,10 @@ import {
+ import { resolveEffectiveBashShellSelection } from "@zcode/adapters/exec";
+ import { inputIntentMetadata } from "../zcode-protocol-v4/commands/input-intent.js";
+ import { createModelExecutionContext } from "./model-execution.js";
++import {
++  DEFAULT_COMPACTION_POLICY,
++  resolveCompactionPolicyRuntimeConfig,
++} from "./model-io-preferences.js";
+ import type { SendInputOptions } from "../app/types.js";
+ import { repairPersistedRemoteSessionPaths, type TurnAttachment } from "@zcode/core";
+ import {
+@@ -3490,6 +3494,13 @@ async function createRecord(
+       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
+       toolSearch: { mode: startupPreferences.toolSearchMode },
+       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
++      // 上下文压缩策略（docs/compaction-profiles.md「Host → CLI 同步」）：Host 同步到进程的
++      // workspace 级偏好在这里写入 runtimeConfig.compact。create / resume / v4 冷恢复都经
++      // createRecord，因此统一读同一份缓存；只覆盖 profile 与两个预算，enabled/microcompact
++      // 等其余压缩策略保持 core 默认。旧 Host 不发送时用 detailed/15000/8000。
++      compact: resolveCompactionPolicyRuntimeConfig(
++        context.appRuntimePreferences.compactionPolicy ?? DEFAULT_COMPACTION_POLICY,
++      ),
+       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
+       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
+       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
+@@ -3564,6 +3575,13 @@ async function createRecord(
+     version: context.deps.version,
+     modelIoFullRetentionEnabled: context.appRuntimePreferences.modelIoFullRetentionEnabled,
+   });
++  // createWorkspaceZCodeApp 是 await 窗口：期间到达的 workspace/updateCompactionPolicy 看不到
++  // 尚未登记的 record。发布 record 前按最新缓存补一次，runtime 最终采用最新策略。
++  app.setCompactionPolicy?.(
++    resolveCompactionPolicyRuntimeConfig(
++      context.appRuntimePreferences.compactionPolicy ?? DEFAULT_COMPACTION_POLICY,
++    ),
++  );
+   const now = Date.now();
+   const record: ZCodeProtocolSessionRecord = {
+     app,
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
+index 7f6c5430d405a2639aa3f9a38a0029f5b8c816a4..7c6c9265e7d32f3812524febb4512dc290fc09a6 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
+@@ -16,6 +16,7 @@ import type { AccountProviderConfigSnapshot } from "@zcode/provider";
+ import {
+   zcodeProtocolErrorCodes,
+   type AppToolSearchMode,
++  type CompactionProfile,
+   type ZCodeAutomationBotDeliveryTarget,
+   type ZCodeDeliveryKind,
+   type ModelSelection,
+@@ -122,6 +123,13 @@ export interface ZCodeProtocolSessionRecord {
+   restoredModelSelection?: ModelSelection;
+ }
+ 
++/** Host 同步到 CLI 进程的压缩策略；三个值均由 Host 归一后下发。 */
++export interface CompactionPolicyPreference {
++  profile: CompactionProfile;
++  tailBudgetTokens: number;
++  summaryMaxOutputTokens: number;
++}
++
+ export interface ZCodeProtocolClientRequestOptions {
+   signal?: AbortSignal;
+   timeoutMs?: number;
+@@ -150,6 +158,12 @@ export interface ZCodeProtocolAgentServerContext {
+      * 缺席（旧 Host 只发布尔）= alwaysOn；`onDemand` 让 createRecord 写 runtimeConfig.dynamicWorkflowToolsOnDemand。
+      */
+     dynamicWorkflowMode?: DynamicWorkflowMode;
++    /**
++     * host 同步的上下文压缩策略（docs/compaction-profiles.md）。
++     * 缺省 detailed / 15,000 / 8,000：不认识 `workspace/updateCompactionPolicy` 的旧 Host
++     * 或同步前的启动窗口保持既有详细摘要行为。create / resume / v4 冷恢复统一读取这份缓存。
++     */
++    compactionPolicy: CompactionPolicyPreference;
+   };
+   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
+   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
+index af7bbc7f688e33ec6b2c89984ad5536568640b04..98b00fcdee336d001a483c2124ef870825a63ce3 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
+@@ -112,7 +112,11 @@ import {
+ import { listPluginUiSurfaces } from "./plugin-ui-surfaces.js";
+ import { updateInteractionPreferences } from "./interaction-preferences.js";
+ import { refreshProviderRegistry, updateAccountProviderConfig } from "./account-provider-config.js";
+-import { updateModelIoPreferences } from "./model-io-preferences.js";
++import {
++  DEFAULT_COMPACTION_POLICY,
++  updateCompactionPolicy,
++  updateModelIoPreferences,
++} from "./model-io-preferences.js";
+ import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
+ import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
+ import { grantWorkspaceHookTrustForProtocol } from "./workspace-hook-trust.js";
+@@ -302,6 +306,8 @@ export class ZCodeProtocolAgentServer {
+         // 动态工作流灰度门 fail-closed：Host 必须显式 workspace/updateDynamicWorkflowPolicy
+         // 才开启。
+         dynamicWorkflowEnabled: false,
++        // 压缩策略兼容默认：旧 Host 不发 workspace/updateCompactionPolicy 时保持详细摘要。
++        compactionPolicy: DEFAULT_COMPACTION_POLICY,
+       },
+       notify: (notification) => this.messageSink?.(notification),
+       requestClient: (method, params, resultSchema, options) =>
+@@ -725,6 +731,8 @@ export class ZCodeProtocolAgentServer {
+         return await updateOffPeakToolPolicy(this.context, request.params);
+       case zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy:
+         return await updateDynamicWorkflowPolicy(this.context, request.params);
++      case zcodeProtocolMethods.workspaceUpdateCompactionPolicy:
++        return await updateCompactionPolicy(this.context, request.params);
+       case zcodeProtocolMethods.workspaceGenerateText:
+         return await this.withWorkspaceGenerateTextSignal(request, (signal) =>
+           generateWorkspaceText(this.context, request.params, signal),
+@@ -985,7 +993,7 @@ export class ZCodeProtocolAgentServer {
+               PROTOCOL_CLIENT_REQUEST_ERROR_CODES.timedOut,
+               `Client request timed out: ${method}`,
+               {
+-              timeoutMs: options.timeoutMs,
++                timeoutMs: options.timeoutMs,
+               },
+             ),
+           );
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts
 index b2758d2fc7f34a44ccc3a386e03b60ec1af5d93e..e0023e1b60dab2de08397c9d6c644405586513a2 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts
@@ -9600,6 +9840,293 @@ index 0000000000000000000000000000000000000000..bf70a4d7b227117ea6edb012ba7f6d23
 +    },
 +  ];
 +}
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b7c4b07fa
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts
+@@ -0,0 +1,281 @@
++import type { SessionStorePort } from "@zcode/contracts";
++import { zcodeWorkspaceUpdateCompactionPolicyResultSchema } from "@zcode/shared";
++import { describe, expect, it, vi } from "vitest";
++import type { ZCodeAppOptions } from "../src/app/types.js";
++import {
++  DEFAULT_COMPACTION_POLICY,
++  updateCompactionPolicy,
++} from "../src/zcode-protocol/model-io-preferences.js";
++import { ZCodeProtocolAgentServer } from "../src/zcode-protocol/server.js";
++import {
++  activateSessionForResume,
++  closeSession,
++  createSessionRecordForV4,
++} from "../src/zcode-protocol/server-operations.js";
++import type { ZCodeProtocolAgentServerContext } from "../src/zcode-protocol/server-types.js";
++import { createFakeApp } from "./helpers/fake-zcode-app.js";
++
++const workspace = { workspaceKey: "/workspace/app", workspacePath: "/workspace/app" };
++
++const compactPolicy = {
++  profile: "compact" as const,
++  tailBudgetTokens: 12_000,
++  summaryMaxOutputTokens: 4_000,
++};
++
++function makeContext(sessions: Map<string, unknown> = new Map()): ZCodeProtocolAgentServerContext {
++  return {
++    appRuntimePreferences: {
++      askUserQuestionAutoResolutionEnabled: true,
++      modelIoFullRetentionEnabled: false,
++      offPeakToolEnabled: false,
++      dynamicWorkflowEnabled: false,
++      compactionPolicy: { ...DEFAULT_COMPACTION_POLICY },
++    },
++    sessions,
++  } as unknown as ZCodeProtocolAgentServerContext;
++}
++
++function fakeRecord(
++  workspaceKey: string,
++  overrides: Partial<ReturnType<typeof createFakeApp>> = {},
++) {
++  return {
++    app: createFakeApp(undefined, overrides),
++    workspace: { workspaceKey, workspacePath: workspaceKey },
++  };
++}
++
++describe("workspace/updateCompactionPolicy（Host → CLI 同步）", () => {
++  it("严格拒绝非法参数（分类/边界/非整数/缺省/未知键）", async () => {
++    const invalidParams: unknown[] = [
++      { workspace, ...compactPolicy, profile: "verbose" },
++      { workspace, ...compactPolicy, tailBudgetTokens: 999 },
++      { workspace, ...compactPolicy, tailBudgetTokens: 100_001 },
++      { workspace, ...compactPolicy, tailBudgetTokens: 12_000.5 },
++      { workspace, ...compactPolicy, summaryMaxOutputTokens: 999 },
++      { workspace, ...compactPolicy, summaryMaxOutputTokens: 20_001 },
++      { workspace, profile: "compact", tailBudgetTokens: 12_000 },
++      // strict：不接受 per-session 字段，也不接受旧 interaction preferences 扩展。
++      { workspace, ...compactPolicy, sessionId: "sess_1" },
++      { workspace, ...compactPolicy, preferences: { enabled: true } },
++    ];
++
++    for (const params of invalidParams) {
++      await expect(updateCompactionPolicy(makeContext(), params)).rejects.toThrow();
++    }
++  });
++
++  it("接受边界值并回显已接受策略与 updatedSessionCount", async () => {
++    const context = makeContext();
++    const result = zcodeWorkspaceUpdateCompactionPolicyResultSchema.parse(
++      await updateCompactionPolicy(context, {
++        workspace,
++        profile: "compact",
++        tailBudgetTokens: 1_000,
++        summaryMaxOutputTokens: 20_000,
++      }),
++    );
++
++    expect(result).toEqual({
++      workspace,
++      profile: "compact",
++      tailBudgetTokens: 1_000,
++      summaryMaxOutputTokens: 20_000,
++      updatedSessionCount: 0,
++    });
++    expect(context.appRuntimePreferences.compactionPolicy).toEqual({
++      profile: "compact",
++      tailBudgetTokens: 1_000,
++      summaryMaxOutputTokens: 20_000,
++    });
++
++    await updateCompactionPolicy(context, {
++      workspace,
++      profile: "detailed",
++      tailBudgetTokens: 100_000,
++      summaryMaxOutputTokens: 1_000,
++    });
++    expect(context.appRuntimePreferences.compactionPolicy).toEqual({
++      profile: "detailed",
++      tailBudgetTokens: 100_000,
++      summaryMaxOutputTokens: 1_000,
++    });
++  });
++
++  it("只更新 workspaceKey 匹配的活跃 session，并缓存给后续 create/resume", async () => {
++    const matching = vi.fn();
++    const otherWorkspace = vi.fn();
++    const sessions = new Map<string, unknown>([
++      ["sess_target", fakeRecord(workspace.workspaceKey, { setCompactionPolicy: matching })],
++      ["sess_other", fakeRecord("/workspace/other", { setCompactionPolicy: otherWorkspace })],
++      // 旧 app/测试替身没有 setter：跳过而不是崩溃。
++      ["sess_no_setter", fakeRecord(workspace.workspaceKey)],
++    ]);
++    const context = makeContext(sessions);
++
++    const result = await updateCompactionPolicy(context, { workspace, ...compactPolicy });
++
++    expect(result).toEqual({ workspace, ...compactPolicy, updatedSessionCount: 1 });
++    expect(context.appRuntimePreferences.compactionPolicy).toEqual(compactPolicy);
++    expect(matching).toHaveBeenCalledTimes(1);
++    expect(matching).toHaveBeenCalledWith(compactPolicy);
++    expect(otherWorkspace).not.toHaveBeenCalled();
++  });
++
++  it("server 初始化兼容默认 detailed/15000/8000", () => {
++    const server = new ZCodeProtocolAgentServer({
++      createZCodeApp: () => createFakeApp(),
++    });
++    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++
++    expect(context.appRuntimePreferences.compactionPolicy).toEqual(DEFAULT_COMPACTION_POLICY);
++    expect(DEFAULT_COMPACTION_POLICY).toEqual({
++      profile: "detailed",
++      tailBudgetTokens: 15_000,
++      summaryMaxOutputTokens: 8_000,
++    });
++  });
++});
++
++describe("session create/resume 读取压缩策略缓存", () => {
++  function captureAppOptions() {
++    let appOptions: ZCodeAppOptions | undefined;
++    const server = new ZCodeProtocolAgentServer({
++      createZCodeApp: (options) => {
++        appOptions = options;
++        return createFakeApp(options);
++      },
++    });
++    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++    return {
++      context,
++      appOptions: () => appOptions,
++    };
++  }
++
++  it("新建 session 写入 runtimeConfig.compact，且不带 enabled/microcompact", async () => {
++    const { context, appOptions } = captureAppOptions();
++
++    const created = await createSessionRecordForV4(context, { workspace });
++    try {
++      expect(appOptions()?.runtimeConfig?.compact).toEqual(DEFAULT_COMPACTION_POLICY);
++    } finally {
++      await closeSession(context, { sessionId: created.sessionId });
++    }
++  });
++
++  it("同步后的策略用于新建 session", async () => {
++    const { context, appOptions } = captureAppOptions();
++    await updateCompactionPolicy(context, { workspace, ...compactPolicy });
++
++    const created = await createSessionRecordForV4(context, { workspace });
++    try {
++      expect(appOptions()?.runtimeConfig?.compact).toEqual(compactPolicy);
++      // 只下传三个字段，不能覆盖 core 的其他压缩策略。
++      expect(Object.keys(appOptions()?.runtimeConfig?.compact ?? {}).sort()).toEqual([
++        "profile",
++        "summaryMaxOutputTokens",
++        "tailBudgetTokens",
++      ]);
++    } finally {
++      await closeSession(context, { sessionId: created.sessionId });
++    }
++  });
++
++  it("冷恢复同样从缓存取策略", async () => {
++    let appOptions: ZCodeAppOptions | undefined;
++    const sessionStore = {
++      // 无 workspaceID 的本地会话：跳过远端路径修复，只走 resume materialize。
++      getSession: async () => ({
++        id: "sess_resume",
++        directory: workspace.workspacePath,
++        path: workspace.workspacePath,
++        time: { created: 1, updated: 2 },
++      }),
++      messages: async () => [],
++    } as unknown as SessionStorePort;
++    const server = new ZCodeProtocolAgentServer({
++      createZCodeApp: (options) => {
++        appOptions = options;
++        return createFakeApp(options);
++      },
++      sessionStore,
++    });
++    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++    await updateCompactionPolicy(context, { workspace, ...compactPolicy });
++
++    await activateSessionForResume(context, { sessionId: "sess_resume" });
++    try {
++      expect(appOptions?.runtimeConfig?.compact).toEqual(compactPolicy);
++    } finally {
++      await closeSession(context, { sessionId: "sess_resume" });
++    }
++  });
++});
++
++function deferred(): { promise: Promise<void>; resolve: () => void } {
++  let resolve!: () => void;
++  const promise = new Promise<void>((done) => {
++    resolve = done;
++  });
++  return { promise, resolve };
++}
++
++describe("异步 createZCodeApp 窗口内到达的策略同步", () => {
++  /**
++   * app 初始化挂起时 record 还没登记，updateCompactionPolicy 的活跃遍历看不到它；
++   * createRecord 必须在发布前按最新缓存补一次。create / resume 共用同一路径。
++   */
++  async function latestPolicyWins(activation: "create" | "resume") {
++    const gate = deferred();
++    const appInitStarted = deferred();
++    const setCompactionPolicy = vi.fn();
++    let appOptions: ZCodeAppOptions | undefined;
++    const sessionStore = {
++      getSession: async () => ({
++        id: "sess_resume",
++        directory: workspace.workspacePath,
++        path: workspace.workspacePath,
++        time: { created: 1, updated: 2 },
++      }),
++      messages: async () => [],
++    } as unknown as SessionStorePort;
++    const server = new ZCodeProtocolAgentServer({
++      createZCodeApp: async (options) => {
++        appOptions = options;
++        appInitStarted.resolve();
++        await gate.promise;
++        return createFakeApp(options, { setCompactionPolicy });
++      },
++      ...(activation === "resume" ? { sessionStore } : {}),
++    });
++    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++
++    const started =
++      activation === "resume"
++        ? activateSessionForResume(context, { sessionId: "sess_resume" })
++        : createSessionRecordForV4(context, { workspace });
++    // 此时 runtimeConfig.compact 已按旧缓存（默认）读取，app 仍在初始化。
++    await appInitStarted.promise;
++    await updateCompactionPolicy(context, { workspace, ...compactPolicy });
++    gate.resolve();
++    const result = await started;
++    const sessionId =
++      activation === "resume" ? "sess_resume" : (result as { sessionId: string }).sessionId;
++    try {
++      expect(appOptions?.runtimeConfig?.compact).toEqual(DEFAULT_COMPACTION_POLICY);
++      expect(setCompactionPolicy).toHaveBeenCalledTimes(1);
++      expect(setCompactionPolicy).toHaveBeenCalledWith(compactPolicy);
++    } finally {
++      await closeSession(context, { sessionId });
++    }
++  }
++
++  it.each(["create", "resume"] as const)(
++    "%s 路径在 app 初始化完成后采用最新缓存",
++    async (activation) => {
++      await latestPolicyWins(activation);
++    },
++  );
++});
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts b/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
 index ab3246653a94c7e3d21ca0c8150ae95e07d4a4a9..3ddeb6b53dde0d12672e27e3867e4fc89bb3cc14 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
@@ -10845,6 +11372,225 @@ index 9d2e2123d108b33acc3f3c55ce34c4c9eaf20974..9ee19c916a3daa8b333e6bb89e4a19f5
 +    },
 +  );
 +}
+diff --git a/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts b/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts
+index 67d0172960598be5e26eab7008c26c059fd34f97..b08aa78440af4610c87cac3655378c8ae57b515d 100644
+--- a/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts
++++ b/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts
+@@ -111,6 +111,17 @@ export const taskOutputToolResultDisplayPayloadSchema = z
+     kind: z.literal("task_output"),
+     retrievalStatus: z.enum(["success", "not_ready", "timeout"]),
+     taskStatus: z.string().min(1).max(TASK_OUTPUT_DISPLAY_MAX_STATUS_CHARS).optional(),
++    copySource: z
++      .object({
++        path: z.string().min(1).max(4_096),
++        bytes: z
++          .number()
++          .int()
++          .positive()
++          .max(8 * 1024 * 1024),
++      })
++      .strict()
++      .optional(),
+     output: z.string().min(1).max(TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS).optional(),
+     truncated: z.literal(true).optional(),
+   })
+diff --git a/apps/zcode-cli/packages/core/src/compact/index.ts b/apps/zcode-cli/packages/core/src/compact/index.ts
+index 392256f0fedfa1df1e83a9ba4b59a8472b167ea0..45b01dc28b62b1f76243e61c6695e0e4ea384e94 100644
+--- a/apps/zcode-cli/packages/core/src/compact/index.ts
++++ b/apps/zcode-cli/packages/core/src/compact/index.ts
+@@ -1,8 +1,4 @@
+-export {
+-  buildCompactPrompt,
+-  buildCompactSummaryMessage,
+-  formatCompactSummary,
+-} from "./prompt.js";
++export { buildCompactPrompt, buildCompactSummaryMessage, formatCompactSummary } from "./prompt.js";
+ export {
+   COMPACT_PROMPT_TOO_LONG_RETRY_MARKER,
+   COMPACT_PROMPT_TOO_LONG_USER_MESSAGE,
+@@ -24,6 +20,7 @@ export {
+   getAutoCompactOutputReserveTokens,
+   getAutoCompactThreshold,
+   getEffectiveContextWindowSize,
++  resolveCompactionPolicy,
+   shouldAutoCompact,
+ } from "./policy.js";
+ export {
+@@ -42,7 +39,12 @@ export type {
+   CompactModelMessage,
+   TokenUsageLike,
+ } from "./manual.js";
+-export type { AutoCompactDecision, AutoCompactPolicyConfig } from "./policy.js";
++export type {
++  AutoCompactDecision,
++  AutoCompactPolicyConfig,
++  CompactionProfile,
++  CompactionRuntimePolicy,
++} from "./policy.js";
+ export type { AutoCompactTokenOverride, AutoCompactTokenSource } from "./policy.js";
+ export type {
+   LocalMicrocompactBoundaryPayload,
+diff --git a/apps/zcode-cli/packages/core/src/compact/policy.ts b/apps/zcode-cli/packages/core/src/compact/policy.ts
+index 2378ab656ad6eaddb9f50a236cd62528f07d1422..e93fd1bebc54d37bb51e0cae95ef6a5068a2cb66 100644
+--- a/apps/zcode-cli/packages/core/src/compact/policy.ts
++++ b/apps/zcode-cli/packages/core/src/compact/policy.ts
+@@ -13,7 +13,36 @@ export const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
+ export const DEFAULT_AUTOCOMPACT_THRESHOLD_PERCENT = 100;
+ export const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3;
+ 
++export type CompactionProfile = "detailed" | "compact";
++
++export type CompactionRuntimePolicy = Pick<
++  AutoCompactPolicyConfig,
++  "profile" | "tailBudgetTokens" | "summaryMaxOutputTokens"
++>;
++
++export function resolveCompactionPolicy(
++  policy?: CompactionRuntimePolicy,
++): Required<CompactionRuntimePolicy> {
++  const integerInRange = (
++    value: number | undefined,
++    min: number,
++    max: number,
++    fallback: number,
++  ): number =>
++    value !== undefined && Number.isInteger(value) && value >= min && value <= max
++      ? value
++      : fallback;
++  return {
++    profile: policy?.profile === "compact" ? "compact" : "detailed",
++    tailBudgetTokens: integerInRange(policy?.tailBudgetTokens, 1_000, 100_000, 15_000),
++    summaryMaxOutputTokens: integerInRange(policy?.summaryMaxOutputTokens, 1_000, 20_000, 8_000),
++  };
++}
++
+ export interface AutoCompactPolicyConfig {
++  profile?: CompactionProfile;
++  tailBudgetTokens?: number;
++  summaryMaxOutputTokens?: number;
+   enabled?: boolean;
+   contextWindow?: number;
+   maxOutputTokens?: number;
+diff --git a/apps/zcode-cli/packages/core/src/compact/prompt.ts b/apps/zcode-cli/packages/core/src/compact/prompt.ts
+index a404eee2bab1453f7090ec3a9e4a3d4f2d7d2557..c13a1926c4f9306926247f591b3a01d4173b6e16 100644
+--- a/apps/zcode-cli/packages/core/src/compact/prompt.ts
++++ b/apps/zcode-cli/packages/core/src/compact/prompt.ts
+@@ -108,11 +108,78 @@ When summarizing the conversation focus on typescript code changes and also reme
+ When you are using compact - please focus on test output and code changes. Include file reads verbatim.
+ </example>`;
+ 
+-export function buildCompactPrompt(customInstructions: string | undefined): string {
++/*
++ * Compact template adapted from anomalyco/opencode, packages/core/src/session/compaction.ts
++ * at 6806c6e29a7d2087335794d8b86c6031cdb5f6dd.
++ * MIT License
++ * Copyright (c) 2025 opencode
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in all
++ * copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ */
++const CONCISE_COMPACT_PROMPT = `Summarize the conversation into one structured checkpoint that another agent can use to resume the work.
++Do not continue the task or call tools. Return only the Markdown sections below, with no preamble, analysis, or wrapper tags. You may omit sections that are not applicable.
++
++## Objective
++- [one or two brief sentences describing what the user is trying to accomplish]
++
++## Requirements
++- [constraints, preferences, requirements, and scope boundaries stated by the user, or "(none)"]
++
++## Decisions
++- [decisions already made and why, or "(none)"]
++
++## Work State
++### Completed
++- [goals that have been completed; otherwise "(none)"]
++### Active
++- [goals currently being worked on; otherwise "(none)"]
++### Blocked
++- [anything blocking progress, and why; otherwise "(none)"]
++
++## Next Move
++1. [ordered list of next actions, or "(none)"]
++
++## Relevant Files
++List at most 15 files or directories, most important first, that another agent needs to continue. Do not list every file read or changed. Include exact paths and a brief reason each matters, including paths outside the working directory when relevant. If none, write "(none)".
++
++## Important Context
++- [facts the next agent cannot continue without and cannot easily find on its own, or "(none)"]
++
++Rules:
++- Keep each section concise. Use terse, single-line bullets, not prose paragraphs or nested lists.
++- Prefer short references over detailed restatement. Omit information readily recoverable from the relevant files; do not reproduce full file contents or every message.
++- Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers.
++- Carry forward only unanswered user questions and requests requiring further action, preserving their exact wording. Do not repeat resolved requests.
++- Preserve consequential workflow state: uncommitted, committed, pushed, under review, or merged.
++- Preserve security-relevant instructions and constraints stated by the user verbatim, including permission boundaries, forbidden operations, and credential handling rules. Do not assume these will be reloaded separately.
++- Consolidate any existing checkpoint with newer history. Newer history takes precedence; remove stale facts, resolved blockers, and completed next actions. Do not reproduce previous wrapper tags.
++- Do not mention the summary process or that context was compacted.`;
++
++export function buildCompactPrompt(
++  customInstructions: string | undefined,
++  profile: "detailed" | "compact" = "detailed",
++): string {
+   const customInstructionBlock = customInstructions?.trim()
+     ? `\n\nAdditional Instructions:\n${customInstructions}`
+     : "";
+ 
++  if (profile === "compact") return `${CONCISE_COMPACT_PROMPT}${customInstructionBlock}`;
+   return `${NO_TOOLS_PREAMBLE}${BASE_COMPACT_PROMPT}${customInstructionBlock}${NO_TOOLS_TRAILER}`;
+ }
+ 
+diff --git a/apps/zcode-cli/packages/core/src/compact/rounds.ts b/apps/zcode-cli/packages/core/src/compact/rounds.ts
+index a336ec627e707eaebc681751f92f5d7719516148..0bec0d007c5d7df8504253fdbe941764f6250fe8 100644
+--- a/apps/zcode-cli/packages/core/src/compact/rounds.ts
++++ b/apps/zcode-cli/packages/core/src/compact/rounds.ts
+@@ -1,3 +1,31 @@
++import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../agent/message-history.js";
++
++export function groupByUserStartedRounds(
++  entries: readonly RuntimeMessageEntry[],
++): RuntimeMessageEntry[][] {
++  const groups: RuntimeMessageEntry[][] = [];
++  let current: RuntimeMessageEntry[] = [];
++  const pendingTools = new Set<string>();
++  for (const entry of entries) {
++    const message = isRuntimeAttachmentEntry(entry) ? undefined : entry.message;
++    const isUserBoundary =
++      !isRuntimeAttachmentEntry(entry) &&
++      entry.queryScope === undefined &&
++      message?.role === "user" &&
++      (entry.metadata?.source === "real_user" || entry.metadata === undefined);
++    // An intervening user message cannot separate an outstanding tool call from its result.
++    if (isUserBoundary && current.length > 0 && pendingTools.size === 0) {
++      groups.push(current);
++      current = [];
++    }
++    current.push(entry);
++    for (const call of message?.toolCalls ?? []) pendingTools.add(call.id);
++    if (message?.role === "tool" && message.toolCallId) pendingTools.delete(message.toolCallId);
++  }
++  if (current.length > 0) groups.push(current);
++  return groups;
++}
++
+ export function groupByAssistantStartedRounds<T>(
+   items: readonly T[],
+   roleOf: (item: T) => string | undefined,
 diff --git a/apps/zcode-cli/packages/core/src/context/sections/identity.ts b/apps/zcode-cli/packages/core/src/context/sections/identity.ts
 index f018fd6e8b52c822bb1f12e239614919691c5926..83f807c78b5592d0b1db8a92157d3bcf3f01583a 100644
 --- a/apps/zcode-cli/packages/core/src/context/sections/identity.ts
@@ -11229,7 +11975,7 @@ index 28830dee7fdc26c4b0add45a90ce0a9e599729ab..ddaacf248713db9a99f7178698a4f204
 +  return typeof value === "string" ? value : undefined;
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-index 862b572037e7a12aacf342d9b38fa806f6c51f9c..586112db16165fdf88e63a9b270c35541f6663df 100644
+index 862b572037e7a12aacf342d9b38fa806f6c51f9c..9e8416f86fbb9eb9ba96cd118716c708b950f8b3 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 @@ -1,4 +1,5 @@
@@ -11277,7 +12023,18 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..586112db16165fdf88e63a9b270c3554
      this.rootTraceContext = deps.traceContext ?? createRootTraceContext({ sessionId });
      this.appVersion = deps.appVersion ?? "0.0.0";
      this.logger = deps.logger?.child({
-@@ -659,6 +685,12 @@ export interface AgentRuntime {
+@@ -384,6 +410,10 @@ export class AgentRuntime {
+     }
+   }
+ 
++  setCompactionPolicy(policy: import("../compact/policy.js").CompactionRuntimePolicy): void {
++    this.config.compact = { ...this.config.compact, ...policy };
++  }
++
+   beginShutdown(): void {
+     // ExecutionPort.close() 会把后台 Bash 收口为 cancelled；若允许
+     // teardown terminal event 再唤醒模型，并与随后关闭的 session store 竞态。
+@@ -659,6 +689,12 @@ export interface AgentRuntime {
    resolvePermission(toolCallId: ToolCallId, decision: PermissionDecisionResult): Promise<void>;
    getPendingPermissionRequests(): PermissionBrokerRequest[];
    getProjection(): Promise<SessionProjection>;
@@ -11311,6 +12068,400 @@ index 267a8c6d15c410df647439b5c10840e399033fc8..273e9f9b1747dfaa0b9d3c98a22ad98b
    ModelAnomalyGuardConfig,
    Model,
    ModelEvent,
+diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-preservation.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-preservation.ts
+index 3827ffd28f1c9170f2f64fc03d5c64ba0f2015dc..b8cfae6434f04fe31797a7b4512908aad3d3f351 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-preservation.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-preservation.ts
+@@ -1,21 +1,36 @@
+-import type {
+-  CompactPreservedSegment,
+-  MessageId,
+-  SessionId,
+-  SessionStorePort,
++import {
++  modelMessageContentToText,
++  parseRuntimeInputPresentation,
++  type CompactPreservedSegment,
++  type MessageId,
++  type MessageWithParts,
++  type SessionId,
++  type SessionStorePort,
+ } from "@zcode/contracts";
+ import { isCompactPreservableSessionMessage } from "../../agent/compact-session.js";
+ import { activeSessionMessages } from "../../agent/session-history-hydrator.js";
+ import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../../agent/message-history.js";
+ import { groupByAssistantStartedRounds } from "../../compact/rounds.js";
++import type { CompactionProfile } from "../../compact/policy.js";
+ import { SYSTEM_REMINDER_PERSISTED_SOURCES } from "../../system-reminder/source.js";
+ 
+-export async function selectPersistedCompactTail(input: {
++export interface SelectPersistedCompactTailInput {
+   sessionStore: SessionStorePort;
+   sessionId: SessionId;
+   summaryMessageId: MessageId;
+   groupsPreserved: number;
+-}): Promise<{ preservedSegment?: CompactPreservedSegment; keptMessageCount: number }> {
++  /**
++   * 精简模式选择的实际保留条目。持久化消息是 user/assistant 粒度，不能再用
++   * assistant 分组倒推 compact 的 user 轮次；这里按其中的真实 user 边界映射。
++   */
++  preservedEntries?: readonly RuntimeMessageEntry[];
++  /** 省略时保持详细模式的既有 assistant 分组语义。 */
++  profile?: CompactionProfile;
++}
++
++export async function selectPersistedCompactTail(
++  input: SelectPersistedCompactTailInput,
++): Promise<{ preservedSegment?: CompactPreservedSegment; keptMessageCount: number }> {
+   if (input.groupsPreserved <= 0) return { keptMessageCount: 0 };
+   const [messages, session] = await Promise.all([
+     input.sessionStore.messages({ sessionID: input.sessionId }),
+@@ -29,10 +44,15 @@ export async function selectPersistedCompactTail(input: {
+     rewindTargetMessageId: revert?.targetMessageID,
+   }).filter(isCompactPreservableSessionMessage);
+   // 原因：runtime 与数据库的 user/attachment 数量不是一一对应，尤其 synthetic
+-  // 来源改变后会错位。复用 compact 的 assistant 分组，数量只统计选定结果。
+-  const kept = groupByAssistantStartedRounds(active, (message) => message.info.role)
+-    .slice(-input.groupsPreserved)
+-    .flat();
++  // 来源改变后会错位。详细模式复用 compact 的 assistant 分组，数量只统计选定结果。
++  const kept =
++    input.profile === "compact"
++      ? selectCompactPersistedTail(active, {
++          preservedEntries: input.preservedEntries,
++        })
++      : groupByAssistantStartedRounds(active, (message) => message.info.role)
++          .slice(-input.groupsPreserved)
++          .flat();
+   if (kept.length === 0) return { keptMessageCount: 0 };
+   return {
+     keptMessageCount: kept.length,
+@@ -44,6 +64,213 @@ export async function selectPersistedCompactTail(input: {
+   };
+ }
+ 
++/**
++ * compact 的 unit 是真实 user 起始轮次，而不是 assistant 分组。选中结果始终是
++ * runtime 尾部 suffix，因此只需在持久化分支上找到该 suffix 的首条消息：
++ * - 首个保留条目是真实 user 时，按其中真实 user 数量取倒数第 N 条持久化 user；
++ * - 首个保留条目是 assistant 时，按 assistant 数量定位对应的持久化 assistant；
++ * - 首个保留条目是 synthetic user/attachment 时，只能用 exact source/text 命中
++ *   对应持久化消息；命中不了说明它只是 runtime-only 条目，跳过它并用后续
++ *   可靠锚点做最小映射，绝不按分组数回退扩大回已摘要的 user 轮次。
++ * tail 固定为分支末尾，和 runtime 选中的尾部 suffix 对齐；找不到可靠锚点时
++ * 不写 preservedSegment，避免冷恢复重新带入已摘要历史或错位。
++ */
++function selectCompactPersistedTail(
++  active: readonly MessageWithParts[],
++  input: {
++    preservedEntries?: readonly RuntimeMessageEntry[];
++  },
++): MessageWithParts[] {
++  const preservedEntries = input.preservedEntries ?? [];
++  const recordableEntries = preservedEntries.filter(
++    (entry) => isRuntimeAttachmentEntry(entry) || entry.queryScope === undefined,
++  );
++  if (recordableEntries.length === 0) {
++    // 只保留了 query-local 续写提示：live 历史也会过滤它，不能把已摘要的持久化消息重新带回。
++    return [];
++  }
++
++  const headIndex = resolveCompactPersistedHeadIndex(active, recordableEntries);
++  if (
++    headIndex < 0 &&
++    recordableEntries.some(
++      (entry) => isRuntimeRealUserEntry(entry) || isRuntimeAssistantEntry(entry),
++    )
++  ) {
++    throw new Error("Cannot reliably map the compact preserved tail to persisted history");
++  }
++  return headIndex >= 0 ? active.slice(headIndex) : [];
++}
++
++function resolveCompactPersistedHeadIndex(
++  active: readonly MessageWithParts[],
++  recordableEntries: readonly RuntimeMessageEntry[],
++): number {
++  for (let index = 0; index < recordableEntries.length; index += 1) {
++    const remainingEntries = recordableEntries.slice(index);
++    const entry = remainingEntries[0]!;
++    if (isRuntimeRealUserEntry(entry)) {
++      const headIndex = findNthFromLastPersistedRealUser(
++        active,
++        remainingEntries.filter(isRuntimeRealUserEntry).length,
++      );
++      return headIndex >= 0 && hasReliablePersistedSuffix(active, headIndex, remainingEntries)
++        ? headIndex
++        : -1;
++    }
++    if (isRuntimeAssistantEntry(entry)) {
++      const headIndex = findNthFromLastPersistedAssistant(
++        active,
++        remainingEntries.filter(isRuntimeAssistantEntry).length,
++      );
++      return headIndex >= 0 && hasReliablePersistedSuffix(active, headIndex, remainingEntries)
++        ? headIndex
++        : -1;
++    }
++    if (isRuntimeAttachmentEntry(entry) || entry.message.role === "user") {
++      const headIndex = findPersistedSyntheticMessageHead(active, entry, remainingEntries);
++      if (headIndex >= 0) return headIndex;
++      // runtime-only synthetic 没有对应持久化消息时，继续用后续条目做最小锚定。
++      continue;
++    }
++    // tool 等无法独立锚定到消息边界的类型，不能安全生成 preservedSegment。
++    return -1;
++  }
++  return -1;
++}
++
++function isRuntimeAssistantEntry(entry: RuntimeMessageEntry): boolean {
++  return !isRuntimeAttachmentEntry(entry) && entry.message.role === "assistant";
++}
++
++function isRuntimeRealUserEntry(entry: RuntimeMessageEntry): boolean {
++  return (
++    !isRuntimeAttachmentEntry(entry) &&
++    entry.queryScope === undefined &&
++    entry.message.role === "user" &&
++    (entry.metadata?.source === "real_user" || entry.metadata === undefined)
++  );
++}
++
++function findNthFromLastPersistedRealUser(
++  active: readonly MessageWithParts[],
++  count: number,
++): number {
++  if (count <= 0) return -1;
++  let remaining = count;
++  for (let index = active.length - 1; index >= 0; index -= 1) {
++    if (!isPersistedRealUserMessage(active[index]!)) continue;
++    remaining -= 1;
++    if (remaining === 0) return index;
++  }
++  return -1;
++}
++
++function findNthFromLastPersistedAssistant(
++  active: readonly MessageWithParts[],
++  count: number,
++): number {
++  if (count <= 0) return -1;
++  let remaining = count;
++  for (let index = active.length - 1; index >= 0; index -= 1) {
++    if (active[index]!.info.role !== "assistant") continue;
++    remaining -= 1;
++    if (remaining === 0) return index;
++  }
++  return -1;
++}
++
++function hasReliablePersistedSuffix(
++  active: readonly MessageWithParts[],
++  headIndex: number,
++  expectedEntries: readonly RuntimeMessageEntry[],
++): boolean {
++  const persisted = active.slice(headIndex);
++  const expectedRealUsers = expectedEntries.filter(isRuntimeRealUserEntry).length;
++  const expectedAssistants = expectedEntries.filter(isRuntimeAssistantEntry).length;
++  return (
++    persisted.filter(isPersistedRealUserMessage).length === expectedRealUsers &&
++    persisted.filter((message) => message.info.role === "assistant").length === expectedAssistants
++  );
++}
++
++function findPersistedSyntheticMessageHead(
++  active: readonly MessageWithParts[],
++  entry: RuntimeMessageEntry,
++  expectedEntries: readonly RuntimeMessageEntry[],
++): number {
++  const text = runtimeEntryText(entry).trim();
++  if (text.length === 0) return -1;
++  const source = entry.metadata?.source;
++  for (let index = active.length - 1; index >= 0; index -= 1) {
++    if (!persistedSyntheticMessageMatches(active[index]!, text, source)) continue;
++    if (hasReliablePersistedSuffix(active, index, expectedEntries)) return index;
++  }
++  return -1;
++}
++
++/**
++ * synthetic-first 只认 exact text + 声明的 source。生产持久化把 source 写在
++ * part.metadata.source 或 runtimeMessage.source；两者都没有的旧记录才退化为文本匹配。
++ */
++function persistedSyntheticMessageMatches(
++  message: MessageWithParts,
++  text: string,
++  source: string | undefined,
++): boolean {
++  if (message.info.role !== "user") return false;
++  return message.parts.some((part) => {
++    if (part.type !== "text" || part.ignored || !part.synthetic) return false;
++    if (part.text.trim() !== text) return false;
++    const partSources = [part.metadata?.source, partRuntimeMessageSource(part.metadata)].filter(
++      (value): value is string => typeof value === "string",
++    );
++    return partSources.length === 0 || source === undefined || partSources.includes(source);
++  });
++}
++
++function runtimeEntryText(entry: RuntimeMessageEntry): string {
++  return isRuntimeAttachmentEntry(entry)
++    ? entry.content
++    : modelMessageContentToText(entry.message.content);
++}
++
++/**
++ * 仅凭持久化事实判断该 user message 冷恢复后是否会成为真实 user 边界。
++ * synthetic 提醒、Continue、coordinator/task 输入和只有状态的空消息都不算。
++ */
++function isPersistedRealUserMessage(message: MessageWithParts): boolean {
++  if (message.info.role !== "user") return false;
++  const presentation = parseRuntimeInputPresentation(
++    (message.info.metadata as Record<string, unknown> | undefined)?.inputPresentation,
++  );
++  const visibleParts = message.parts.filter((part) => !(part.type === "text" && part.ignored));
++  const hasStructuredUserPart = visibleParts.some(
++    (part) => part.type === "file" || part.type === "agent",
++  );
++  const hasRealText = visibleParts.some(
++    (part) => part.type === "text" && !part.synthetic && part.text.trim().length > 0,
++  );
++  // 旧持久化可能把 real_user 身份只写入 text part 的 runtimeMessage。
++  const hasSyntheticRealUserText = visibleParts.some(
++    (part) =>
++      part.type === "text" &&
++      part.synthetic &&
++      part.text.trim().length > 0 &&
++      partRuntimeMessageSource(part.metadata) === "real_user",
++  );
++  const hasUserEnvelope = hasRealText || hasStructuredUserPart || hasSyntheticRealUserText;
++  // inputPresentation 在冷恢复时覆盖 part 推断：只有 user_steer 仍是真实用户。
++  if (presentation) return presentation === "user_steer" && hasUserEnvelope;
++  return hasUserEnvelope;
++}
++
++function partRuntimeMessageSource(metadata: Record<string, unknown> | undefined): unknown {
++  const runtimeMessage = metadata?.runtimeMessage;
++  if (typeof runtimeMessage !== "object" || runtimeMessage === null) return undefined;
++  return (runtimeMessage as { source?: unknown }).source;
++}
++
+ /** 无 SessionStore 时仅用于统计，不能用此数量选择持久化区间。 */
+ export function countCompactPreservedRuntimeMessages(
+   entries: readonly RuntimeMessageEntry[],
+diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
+index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516ea99e6be8 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
+@@ -13,7 +13,8 @@ import {
+   isRuntimeAttachmentEntry,
+   type RuntimeMessageEntry,
+ } from "../../agent/message-history.js";
+-import { groupByAssistantStartedRounds } from "../../compact/rounds.js";
++import { groupByAssistantStartedRounds, groupByUserStartedRounds } from "../../compact/rounds.js";
++import { resolveCompactionPolicy, type CompactionRuntimePolicy } from "../../compact/policy.js";
+ import { buildProviderRequestMessages } from "./provider-request-messages.js";
+ 
+ interface CompactRetryLogger {
+@@ -31,14 +32,32 @@ export function selectCompactEntries(input: {
+   entries: readonly RuntimeMessageEntry[];
+   minimumGroupsToPreserve?: number;
+   trigger: CompactTrigger;
++  policy?: CompactionRuntimePolicy;
++  useMidConversationSystem?: boolean;
+ }): CompactEntrySelection {
+-  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
+-  const baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
++  const policy = resolveCompactionPolicy(input.policy);
++  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger, policy);
++  let baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
++  if (policy.profile === "compact") {
++    baseGroupsToPreserve = 0;
++    let tailTokens = 0;
++    for (let index = split.groups.length - 1; index >= 0; index -= 1) {
++      const tokens = estimateRuntimeEntryTokens(split.groups[index] ?? [], {
++        useMidConversationSystem: input.useMidConversationSystem,
++      });
++      if (baseGroupsToPreserve > 0 && tailTokens + tokens > policy.tailBudgetTokens) break;
++      tailTokens += tokens;
++      baseGroupsToPreserve += 1;
++    }
++  }
+   const requestedGroupsToPreserve = Math.max(
+     baseGroupsToPreserve,
+     positiveInt(input.minimumGroupsToPreserve) ?? 0,
+   );
+-  const maxGroupsToPreserve = Math.max(0, split.groups.length - 1);
++  const maxGroupsToPreserve = Math.max(
++    0,
++    split.groups.length - (policy.profile === "compact" ? 0 : 1),
++  );
+   const groupsToPreserve = split.shouldPreserveRecent
+     ? Math.min(requestedGroupsToPreserve, maxGroupsToPreserve)
+     : 0;
+@@ -62,8 +81,9 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
+   trigger: CompactTrigger;
+   useMidConversationSystem?: boolean;
+   currentGroupsPreserved: number;
++  policy?: CompactionRuntimePolicy;
+ }): CompactEntrySelection | null {
+-  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
++  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger, input.policy);
+   if (!split.shouldPreserveRecent || split.groups.length < 2) {
+     return null;
+   }
+@@ -96,6 +116,8 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
+     entries: input.entries,
+     minimumGroupsToPreserve: nextGroupsPreserved,
+     trigger: input.trigger,
++    policy: input.policy,
++    useMidConversationSystem: input.useMidConversationSystem,
+   });
+   return hasEnoughRuntimeEntriesToCompact(nextSelection.entriesForSummary) ? nextSelection : null;
+ }
+@@ -105,7 +127,15 @@ export function selectCompactEntriesForInitialPromptTooLong(input: {
+   promptTooLongCause: unknown;
+   trigger: CompactTrigger;
+   useMidConversationSystem?: boolean;
++  policy?: CompactionRuntimePolicy;
+ }): CompactEntrySelection | null {
++  if (input.policy?.profile === "compact") {
++    const base = selectCompactEntries(input);
++    return selectCompactEntriesAfterPromptTooLong({
++      ...input,
++      currentGroupsPreserved: base.groupsPreserved,
++    });
++  }
+   const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
+   if (!split.shouldPreserveRecent || split.groups.length <= 3) {
+     return null;
+@@ -209,6 +239,7 @@ export function truncateCompactSummaryRequestEntriesAfterPromptTooLong(options:
+ function splitRuntimeEntriesForCompactSelection(
+   inputEntries: readonly RuntimeMessageEntry[],
+   trigger: CompactTrigger,
++  policy?: CompactionRuntimePolicy,
+ ): {
+   groups: RuntimeMessageEntry[][];
+   prefixEntries: RuntimeMessageEntry[];
+@@ -220,9 +251,15 @@ function splitRuntimeEntriesForCompactSelection(
+   const bodyEntries = entries.slice(prefixCount);
+ 
+   return {
+-    groups: groupRuntimeEntriesByCompactRound(bodyEntries),
++    groups:
++      policy?.profile === "compact"
++        ? groupByUserStartedRounds(bodyEntries)
++        : groupRuntimeEntriesByCompactRound(bodyEntries),
+     prefixEntries,
+-    shouldPreserveRecent: trigger === CompactTrigger.Auto || trigger === CompactTrigger.Reactive,
++    shouldPreserveRecent:
++      policy?.profile === "compact" ||
++      trigger === CompactTrigger.Auto ||
++      trigger === CompactTrigger.Reactive,
+   };
+ }
+ 
 diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
 index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..653b6d908d67b7adeaf9a9aab3ab020121297020 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
@@ -11342,6 +12493,120 @@ index 1ea63fc4105aab36fb3530962ef3166e766a6d55..f130f0fbd29e324c803892836a185fa8
    mcpPort?: McpPort;
    mcpStartupPromise?: Promise<McpConnectionSnapshot>;
    residencyBlockingWorkCount: number;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts b/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
+index b7913758947a8a3d8292d127a51ba5189b7b478a..53b58422db0f365536c8f3e503e24883056b0362 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
+@@ -65,6 +65,7 @@ import {
+ } from "./compact-active-helpers.js";
+ import { runCompactSummaryModelRequest } from "./compact-summary-model-request.js";
+ import { resolveNormalRequestMaxOutputTokens } from "./model-token-limits.js";
++import { resolveCompactionPolicy, type CompactionRuntimePolicy } from "../../compact/policy.js";
+ import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
+ import { recordModelUsageFact } from "./usage-observability.js";
+ import { resetProjectMemoryRecall } from "../helpers/project-memory-recall.js";
+@@ -177,6 +178,7 @@ async function compactActiveConversationImpl(
+   tokenCount: number;
+ }> {
+   throwIfTurnAborted(options.abortSignal);
++  const policy = resolveCompactionPolicy(this.config.compact);
+   const trigger = options.trigger ?? CompactTrigger.Manual;
+   const phase = options.phase ?? defaultCompactPhaseForTrigger(trigger);
+   const compactReason = options.compactReason ?? defaultCompactReasonForTrigger(trigger);
+@@ -200,6 +202,7 @@ async function compactActiveConversationImpl(
+     initialPromptTooLongCause: options.initialPromptTooLongCause,
+     trigger,
+     useMidConversationSystem,
++    policy,
+   });
+   let currentSelection = initialSelection;
+   let preservedEntries = currentSelection.preservedEntries;
+@@ -294,7 +297,7 @@ async function compactActiveConversationImpl(
+           querySource: "compact",
+         },
+       });
+-      const compactPrompt = buildCompactPrompt(customInstructions);
++      const compactPrompt = buildCompactPrompt(customInstructions, policy.profile);
+       let result: RuntimeModelTextResult;
+       let compactPromptTooLongAttempts = 0;
+       let stripMediaForSummary = false;
+@@ -305,6 +308,7 @@ async function compactActiveConversationImpl(
+           promptTooLongCause: cause,
+           trigger,
+           useMidConversationSystem,
++          policy,
+         });
+         if (!reselected) return false;
+ 
+@@ -316,7 +320,8 @@ async function compactActiveConversationImpl(
+         return true;
+       };
+       const truncateEntriesAfterPromptTooLong = (cause: unknown): boolean => {
+-        if (!canUseCompactSummaryTruncationFallback(trigger)) return false;
++        if (policy.profile === "compact" || !canUseCompactSummaryTruncationFallback(trigger))
++          return false;
+ 
+         const truncated = truncateCompactSummaryRequestEntriesAfterPromptTooLong({
+           attempt: compactPromptTooLongAttempts,
+@@ -415,7 +420,10 @@ async function compactActiveConversationImpl(
+         events.push(modelRequestEvent);
+         const modelStartedAt = Date.now();
+         const networkEventStartIndex = events.length;
+-        const compactSummaryMaxOutputTokens = capCompactSummaryMaxOutputTokens(compactModel);
++        const compactSummaryMaxOutputTokens = capCompactSummaryMaxOutputTokens(
++          compactModel,
++          policy,
++        );
+         const compactModelRequest = {
+           abortSignal: options.abortSignal,
+           maxOutputTokens: compactSummaryMaxOutputTokens,
+@@ -587,6 +595,8 @@ async function compactActiveConversationImpl(
+             sessionId: this.sessionId,
+             groupsPreserved: currentSelection.groupsPreserved,
+             summaryMessageId,
++            profile: policy.profile,
++            preservedEntries: recordablePreservedEntries,
+           })
+         : { keptMessageCount: countCompactPreservedRuntimeMessages(recordablePreservedEntries) };
+       const summaryEntry = {
+@@ -752,10 +762,13 @@ function selectInitialCompactEntriesForActiveConversation(input: {
+   initialPromptTooLongCause?: unknown;
+   trigger: CompactTrigger;
+   useMidConversationSystem?: boolean;
++  policy?: CompactionRuntimePolicy;
+ }) {
+   const baseSelection = selectCompactEntries({
+     entries: input.activeEntries,
+     trigger: input.trigger,
++    policy: input.policy,
++    useMidConversationSystem: input.useMidConversationSystem,
+   });
+   if (input.initialPromptTooLongCause === undefined) {
+     return baseSelection;
+@@ -767,17 +780,20 @@ function selectInitialCompactEntriesForActiveConversation(input: {
+       promptTooLongCause: input.initialPromptTooLongCause,
+       trigger: input.trigger,
+       useMidConversationSystem: input.useMidConversationSystem,
++      policy: input.policy,
+     }) ?? baseSelection
+   );
+ }
+ 
+-function capCompactSummaryMaxOutputTokens(model: Model): number {
+-  // Compact 是独立执行链，在这里显式选择模型上限与 summary 20K 上限中的较小值。
++function capCompactSummaryMaxOutputTokens(
++  model: Model,
++  policy: Required<CompactionRuntimePolicy>,
++): number {
+   const desired = Math.min(
+     resolveNormalRequestMaxOutputTokens({
+       modelMaxOutputTokens: model.optionSpecs.maxOutputTokens.max,
+     }),
+-    MAX_OUTPUT_TOKENS_FOR_SUMMARY,
++    policy.profile === "compact" ? policy.summaryMaxOutputTokens : MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+   );
+   return Math.min(desired, model.optionSpecs.maxOutputTokens.max);
+ }
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
 index adc936f95d04637f9ec078e92a5205bfcc65df92..50c67a37366d3f8bfe912c1a5aec8634123ec93e 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
@@ -14069,6 +15334,53 @@ index 1354824f9847966aaf60b8fcabc8dc1c88638fd8..e479ad6dd57f8c71ea1093f03632406c
  function getBackgroundTaskWaiter(
    executionPort: ExecutionPort | undefined,
  ): BackgroundTaskWaiter | undefined {
+diff --git a/apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts b/apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts
+index 4e472866059823b64a818aeffa5e90d706cd9624..039e72e80c3a5cfb41ab80754324cbaaa00bb1d2 100644
+--- a/apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts
++++ b/apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts
+@@ -42,6 +42,7 @@ import { resolveToolPermission } from "./permission-flow.js";
+ import { snapshotPermissionInput } from "./permission-input.js";
+ import { buildToolInputResolutionContext } from "./permission-input-adjustments.js";
+ import { createMcpToolDisplay, createToolResultDisplay } from "./result-display.js";
++import { persistTaskOutputCopySource } from "../handlers/task-output.js";
+ import { appendHookAdditionalContexts, serializeOutput } from "./result-serialization.js";
+ import {
+   ToolDeadline,
+@@ -596,7 +597,14 @@ async function executeToolCallImpl(
+         [...preToolHookResult.additionalContexts, ...postToolHookResult.additionalContexts],
+         modelOutputEntry,
+       );
++      const taskOutputCopySource = await persistTaskOutputCopySource(
++        canonicalToolCall.name,
++        output,
++        context,
++        traceContext,
++      );
+       const display = createToolResultDisplay(canonicalToolCall.name, output, {
++        taskOutputCopySource,
+         mcp: entry.metadata.mcpPresentation,
+         officialCua: entry.modelContentProtection === OFFICIAL_CUA_FRAME_MODEL_CONTENT_PROTECTION,
+       });
+diff --git a/apps/zcode-cli/packages/core/src/tool/executor/result-display.ts b/apps/zcode-cli/packages/core/src/tool/executor/result-display.ts
+index 649952fe770080ef7e0601c83e6d6dc1d9f67fb6..a8731cc6cdc44e334a2abda8b454ca110f413f75 100644
+--- a/apps/zcode-cli/packages/core/src/tool/executor/result-display.ts
++++ b/apps/zcode-cli/packages/core/src/tool/executor/result-display.ts
+@@ -177,6 +177,7 @@ export function createToolResultDisplay(
+   output: unknown,
+   options?: {
+     officialCua?: boolean;
++    taskOutputCopySource?: { path: string; bytes: number };
+     mcp?: McpToolDisplayMetadata;
+   },
+ ): ToolResultDisplayPayload | undefined {
+@@ -258,6 +259,7 @@ export function createToolResultDisplay(
+     return {
+       kind: "task_output",
+       retrievalStatus: parsed.data.retrieval_status,
++      ...(options?.taskOutputCopySource ? { copySource: options.taskOutputCopySource } : {}),
+       ...(taskStatus ? { taskStatus } : {}),
+       ...(hasOutput ? { output: fullOutput.slice(0, TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS) } : {}),
+       ...(truncated ? { truncated: true } : {}),
 diff --git a/apps/zcode-cli/packages/core/src/tool/executor/validation.ts b/apps/zcode-cli/packages/core/src/tool/executor/validation.ts
 index 1d9353d1ae264143d433c1134886c7a88049ca1f..67df208698b8512aba0230a21876737208f07bd8 100644
 --- a/apps/zcode-cli/packages/core/src/tool/executor/validation.ts
@@ -14179,6 +15491,80 @@ index 3de2a0c9d9d09c8bb343bcab31b2e95ba3ed9cc3..76e03364991df0c8a36f33e8d685ae75
  const GLOB_TOOL_DESCRIPTION =
    'Fast file pattern matching. Supports glob patterns like "**/*.js" or "src/**/*.ts". Returns matching file paths sorted by modification time.';
  
+diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts b/apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts
+index 156918a40ed029f2bb3f548b3e7faec5f247e059..5e1897d20e45ee423577d3c928b3e465d020e1d1 100644
+--- a/apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts
++++ b/apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts
+@@ -12,6 +12,7 @@ import {
+   type TaskOutputInput,
+   type TaskOutputResult,
+   type TaskOutputTask,
++  type TraceContext,
+ } from "@zcode/contracts";
+ import type { RuntimeTaskSnapshot } from "../../runtime-task/registry.js";
+ import { formatPersistedOutputEnvelope } from "../result-persistence-format.js";
+@@ -24,11 +25,7 @@ import type {
+   ToolInputValidationResult,
+   ToolPersistedModelContentInput,
+ } from "../types.js";
+-import {
+-  formatCompactFileSize,
+-  projectTask,
+-  throwIfAborted,
+-} from "./task-output-projection.js";
++import { formatCompactFileSize, projectTask, throwIfAborted } from "./task-output-projection.js";
+ 
+ const TASK_OUTPUT_DEFAULT_LENGTH = 32_000;
+ const TASK_OUTPUT_MAX_LENGTH = 160_000;
+@@ -148,6 +145,48 @@ export const taskOutputToolEntry: ToolEntry = {
+   },
+ };
+ 
++export async function persistTaskOutputCopySource(
++  toolName: string,
++  output: unknown,
++  context: ToolExecutionContext,
++  trace: TraceContext,
++): Promise<{ path: string; bytes: number } | undefined> {
++  if (toolName !== TASK_OUTPUT_TOOL_NAME || !context.artifactStore) return undefined;
++  const parsed = TaskOutputResultSchema.safeParse(output);
++  const task = parsed.success ? parsed.data.task : null;
++  if (!task?.output.trim()) return undefined;
++  if (task.task_type === "local_agent") {
++    const result = context.runtimeTaskRegistry?.get(task.task_id)?.output;
++    if (
++      result?.status !== "completed" ||
++      result.content.map((block) => block.text).join("\n") !== task.output
++    )
++      return undefined;
++  }
++  const bytes = Buffer.byteLength(task.output, "utf8");
++  if (bytes > 8 * 1024 * 1024) return undefined;
++  try {
++    const artifact = await context.artifactStore.writeToolResultArtifact(
++      {
++        sessionId: context.sessionId,
++        turnId: context.turnId,
++        toolCallId: context.toolCallId,
++        toolName,
++        content: task.output,
++        contentType: "text/plain",
++        retention: "session",
++        trace,
++      },
++      { signal: context.abortSignal },
++    );
++    return artifact.path && artifact.path.length <= 4_096 && artifact.bytes === bytes
++      ? { path: artifact.path, bytes }
++      : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
+ function taskOutputFailure(errorCode: number, message: string): ToolHandlerFailure {
+   return { result: false, errorCode, message };
+ }
 diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/websearch-results.ts b/apps/zcode-cli/packages/core/src/tool/handlers/websearch-results.ts
 index 90a6073c90a43aa90525d29a1b1886bbb9aa874e..f0857cb0a47cac5ab1161fca18476f792a468df7 100644
 --- a/apps/zcode-cli/packages/core/src/tool/handlers/websearch-results.ts
@@ -14752,6 +16138,507 @@ index c100929432cae63b089ba6abff87f18980df2780..4a78e07bdc95cf924a17d7467e356fb9
  
      // 关键断言：模型侧入口也把 runId 直送到了端口的 cancel。
      expect(cancelled).toEqual(["dwfrun-taskstop"]);
+diff --git a/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts b/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts
+index 38261bc63900e92a3d6a2b220f88ebd60d3bcd40..bef6aa9a0d0093e9b602c5b7400afc040a7f6b90 100644
+--- a/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts
++++ b/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts
+@@ -8,7 +8,11 @@ import {
+   createSessionId,
+   type ModelRequest,
+ } from "@zcode/contracts";
+-import { MessageHistoryImpl } from "../src/agent/message-history.js";
++import {
++  MessageHistoryImpl,
++  realUserRuntimeMetadata,
++  type RuntimeMessageEntry,
++} from "../src/agent/message-history.js";
+ import { hydrateMessageHistoryFromSession } from "../src/agent/session-history-hydrator.js";
+ import { compactActiveConversation } from "../src/runtime/methods/compact-active.js";
+ import { buildProviderRequestMessages } from "../src/runtime/helpers/provider-request-messages.js";
+@@ -88,6 +92,279 @@ describe("compact retained input persistence", () => {
+     });
+   });
+ 
++  it("selects the compact tail by real user boundaries, not assistant groups", async () => {
++    const store = createRecordingMessageStore();
++    const sessionId = createSessionId("compact-retained-user-rounds");
++    const ids = {
++      oldUser: createMessageId("old-user"),
++      oldAssistant: createMessageId("old-assistant"),
++      keptUser: createMessageId("kept-user"),
++      pendingAssistant: createMessageId("pending-assistant"),
++      continueInput: createMessageId("continue-input"),
++      steerUser: createMessageId("steer-user"),
++      lastAssistant: createMessageId("last-assistant"),
++      abandoned: createMessageId("abandoned-assistant"),
++    };
++    await store.createSession({
++      id: sessionId,
++      revert: {
++        targetMessageID: ids.lastAssistant,
++        keptMessageIDs: [
++          ids.oldUser,
++          ids.oldAssistant,
++          ids.keptUser,
++          ids.pendingAssistant,
++          ids.continueInput,
++          ids.steerUser,
++          ids.lastAssistant,
++        ],
++        branchCutAfterMessageID: ids.abandoned,
++      },
++    });
++    const saveText = async (
++      id: ReturnType<typeof createMessageId>,
++      role: "user" | "assistant",
++      text: string,
++      extra: { metadata?: Record<string, unknown>; synthetic?: boolean; source?: string } = {},
++    ) => {
++      await store.saveMessage({
++        id,
++        sessionID: sessionId,
++        role,
++        time: { created: 1 },
++        ...(extra.metadata ? { metadata: extra.metadata } : {}),
++        ...(extra.synthetic ? { synthetic: true, visibility: "model-only" } : {}),
++        ...(extra.source ? { source: extra.source } : {}),
++      });
++      await store.savePart({
++        id: createPartId(),
++        messageID: id,
++        sessionID: sessionId,
++        type: "text",
++        text,
++        ...(extra.synthetic ? { synthetic: true, metadata: extra.metadata } : {}),
++      });
++    };
++    await saveText(ids.oldUser, "user", "old request");
++    await saveText(ids.oldAssistant, "assistant", "old answer");
++    await saveText(ids.keptUser, "user", "kept request");
++    await store.saveMessage({
++      id: ids.pendingAssistant,
++      sessionID: sessionId,
++      role: "assistant",
++      time: { created: 1 },
++    });
++    await store.savePart({
++      id: createPartId(),
++      messageID: ids.pendingAssistant,
++      sessionID: sessionId,
++      type: "tool",
++      callID: "call-1",
++      tool: "Read",
++      state: {
++        status: "running",
++        input: { file_path: "/tmp/pending" },
++        title: "Read",
++        time: { start: 1 },
++      },
++    });
++    // Continue/真实 steer 都落在同一个未完成 tool call 的 compact user 轮次里。
++    await saveText(ids.continueInput, "user", "Continue the goal.", {
++      metadata: { source: "goal-continuation", visibility: "model-only" },
++      synthetic: true,
++      source: "goal-continuation",
++    });
++    await saveText(ids.steerUser, "user", "steer while pending", {
++      metadata: { inputPresentation: "user_steer" },
++    });
++    await saveText(ids.lastAssistant, "assistant", "done");
++    await saveText(ids.abandoned, "assistant", "abandoned answer");
++
++    const summaryMessageId = createMessageId("next-summary");
++    const preservedEntries: RuntimeMessageEntry[] = [
++      { message: { role: "user", content: "kept request" }, metadata: realUserRuntimeMetadata() },
++      {
++        message: {
++          role: "assistant",
++          content: "",
++          toolCalls: [{ id: "call-1", name: "Read", input: {} }],
++        },
++      },
++      {
++        message: { role: "user", content: "Continue the goal." },
++        metadata: { source: "target_continuation" },
++      },
++      {
++        message: { role: "user", content: "steer while pending" },
++        metadata: realUserRuntimeMetadata(),
++      },
++      { message: { role: "assistant", content: "done" } },
++    ];
++    expect(
++      await selectPersistedCompactTail({
++        sessionStore: store as never,
++        sessionId,
++        summaryMessageId,
++        groupsPreserved: 1,
++        profile: "compact",
++        preservedEntries,
++      }),
++    ).toEqual({
++      keptMessageCount: 5,
++      preservedSegment: {
++        headMessageId: ids.keptUser,
++        tailMessageId: ids.lastAssistant,
++        anchorMessageId: summaryMessageId,
++      },
++    });
++  });
++
++  it("anchors a synthetic-first compact suffix without expanding to summarized messages", async () => {
++    const store = createRecordingMessageStore();
++    const sessionId = createSessionId("compact-synthetic-first");
++    const summarizedUser = createMessageId("synthetic-first-summarized-user");
++    const summarizedAssistant = createMessageId("synthetic-first-summarized-assistant");
++    const syntheticMessage = createMessageId("synthetic-first-message");
++    const afterAssistant = createMessageId("synthetic-first-after");
++    await store.createSession({ id: sessionId });
++    for (const [id, role, text] of [
++      [summarizedUser, "user", "summarized request"],
++      [summarizedAssistant, "assistant", "summarized answer"],
++    ] as const) {
++      await store.saveMessage({ id, sessionID: sessionId, role, time: { created: 1 } });
++      await store.savePart({
++        id: createPartId(),
++        messageID: id,
++        sessionID: sessionId,
++        type: "text",
++        text,
++      });
++    }
++    await store.saveMessage({
++      id: syntheticMessage,
++      sessionID: sessionId,
++      role: "user",
++      time: { created: 1 },
++      metadata: { source: "queued_system_notification", visibility: "model-only" },
++      source: "queued_system_notification",
++      synthetic: true,
++      visibility: "model-only",
++    });
++    await store.savePart({
++      id: createPartId(),
++      messageID: syntheticMessage,
++      sessionID: sessionId,
++      type: "text",
++      text: "synthetic preserved payload",
++      synthetic: true,
++      metadata: {
++        runtimeMessage: { source: "queued_system_notification" },
++        source: "queued_system_notification",
++        visibility: "model-only",
++      },
++    });
++    await store.saveMessage({
++      id: afterAssistant,
++      sessionID: sessionId,
++      role: "assistant",
++      time: { created: 1 },
++    });
++    await store.savePart({
++      id: createPartId(),
++      messageID: afterAssistant,
++      sessionID: sessionId,
++      type: "text",
++      text: "after synthetic",
++    });
++
++    const summaryMessageId = createMessageId("synthetic-first-summary");
++    const baseInput = {
++      sessionStore: store as never,
++      sessionId,
++      summaryMessageId,
++      groupsPreserved: 1,
++      profile: "compact" as const,
++    };
++    const preservedEntries: RuntimeMessageEntry[] = [
++      {
++        message: { role: "user", content: "Continue after output limit" },
++        queryScope: "output_token_continuation",
++      },
++      {
++        message: { role: "user", content: "synthetic preserved payload" },
++        metadata: { source: "queued_system_notification" },
++      },
++      { message: { role: "assistant", content: "after synthetic" } },
++    ];
++    expect(await selectPersistedCompactTail({ ...baseInput, preservedEntries })).toEqual({
++      keptMessageCount: 2,
++      preservedSegment: {
++        headMessageId: syntheticMessage,
++        tailMessageId: afterAssistant,
++        anchorMessageId: summaryMessageId,
++      },
++    });
++
++    // 未持久化的 runtime-only synthetic 不能按分组数回退；最小锚定到后续 assistant。
++    expect(
++      await selectPersistedCompactTail({
++        ...baseInput,
++        preservedEntries: [
++          {
++            message: { role: "user", content: "runtime-only synthetic" },
++            metadata: { source: "queued_system_notification" },
++          },
++          { message: { role: "assistant", content: "after synthetic" } },
++        ],
++      }),
++    ).toEqual({
++      keptMessageCount: 1,
++      preservedSegment: {
++        headMessageId: afterAssistant,
++        tailMessageId: afterAssistant,
++        anchorMessageId: summaryMessageId,
++      },
++    });
++
++    // 全程没有可靠锚点时安全失败：不写 segment，也不回退扩大已摘要区间。
++    expect(
++      await selectPersistedCompactTail({
++        ...baseInput,
++        preservedEntries: [
++          {
++            message: { role: "user", content: "runtime-only synthetic" },
++            metadata: { source: "queued_system_notification" },
++          },
++        ],
++      }),
++    ).toEqual({ keptMessageCount: 0 });
++
++    expect(
++      await selectPersistedCompactTail({
++        ...baseInput,
++        preservedEntries: [
++          {
++            message: { role: "user", content: "synthetic preserved payload" },
++            metadata: { source: "queued_system_notification" },
++          },
++        ],
++      }),
++    ).toEqual({ keptMessageCount: 0 });
++
++    await expect(
++      selectPersistedCompactTail({
++        ...baseInput,
++        preservedEntries: [
++          {
++            message: { role: "user", content: "summarized request" },
++            metadata: realUserRuntimeMetadata(),
++          },
++          { message: { role: "assistant", content: "after synthetic" } },
++        ],
++      }),
++    ).rejects.toThrow("Cannot reliably map the compact preserved tail");
++  });
++
+   it.each([true, false])("restores the complete selected tool round with MCS=%s", async (mcs) => {
+     const sessionId = createSessionId(`compact-retained-inputs-${mcs}`);
+     const store = createRecordingMessageStore();
+@@ -257,4 +534,203 @@ describe("compact retained input persistence", () => {
+       expect(requestText(request.messages)).not.toContain("old setup one");
+     }
+   });
++
++  it.each([true, false])(
++    "keeps the compact user turn and tool pair through hydration with MCS=%s",
++    async (mcs) => {
++      const sessionId = createSessionId(`compact-retained-roundtrip-${mcs}`);
++      const store = createRecordingMessageStore();
++      const requests: ModelRequest[] = [];
++      const config = {
++        systemPrompt: "Compact retained roundtrip test",
++        modelStreaming: "off" as const,
++        titleGeneration: { enabled: false as const },
++        compact: {
++          profile: "compact" as const,
++          tailBudgetTokens: 1_000,
++          summaryMaxOutputTokens: 8_000,
++        },
++      };
++      const modelFactory = createTestModelFactory({
++        properties: { supportsMidConversationSystem: mcs },
++        generateText: async (request) => {
++          requests.push(request);
++          return stopResult(
++            requestText(request.messages).includes(
++              "Summarize the conversation into one structured checkpoint",
++            )
++              ? "## Objective\n- finish the compact retained roundtrip test"
++              : "finished",
++            10,
++          );
++        },
++      });
++      const createRuntime = (sessionStore = store) =>
++        createTestAgentRuntime(sessionId, config, {
++          sessionStore: sessionStore as never,
++          modelFactory,
++          eventStore: createTestSessionEventStore(),
++        });
++      await store.createSession({
++        id: sessionId,
++        title: "Compact roundtrip",
++        directory: "/workspace",
++        path: "/workspace",
++        time: { created: 1, updated: 1 },
++      });
++      const ids = {
++        oldUser: createMessageId("roundtrip-old-user"),
++        oldAssistant: createMessageId("roundtrip-old-assistant"),
++        latestUser: createMessageId("roundtrip-latest-user"),
++        toolAssistant: createMessageId("roundtrip-tool-assistant"),
++        continueInput: createMessageId("roundtrip-continue-input"),
++        latestAssistant: createMessageId("roundtrip-latest-assistant"),
++      };
++      const saveText = async (
++        id: ReturnType<typeof createMessageId>,
++        role: "user" | "assistant",
++        text: string,
++      ) => {
++        await store.saveMessage({
++          id,
++          sessionID: sessionId,
++          role,
++          time: { created: 1 },
++          ...(role === "assistant"
++            ? {
++                tokens: {
++                  input: 0,
++                  output: 0,
++                  total: 0,
++                  reasoning: 0,
++                  cache: { read: 0, write: 0 },
++                },
++              }
++            : {}),
++        });
++        await store.savePart({
++          id: createPartId(),
++          messageID: id,
++          sessionID: sessionId,
++          type: "text",
++          text,
++        });
++      };
++      await saveText(ids.oldUser, "user", "ancient request");
++      await saveText(ids.oldAssistant, "assistant", "x".repeat(20_000));
++      await saveText(ids.latestUser, "user", "latest request");
++      await saveText(ids.toolAssistant, "assistant", "reading file");
++      await store.savePart({
++        id: createPartId(),
++        messageID: ids.toolAssistant,
++        sessionID: sessionId,
++        type: "tool",
++        callID: "read-1",
++        tool: "Read",
++        state: {
++          status: "completed",
++          input: { file_path: "/tmp/latest" },
++          output: "tool result payload",
++          title: "Read",
++          metadata: {},
++          time: { start: 1, end: 2 },
++        },
++      });
++      await store.saveMessage({
++        id: ids.continueInput,
++        sessionID: sessionId,
++        role: "user",
++        time: { created: 1 },
++        metadata: { source: "goal-continuation", visibility: "model-only" },
++        source: "goal-continuation",
++        synthetic: true,
++        visibility: "model-only",
++      });
++      await store.savePart({
++        id: createPartId(),
++        messageID: ids.continueInput,
++        sessionID: sessionId,
++        type: "text",
++        text: "Continue the goal.",
++        synthetic: true,
++        metadata: {
++          runtimeMessage: { source: "target_continuation" },
++          source: "goal-continuation",
++          visibility: "model-only",
++        },
++      });
++      await saveText(ids.latestAssistant, "assistant", "latest answer");
++
++      const runtime = createRuntime();
++      await runtime.resumeFromStore();
++      await compactActiveConversation.call(
++        runtime as never,
++        undefined,
++        createRootTraceContext({ sessionId }),
++        [],
++        { trigger: CompactTrigger.Auto },
++      );
++
++      const persisted = await store.messages();
++      const boundary = persisted
++        .flatMap((message) => message.parts)
++        .find((part) => part.type === "compaction" && part.compactBoundary)?.compactBoundary;
++      expect(boundary.preservedSegment).toEqual({
++        headMessageId: ids.latestUser,
++        tailMessageId: ids.latestAssistant,
++        anchorMessageId: persisted.find((message) =>
++          boundary.summaryMessageIds.includes(message.info.id),
++        )?.info.id,
++      });
++      expect(boundary.keptMessageCount).toBe(4);
++
++      const live = (
++        runtime as unknown as { messageHistory: MessageHistoryImpl }
++      ).messageHistory.toRuntimeEntries();
++      const restored = new MessageHistoryImpl();
++      restored.init(config.systemPrompt);
++      await hydrateMessageHistoryFromSession({ history: restored, messages: persisted });
++      const project = (entries: ReturnType<MessageHistoryImpl["toRuntimeEntries"]>) =>
++        buildProviderRequestMessages({
++          entries,
++          useMidConversationSystem: mcs,
++          applyCacheControl: false,
++        }).messages;
++      const relevantTexts = [
++        "latest request",
++        "reading file",
++        "tool result payload",
++        "Continue the goal.",
++        "latest answer",
++      ];
++      const relevant = (messages: ReturnType<typeof project>) =>
++        messages.filter(
++          (message) =>
++            message.toolCalls?.length ||
++            message.role === "tool" ||
++            relevantTexts.some((text) => requestText([message]).includes(text)),
++        );
++      expect(relevant(project(restored.toRuntimeEntries()))).toEqual(relevant(project(live)));
++
++      const coldStore = createRecordingMessageStore();
++      await coldStore.createSession(structuredClone(await store.getSession(sessionId)));
++      coldStore.savedMessages.push(...structuredClone(store.savedMessages));
++      coldStore.savedParts.push(...structuredClone(store.savedParts));
++      await runtime.executeTurn("compare after compact");
++      const liveRequest = requests.at(-1)!;
++      const coldRuntime = createRuntime(coldStore);
++      await coldRuntime.resumeFromStore();
++      await coldRuntime.executeTurn("compare after compact");
++      const coldRequest = requests.at(-1)!;
++      expect(relevant(coldRequest.messages)).toEqual(relevant(liveRequest.messages));
++      for (const request of [liveRequest, coldRequest]) {
++        const text = requestText(request.messages);
++        for (const expected of ["latest request", "tool result payload", "Continue the goal."]) {
++          expect(text.split(expected)).toHaveLength(2);
++        }
++        expect(text).not.toContain("ancient request");
++        expect(request.messages.filter((message) => message.role === "tool")).toHaveLength(1);
++      }
++    },
++  );
+ });
 diff --git a/apps/zcode-cli/packages/core/tests/context-builder.test.ts b/apps/zcode-cli/packages/core/tests/context-builder.test.ts
 index ccfd346e97fc2b45c7096f794ce4bd8865afa60d..b9e096eb514879b32c791b769f08d3c1500c878c 100644
 --- a/apps/zcode-cli/packages/core/tests/context-builder.test.ts
@@ -14952,6 +16839,247 @@ index 01179f8f8ad8e6e4cf9354fc771ef059f45e704a..2d0d637d61874cb5b54b7ec882df094b
  function readTextOrThrow(
    path: string,
    files: Map<string, string>,
+diff --git a/apps/zcode-cli/packages/core/tests/runtime-compact.test.ts b/apps/zcode-cli/packages/core/tests/runtime-compact.test.ts
+index cb358871c06f61e320552ef2476fe8bb1eab7a19..a9d82594373e75a26d17d3ccacb8215d0d497bef 100644
+--- a/apps/zcode-cli/packages/core/tests/runtime-compact.test.ts
++++ b/apps/zcode-cli/packages/core/tests/runtime-compact.test.ts
+@@ -1,3 +1,4 @@
++import { join } from "node:path";
+ import { describe, expect, it, vi } from "vitest";
+ import { createTestModelSelection } from "./test-model-selection.js";
+ import { createTestModelFormatProperties } from "./test-runtime-model.js";
+@@ -381,6 +382,113 @@ describe("runtime compact helpers", () => {
+     expect(fullPrompt).toContain("Tool calls will be rejected and you will fail the task.");
+   });
+ 
++  it("uses the concise OpenCode sections without changing the detailed default", () => {
++    const prompt = buildCompactPrompt("Keep exact paths.", "compact");
++    for (const heading of [
++      "Objective",
++      "Requirements",
++      "Decisions",
++      "Work State",
++      "Next Move",
++      "Relevant Files",
++      "Important Context",
++    ])
++      expect(prompt).toContain(`## ${heading}`);
++    expect(prompt).toContain("at most 15");
++    expect(prompt).toContain("Additional Instructions:\nKeep exact paths.");
++    expect(prompt).toContain("security-relevant");
++    expect(prompt).not.toContain("an <analysis> block");
++    expect(prompt).not.toContain("Chronologically analyze");
++    expect(buildCompactPrompt(undefined)).toContain("create a detailed summary");
++  });
++
++  it("preserves complete user turns and tool pairs within the compact tail budget", () => {
++    const entries: RuntimeMessageEntry[] = [
++      { message: { role: "system", content: "system" } },
++      { message: { role: "user", content: "old request" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "old response" } },
++      { message: { role: "user", content: "middle request" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "x".repeat(8_000) } },
++      { message: { role: "user", content: "latest request" }, metadata: realUserRuntimeMetadata() },
++      {
++        message: {
++          role: "assistant",
++          content: "",
++          toolCalls: [{ id: "call", name: "Read", input: {} }],
++        },
++      },
++      { message: { role: "tool", content: "result", toolCallId: "call", toolName: "Read" } },
++      { message: { role: "assistant", content: "latest response" } },
++    ];
++    for (const trigger of [CompactTrigger.Manual, CompactTrigger.Auto, CompactTrigger.Reactive]) {
++      const selected = selectCompactEntries({
++        entries,
++        trigger,
++        policy: { profile: "compact", tailBudgetTokens: 1_000 },
++      });
++      expect(selected.groupsPreserved).toBe(1);
++      expect(selected.preservedEntries).toEqual(entries.slice(5));
++      expect(selected.entriesForSummary).toEqual(entries.slice(0, 5));
++    }
++    const allKept = selectCompactEntries({
++      entries,
++      trigger: CompactTrigger.Manual,
++      policy: { profile: "compact", tailBudgetTokens: 100_000 },
++    });
++    expect(allKept.preservedEntries).toEqual(entries.slice(1));
++    expect(allKept.entriesForSummary).toEqual(entries.slice(0, 1));
++  });
++
++  it("keeps an oversized latest user turn and does not split tools across intervening users", () => {
++    const entries: RuntimeMessageEntry[] = [
++      { message: { role: "user", content: "old" } },
++      { message: { role: "assistant", content: "done" } },
++      { message: { role: "user", content: "new" } },
++      {
++        message: {
++          role: "assistant",
++          content: "",
++          toolCalls: [{ id: "call", name: "Read", input: {} }],
++        },
++      },
++      { message: { role: "user", content: "intervening" } },
++      {
++        message: {
++          role: "tool",
++          content: "x".repeat(10_000),
++          toolCallId: "call",
++          toolName: "Read",
++        },
++      },
++    ];
++    const selected = selectCompactEntries({
++      entries,
++      trigger: CompactTrigger.Auto,
++      policy: { profile: "compact", tailBudgetTokens: 1_000 },
++    });
++    expect(selected.preservedEntries).toEqual(entries.slice(2));
++    expect(selected.entriesForSummary).toEqual(entries.slice(0, 2));
++  });
++
++  it("does not turn query-local continuation into a compact user boundary", () => {
++    const entries: RuntimeMessageEntry[] = [
++      { message: { role: "user", content: "old request" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "x".repeat(8_000) } },
++      { message: { role: "user", content: "latest request" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "latest response" } },
++      { message: { role: "user", content: "Continue" }, queryScope: "output_token_continuation" },
++      systemReminderAttachmentEntry("goal_state_change", "task completed"),
++      { message: { role: "assistant", content: "continued response" } },
++    ];
++    const selected = selectCompactEntries({
++      entries,
++      trigger: CompactTrigger.Manual,
++      policy: { profile: "compact", tailBudgetTokens: 1_000 },
++    });
++    expect(selected.preservedEntries).toEqual(entries.slice(2));
++    expect(selected.groupsPreserved).toBe(1);
++  });
++
+   it("formats compact summaries and continuation messages with the fixed continuation shape", () => {
+     expect(formatCompactSummary("<analysis>scratch</analysis><summary>abc</summary>")).toBe(
+       "Summary:\nabc",
+@@ -636,6 +744,103 @@ describe("AgentRuntime manual compact", () => {
+     expect(requests.find((request) => request.isCompact)?.maxOutputTokens).toBe(20_000);
+   });
+ 
++  it("updates the next compaction policy without changing an active compact or its model reserve", async () => {
++    const requests: Array<{ prompt: string; maxOutputTokens?: number }> = [];
++    const runtime = createTestAgentRuntime(
++      createSessionId("runtime-compact-live-policy"),
++      {
++        compact: {
++          enabled: false,
++          profile: "compact",
++          tailBudgetTokens: 1_000,
++          summaryMaxOutputTokens: 8_000,
++          maxOutputTokens: 2_000,
++        },
++      },
++      {
++        eventStore: createTestSessionEventStore(),
++        modelFactory: createTestModelFactory(
++          withStreamTextFromGenerateText({
++            async generateText(request) {
++              const prompt = providerContentToText(request.messages.at(-1)?.content);
++              const isCompact =
++                prompt.includes("## Objective") || prompt.includes("create a detailed summary");
++              if (isCompact) {
++                requests.push({ prompt, maxOutputTokens: request.options?.maxOutputTokens });
++                runtime.setCompactionPolicy({ profile: "detailed", summaryMaxOutputTokens: 1_000 });
++              }
++              return {
++                finishReason: "stop",
++                text: isCompact ? "## Objective\n- Continue work." : "response ".repeat(2_000),
++                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++              };
++            },
++          }) as never,
++        ),
++      },
++    );
++    await runtime.executeTurn("first");
++    await runtime.executeTurn("second");
++    await runtime.executeTurn("third");
++    await runtime.executeTurn("/compact Keep exact paths.");
++    expect(requests).toHaveLength(1);
++    expect(requests[0]?.maxOutputTokens).toBe(8_000);
++    expect(requests[0]?.prompt).toContain("## Objective");
++    expect(requests[0]?.prompt).toContain("Keep exact paths.");
++    await runtime.executeTurn("fourth");
++    await runtime.executeTurn("fifth");
++    await runtime.executeTurn("/compact");
++    expect(requests).toHaveLength(2);
++    expect(requests[1]?.maxOutputTokens).toBe(20_000);
++    expect(requests[1]?.prompt).toContain("create a detailed summary");
++  });
++
++  it("keeps one policy snapshot across prompt-too-long reselection", async () => {
++    const requests: Array<{ prompt: string; maxOutputTokens?: number }> = [];
++    const runtime = createTestAgentRuntime(
++      createSessionId("runtime-compact-policy-retry"),
++      {
++        compact: {
++          enabled: false,
++          profile: "compact",
++          tailBudgetTokens: 1_000,
++          summaryMaxOutputTokens: 6_000,
++        },
++      },
++      {
++        eventStore: createTestSessionEventStore(),
++        modelFactory: createTestModelFactory(
++          withStreamTextFromGenerateText({
++            async generateText(request) {
++              const prompt = providerContentToText(request.messages.at(-1)?.content);
++              if (!prompt.includes("## Objective"))
++                return {
++                  finishReason: "stop",
++                  text: "response ".repeat(2_000),
++                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++                };
++              requests.push({ prompt, maxOutputTokens: request.options?.maxOutputTokens });
++              if (requests.length === 1) {
++                runtime.setCompactionPolicy({ profile: "detailed", summaryMaxOutputTokens: 1_000 });
++                throw createContextExceededError();
++              }
++              return {
++                finishReason: "stop",
++                text: "## Objective\n- Continue work.",
++                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++              };
++            },
++          }) as never,
++        ),
++      },
++    );
++    for (const input of ["one", "two", "three", "four"]) await runtime.executeTurn(input);
++    await runtime.executeTurn("/compact");
++    expect(requests).toHaveLength(2);
++    expect(requests.map((request) => request.maxOutputTokens)).toEqual([6_000, 6_000]);
++    expect(requests.every((request) => request.prompt.includes("## Objective"))).toBe(true);
++  });
++
+   it("runs compact stream-first, links the non-stream fallback, and keeps the stream hidden", async () => {
+     const sessionId = createSessionId("runtime-compact-stream-first-fallback");
+     const eventStore = createTestSessionEventStore();
+@@ -1902,7 +2107,12 @@ describe("AgentRuntime manual compact", () => {
+     const requests: Array<{ messages: Array<{ content: unknown; role: string }> }> = [];
+     const planMarker = "E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER";
+     const fileSystemPort = new MemoryFileSystem({
+-      "/workspace/project/.zcode/plans/plan-sess_runtime-compact-plan-file-reference.md": `1. Preserve ${planMarker}\n2. Continue after compact`,
++      [join(
++        "/workspace/project",
++        ".zcode",
++        "plans",
++        "plan-sess_runtime-compact-plan-file-reference.md",
++      )]: `1. Preserve ${planMarker}\n2. Continue after compact`,
+     });
+     const modelImplementation = {
+       async generateText(request: {
 diff --git a/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts b/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..43b136580eaebaaf5b0ef54400219c85d69fcb7d
@@ -15288,6 +17416,92 @@ index d821a0be80568a88b4801082816b25fd259b04c6..7e99888fb0e29f754152be0c9ba72e9f
  
  Complete the user's search request efficiently and report your findings clearly.`;
  
+diff --git a/apps/zcode-cli/packages/core/tests/task-output-tool.test.ts b/apps/zcode-cli/packages/core/tests/task-output-tool.test.ts
+index 9648b088ce1149b91aa6fc003e7dd1d56871f3b4..3145800af3ace049c94a13e09be473e23300dc51 100644
+--- a/apps/zcode-cli/packages/core/tests/task-output-tool.test.ts
++++ b/apps/zcode-cli/packages/core/tests/task-output-tool.test.ts
+@@ -1123,7 +1123,8 @@ describe("TaskOutput tool", () => {
+     );
+ 
+     expect(result.success).toBe(true);
+-    expect(persisted).toHaveLength(1);
++    expect(persisted).toHaveLength(2);
++    expect(persisted[1]?.content).toBe("x".repeat(120_000));
+     expect(persisted[0]?.contentType).toBe("text/plain");
+     expect(persisted[0]?.content).toMatch(/^<retrieval_status>success<\/retrieval_status>/u);
+     expect(persisted[0]?.content).toContain("<output>\n");
+@@ -1139,6 +1140,71 @@ describe("TaskOutput tool", () => {
+     expect(String(result.modelContent)).not.toContain("Tool output truncated by resultBudget");
+   });
+ 
++  it("stores a copy-only snapshot without XML, prompt or transcript and preserves provider budgets", async () => {
++    const text = `start\n${"完整结果😀".repeat(8_000)}\nEND`;
++    const runtimeTaskRegistry = registryWithTask(
++      runtimeTask({
++        status: "completed",
++        output: completedAgentOutput(text),
++        outputFile: "/tmp/private-transcript.jsonl",
++        prompt: "private prompt",
++      }),
++    );
++    const sessionId = createSessionId("task-output-copy");
++    const traceContext = createRootTraceContext({ sessionId });
++    const registry = createToolRegistry();
++    registry.register(taskOutputToolEntry);
++    const contents: string[] = [];
++    const executor = createToolExecutor({
++      registry,
++      runtimeTaskRegistry,
++      sessionId,
++      traceContext,
++      permissionService: new PermissionService(defaultPermissionConfig),
++      emitEvent: async () => undefined,
++      artifactStore: {
++        async writeToolResultArtifact(request) {
++          contents.push(request.content);
++          return {
++            id: String(contents.length),
++            uri: "zcode-artifact://copy",
++            path: `/tmp/snapshot-${contents.length}.txt`,
++            bytes: Buffer.byteLength(request.content),
++            contentType: "text/plain",
++            createdAt: new Date(),
++          };
++        },
++        async readToolResultArtifact() {
++          throw new Error("not used");
++        },
++      },
++    });
++    const result = await executor.execute(
++      {
++        id: createToolCallId("copy"),
++        name: TASK_OUTPUT_TOOL_NAME,
++        input: { task_id: "agent_1", block: false },
++      },
++      { traceContext },
++    );
++    expect(result.success).toBe(true);
++    expect(contents).toEqual([text]);
++    expect(result.display).toMatchObject({
++      kind: "task_output",
++      output: text.slice(0, 2_000),
++      truncated: true,
++      copySource: { path: "/tmp/snapshot-1.txt", bytes: Buffer.byteLength(text) },
++    });
++    expect(String(result.modelContent)).toHaveLength(
++      32_000 +
++        String(result.modelContent).indexOf("<output>\n") +
++        "<output>\n".length +
++        "\n</output>".length,
++    );
++    expect(String(result.modelContent)).not.toContain("/tmp/snapshot-");
++    expect(JSON.stringify(result.display)).not.toContain("private prompt");
++  });
++
+   it("keeps the original XML when 100000-character artifact persistence fails", async () => {
+     vi.stubEnv("TASK_MAX_OUTPUT_LENGTH", "160000");
+     const sessionId = createSessionId("task-output-persist-failure");
 diff --git a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts b/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
 index 943ff0b80cda36bce38ca3d36bf5e6a06aa5131f..c2ea310b1ef83ffaf2abd5505c53a1ace110e0a9 100644
 --- a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts

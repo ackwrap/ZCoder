@@ -1,3 +1,254 @@
+diff --git a/packages/desktop/src/host/connectDesktopSourceServer.ts b/packages/desktop/src/host/connectDesktopSourceServer.ts
+index 00a18141b6f82e0518a0525dce79850c02278988..9f96dc155a5d691a7177b7e45b3cf1004e0cfa83 100644
+--- a/packages/desktop/src/host/connectDesktopSourceServer.ts
++++ b/packages/desktop/src/host/connectDesktopSourceServer.ts
+@@ -1,5 +1,10 @@
+-import type { IBotsService, ServiceCollection } from "@zcode/services";
+-import type { DynamicWorkflowMode, WindowHostAttachmentScope } from "@zcode/shared";
++import type { IBotsService, IZCodeAgentService, ServiceCollection } from "@zcode/services";
++import type {
++  AppCompactionPolicy,
++  DynamicWorkflowMode,
++  RemoteTarget,
++  WindowHostAttachmentScope,
++} from "@zcode/shared";
+ import {
+   connectServerRemoteOverDuplex,
+   type ServerRemoteConnection,
+@@ -15,10 +20,19 @@ export async function connectDesktopSourceServer(
+     resolveServices(scope: WindowHostAttachmentScope): ServiceCollection;
+     getBots(): IBotsService | undefined;
+     readDynamicWorkflowMode(): Promise<DynamicWorkflowMode | undefined>;
++    /** 本机持久化的压缩策略；Source 不读桌面设置，必须由 Desktop 推过去。 */
++    readCompactionPolicy(): Promise<AppCompactionPolicy | undefined>;
++    /** 连接发布前即可接收压缩策略推送；dispose 在连接关闭/释放时调用。 */
++    registerCompactionTarget?(target: Pick<IZCodeAgentService, "syncCompactionPolicy">): {
++      dispose(): void;
++    };
+     onModeSyncError(error: unknown): void;
++    onCompactionPolicySyncError(error: unknown): void;
+   },
+ ): Promise<ServerRemoteConnection> {
+   let connection: ServerRemoteConnection | undefined;
++  let closed = false;
++  let compactionRegistration: { dispose(): void } | undefined;
+   const relay = createWindowTopicResourceRelay({
+     getPeerAgentService: () => connection?.services.zcodeAgentService,
+     resolveServices: deps.resolveServices,
+@@ -29,10 +43,23 @@ export async function connectDesktopSourceServer(
+       ...options,
+       topicResourceChannel: relay.channel,
+       onClose(event) {
++        closed = true;
++        compactionRegistration?.dispose();
++        compactionRegistration = undefined;
+         relay.dispose();
+         options.onClose?.(event);
+       },
+     });
++    // 握手/成员提交期间连接尚未进入 ready 列表；先登记为压缩策略目标，设置变化才不会漏推。
++    if (!closed) {
++      compactionRegistration = deps.registerCompactionTarget?.(
++        connection.services.zcodeAgentService,
++      );
++    }
++    if (closed) {
++      compactionRegistration?.dispose();
++      compactionRegistration = undefined;
++    }
+     // 旧链路在 logical handle 初建时推送；迁移后必须在每代物理连接发布前同步，
+     // 否则 manager 自动重连直接换 services，会丢失 Desktop 的当前用户选择。
+     try {
+@@ -42,11 +69,25 @@ export async function connectDesktopSourceServer(
+       // 旧版 Source 不认识此方法时保持可连接，与既有 workflow 同步兼容策略一致。
+       deps.onModeSyncError(error);
+     }
++    try {
++      // 同步期间设置可能再次变化；每次 await 后重读并比较，直到推送的就是最新策略。
++      let policy = await deps.readCompactionPolicy().catch(() => undefined);
++      while (policy) {
++        await connection.services.zcodeAgentService.syncCompactionPolicy(policy);
++        const latest = await deps.readCompactionPolicy().catch(() => undefined);
++        if (!latest || sameCompactionPolicy(latest, policy)) break;
++        policy = latest;
++      }
++    } catch (error) {
++      deps.onCompactionPolicySyncError(error);
++    }
+     const connected = connection;
+     return {
+       serverInfo: connected.serverInfo,
+       services: connected.services,
+       dispose() {
++        compactionRegistration?.dispose();
++        compactionRegistration = undefined;
+         relay.dispose();
+         connected.dispose();
+       },
+@@ -57,3 +98,33 @@ export async function connectDesktopSourceServer(
+     throw error;
+   }
+ }
++
++/** 压缩策略与工作流选择同样只推给 desktop-attached remote Host；standalone server 自权威。 */
++export async function pushCompactionPolicyToRemoteHosts(
++  connections: ReadonlyArray<{
++    target?: RemoteTarget;
++    zcodeAgentService: Pick<IZCodeAgentService, "syncCompactionPolicy">;
++  }>,
++  policy: AppCompactionPolicy,
++  onError: (error: unknown) => void,
++): Promise<void> {
++  await Promise.all(
++    connections
++      .filter((connection) => connection.target?.kind !== "server")
++      .map(async (connection) => {
++        try {
++          await connection.zcodeAgentService.syncCompactionPolicy(policy);
++        } catch (error) {
++          onError(error);
++        }
++      }),
++  );
++}
++
++function sameCompactionPolicy(a: AppCompactionPolicy, b: AppCompactionPolicy): boolean {
++  return (
++    a.profile === b.profile &&
++    a.tailBudgetTokens === b.tailBudgetTokens &&
++    a.summaryMaxOutputTokens === b.summaryMaxOutputTokens
++  );
++}
+diff --git a/packages/desktop/src/host/index.ts b/packages/desktop/src/host/index.ts
+index 5649925303baa4faf39464c27153687d370312dc..45e1dc2f14baff82748ad588a7d85bbd8a3690a8 100644
+--- a/packages/desktop/src/host/index.ts
++++ b/packages/desktop/src/host/index.ts
+@@ -1,4 +1,9 @@
+-import { normalizeRemoteConnectionError, sanitizeRemoteConnectionLog } from "@zcode/shared";
++import {
++  normalizeAppCompactionPolicy,
++  normalizeRemoteConnectionError,
++  sanitizeRemoteConnectionLog,
++  type AppCompactionPolicy,
++} from "@zcode/shared";
+ /* eslint-disable max-lines -- Host 入口集中编排 local/remote service wiring，本次退出保护需要在同一处桥接 host 上报。 */
+ /* eslint-disable max-lines -- host process 入口集中维护 local/remote 初始化和资源回收，realtime bridge 接入后先保持同文件收口。 */
+ /**
+@@ -170,7 +175,10 @@ import {
+   type WindowRemoteConnectionHandle,
+ } from "./windowRemoteConnectionRegistry.js";
+ import { pushDynamicWorkflowUserModeToRemoteHosts } from "./remoteDynamicWorkflowUserMode.js";
+-import { connectDesktopSourceServer } from "./connectDesktopSourceServer.js";
++import {
++  connectDesktopSourceServer,
++  pushCompactionPolicyToRemoteHosts,
++} from "./connectDesktopSourceServer.js";
+ import { prepareRemoteWorkspaceIdentity } from "./remoteWorkspacePreparation.js";
+ import { createWindowHostControllerRuntime } from "./windowHostControllerService.js";
+ import { resolveBotRemoteWorkspace } from "./botRemoteWorkspaceResolver.js";
+@@ -1748,6 +1756,8 @@ let sourceServerConnectionManager: SourceServerConnectionManager | null = null;
+ let sourceServerManagementService: SourceServerManagementService | null = null;
+ let sourceServerArtifactPolicy: SourceServerArtifactPolicy = "release-versioned";
+ const sourceServerDisplayNameById = new Map<string, string>();
++/** 已在协议握手、尚未进入 ready 列表的连接；压缩策略变化也要推给它们。 */
++const pendingCompactionTargets = new Set<Pick<IZCodeAgentService, "syncCompactionPolicy">>();
+ let sourceSettingsStateSubscription: IDisposable | null = null;
+ const activeWorkspaceBindRequestIds = new Set<string>();
+ const cancelledWorkspaceBindRequestIds = new Set<string>();
+@@ -1813,6 +1823,35 @@ function requireActiveHostApiNetworkTransport(): HostApiNetworkTransport {
+   return activeHostApiNetworkTransport;
+ }
+ 
++async function readLocalCompactionPolicy(): Promise<AppCompactionPolicy> {
++  // Desktop 是本地设置权威；remote Source 只在连接建立/设置变化时收到推送。
++  const settings = await activeServices?.get(ISettingService).get();
++  return normalizeAppCompactionPolicy({
++    profile: settings?.compactionProfile,
++    tailBudgetTokens: settings?.compactionTailBudgetTokens,
++    summaryMaxOutputTokens: settings?.compactionSummaryMaxOutputTokens,
++  });
++}
++
++function connectHostSourceServer(
++  options: Parameters<typeof connectDesktopSourceServer>[0],
++): ReturnType<typeof connectDesktopSourceServer> {
++  return connectDesktopSourceServer(options, {
++    resolveServices: (scope) => windowRemoteConnectionRegistry.resolveScopedServices(scope),
++    getBots: () => activeServices?.getOptional(IBotsService),
++    readDynamicWorkflowMode: async () =>
++      (await activeServices?.get(ISettingService).get())?.dynamicWorkflowMode,
++    readCompactionPolicy: readLocalCompactionPolicy,
++    registerCompactionTarget: (target) => {
++      pendingCompactionTargets.add(target);
++      return { dispose: () => pendingCompactionTargets.delete(target) };
++    },
++    onModeSyncError: (error) => logger.warn("remote dynamic workflow user mode push failed", error),
++    onCompactionPolicySyncError: (error) =>
++      logger.warn("remote compaction policy push failed", error),
++  });
++}
++
+ async function ensureSourceServerConnectionManager(): Promise<SourceServerConnectionManager> {
+   if (sourceServerConnectionManager) return sourceServerConnectionManager;
+   if (!sourceServerDirectory) throw new Error("Source Server directory 尚未初始化");
+@@ -1830,15 +1869,7 @@ async function ensureSourceServerConnectionManager(): Promise<SourceServerConnec
+       onProjectChange: notifyProjectChange,
+       logWarn: (message, error) => logger.warn(message, error),
+       sourceServerArtifactPolicy,
+-      connectServer: (options) =>
+-        connectDesktopSourceServer(options, {
+-          resolveServices: (scope) => windowRemoteConnectionRegistry.resolveScopedServices(scope),
+-          getBots: () => activeServices?.getOptional(IBotsService),
+-          readDynamicWorkflowMode: async () =>
+-            (await activeServices?.get(ISettingService).get())?.dynamicWorkflowMode,
+-          onModeSyncError: (error) =>
+-            logger.warn("remote dynamic workflow user mode push failed", error),
+-        }),
++      connectServer: connectHostSourceServer,
+     });
+     sourceServerConnectionManager = manager;
+     return manager;
+@@ -3935,6 +3966,32 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
+                   (error) => logger.warn("remote dynamic workflow user mode forward failed", error),
+                 );
+               },
++              // docs/compaction-profiles.md：本机压缩策略变化后，推给本窗口所有在线及握手中的远程 Host。
++              forwardCompactionPolicy: (policy) => {
++                const targets = new Map<
++                  Pick<IZCodeAgentService, "syncCompactionPolicy">,
++                  {
++                    target?: RemoteTarget;
++                    zcodeAgentService: Pick<IZCodeAgentService, "syncCompactionPolicy">;
++                  }
++                >();
++                for (const {
++                  target,
++                  services: remoteServices,
++                } of windowRemoteConnectionRegistry.listReadyConnections()) {
++                  if (target.kind === "server") continue;
++                  const zcodeAgentService = remoteServices.get(IZCodeAgentService);
++                  targets.set(zcodeAgentService, { target, zcodeAgentService });
++                }
++                for (const zcodeAgentService of pendingCompactionTargets) {
++                  if (!targets.has(zcodeAgentService)) {
++                    targets.set(zcodeAgentService, { zcodeAgentService });
++                  }
++                }
++                void pushCompactionPolicyToRemoteHosts([...targets.values()], policy, (error) =>
++                  logger.warn("remote compaction policy forward failed", error),
++                );
++              },
+               registerPluginSandbox: pluginSandboxRegistrationBridge.register,
+               runtimeProcessEnvPatch: msg.runtimeProcessEnvPatch,
+               agentTelemetry: {
+@@ -4024,6 +4081,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
+           logWarn: (message, error) => logger.warn(message, error),
+           sourceServerArtifactPolicy,
+           resolveRelease: resolveSourceServerRelease,
++          connectServer: connectHostSourceServer,
+         });
+         sourceServerManagementService = createSourceServerManagementService({
+           directory: sourceServerDirectory,
 diff --git a/packages/desktop/src/renderer/src/remoteWorkspaceSessionServices.ts b/packages/desktop/src/renderer/src/remoteWorkspaceSessionServices.ts
 index 07cba62c4c094dc6692650506a9cc504b98a8607..5d6c81107a68af8f9938ae212cb474f6a331a679 100644
 --- a/packages/desktop/src/renderer/src/remoteWorkspaceSessionServices.ts
@@ -11,6 +262,157 @@ index 07cba62c4c094dc6692650506a9cc504b98a8607..5d6c81107a68af8f9938ae212cb474f6
      // SSH/Docker remote 项目的 skills/plugins/commands 目录位于远端文件系统。
      // 之前这里沿用本机 base services，会拿远端 workspacePath 去本机扫描，导致项目级能力读不到。
      skillsService: remoteServices.skillsService,
+diff --git a/packages/desktop/test/connectDesktopSourceServer.test.ts b/packages/desktop/test/connectDesktopSourceServer.test.ts
+index e122cea32140a2bdf9ba6f04a33b062df3696618..e87d7c341d511247f4d6f23cca354358a58110e3 100644
+--- a/packages/desktop/test/connectDesktopSourceServer.test.ts
++++ b/packages/desktop/test/connectDesktopSourceServer.test.ts
+@@ -1,5 +1,11 @@
++import { readFileSync } from "node:fs";
++import ts from "typescript";
+ import { describe, expect, it, vi } from "vitest";
+-import type { DynamicWorkflowMode, WindowHostAttachmentScope } from "@zcode/shared";
++import type {
++  AppCompactionPolicy,
++  DynamicWorkflowMode,
++  WindowHostAttachmentScope,
++} from "@zcode/shared";
+ import type { IServerChannel } from "@zcode/rpc";
+ import { ServiceCollection, IZCodeAgentService, type IBotsService } from "@zcode/services";
+ import type {
+@@ -10,7 +16,11 @@ import { connectDesktopSourceServer } from "../src/host/connectDesktopSourceServ
+ 
+ function setup() {
+   const sync = vi.fn(async (): Promise<void> => undefined);
+-  const agent = { syncDynamicWorkflowUserMode: sync } as unknown as IZCodeAgentService;
++  const syncCompaction = vi.fn(async (_policy: AppCompactionPolicy): Promise<void> => undefined);
++  const agent = {
++    syncDynamicWorkflowUserMode: sync,
++    syncCompactionPolicy: syncCompaction,
++  } as unknown as IZCodeAgentService;
+   const logicalA = new ServiceCollection().register(IZCodeAgentService, agent);
+   const logicalB = new ServiceCollection().register(IZCodeAgentService, agent);
+   const scopes = new Map([
+@@ -45,11 +55,21 @@ function setup() {
+     readDynamicWorkflowMode: vi.fn(
+       async (): Promise<DynamicWorkflowMode | undefined> => "alwaysOn",
+     ),
++    readCompactionPolicy: vi.fn(
++      async (): Promise<AppCompactionPolicy | undefined> => ({
++        profile: "compact" as const,
++        tailBudgetTokens: 20_000,
++        summaryMaxOutputTokens: 9_000,
++      }),
++    ),
++    registerCompactionTarget: vi.fn(() => ({ dispose: vi.fn() })),
+     onModeSyncError: vi.fn(),
++    onCompactionPolicySyncError: vi.fn(),
+   };
+   const options = { ingressToken: "test", createConnection: vi.fn(), onClose };
+   return {
+     sync,
++    syncCompaction,
+     scopes,
+     validate,
+     dispose,
+@@ -76,6 +96,41 @@ function request(remoteSessionId: string) {
+ }
+ 
+ describe("Desktop Source physical connection capabilities", () => {
++  it("wires every Host manager to the shared Desktop connector", () => {
++    const source = ts.createSourceFile(
++      "index.ts",
++      readFileSync(new URL("../src/host/index.ts", import.meta.url), "utf8"),
++      ts.ScriptTarget.Latest,
++      true,
++    );
++    const connectors: string[] = [];
++    const visit = (node: ts.Node): void => {
++      if (
++        ts.isNewExpression(node) &&
++        node.expression.getText(source) === "SourceServerConnectionManager"
++      ) {
++        const options = node.arguments?.[0];
++        expect(options && ts.isObjectLiteralExpression(options)).toBe(true);
++        if (options && ts.isObjectLiteralExpression(options)) {
++          const connector = options.properties.find(
++            (property) =>
++              ts.isPropertyAssignment(property) &&
++              property.name.getText(source) === "connectServer",
++          );
++          connectors.push(
++            connector && ts.isPropertyAssignment(connector)
++              ? connector.initializer.getText(source)
++              : "",
++          );
++        }
++      }
++      ts.forEachChild(node, visit);
++    };
++    visit(source);
++    expect(connectors.length).toBeGreaterThanOrEqual(2);
++    expect(connectors.every((connector) => connector === "connectHostSourceServer")).toBe(true);
++  });
++
+   it("uses one reverse channel for all logical wrappers of the same physical Agent", async () => {
+     const state = setup();
+     const connection = await connectDesktopSourceServer(state.options, state.dependencies);
+@@ -159,4 +214,56 @@ describe("Desktop Source physical connection capabilities", () => {
+     expect(await state.channel().call("host", "validate", request("a"))).toEqual({ valid: true });
+     connection.dispose();
+   });
++
++  it("pushes the persisted compaction policy before publishing, independently of workflow sync", async () => {
++    const state = setup();
++    const connection = await connectDesktopSourceServer(state.options, state.dependencies);
++    expect(state.syncCompaction).toHaveBeenCalledWith({
++      profile: "compact",
++      tailBudgetTokens: 20_000,
++      summaryMaxOutputTokens: 9_000,
++    });
++    connection.dispose();
++  });
++
++  it("keeps the connection usable when the old Source does not support compaction policy sync", async () => {
++    const state = setup();
++    state.syncCompaction.mockRejectedValue(new Error("Unknown method"));
++    const connection = await connectDesktopSourceServer(state.options, state.dependencies);
++    expect(state.dependencies.onCompactionPolicySyncError).toHaveBeenCalledOnce();
++    expect(await state.channel().call("host", "validate", request("a"))).toEqual({ valid: true });
++    connection.dispose();
++  });
++
++  it("re-reads the compaction policy after a deferred sync and pushes the newer settings", async () => {
++    const policyA = {
++      profile: "detailed" as const,
++      tailBudgetTokens: 15_000,
++      summaryMaxOutputTokens: 8_000,
++    };
++    const policyB = {
++      profile: "compact" as const,
++      tailBudgetTokens: 30_000,
++      summaryMaxOutputTokens: 10_000,
++    };
++    const state = setup();
++    let releaseFirstSync: () => void = () => undefined;
++    const firstSync = new Promise<void>((resolve) => {
++      releaseFirstSync = resolve;
++    });
++    state.syncCompaction.mockImplementationOnce(() => firstSync);
++    state.dependencies.readCompactionPolicy.mockReset();
++    state.dependencies.readCompactionPolicy.mockResolvedValueOnce(policyA);
++    state.dependencies.readCompactionPolicy.mockResolvedValue(policyB);
++
++    const pending = connectDesktopSourceServer(state.options, state.dependencies);
++    await vi.waitFor(() => expect(state.syncCompaction).toHaveBeenCalledWith(policyA));
++    // 首次 sync 期间设置从 A 变 B：完成后必须重读并补推 B。
++    releaseFirstSync();
++    const connection = await pending;
++
++    expect(state.syncCompaction.mock.calls.map(([policy]) => policy)).toEqual([policyA, policyB]);
++    expect(state.dependencies.registerCompactionTarget).toHaveBeenCalledOnce();
++    connection.dispose();
++  });
+ });
 diff --git a/packages/desktop/test/e2e/coding-plan-team-usage.test.ts b/packages/desktop/test/e2e/coding-plan-team-usage.test.ts
 index 1232779315d9baf3bca607b6b29a1f4bd22bf2c1..8ccfbaff026e4cf24208b05bec9fd2b54e0ee8d4 100644
 --- a/packages/desktop/test/e2e/coding-plan-team-usage.test.ts
@@ -1464,6 +1866,79 @@ index 2c0878cd57d1e21921e9dc821cc467c1ab038af8..72229b49e653284cbdaec21a1b333dfa
          (await byId(TID_LOGIN_USE_API_KEY_BUTTON).isExisting()),
        { timeout: 30000 },
      );
+diff --git a/packages/desktop/test/remoteDynamicWorkflowUserMode.test.ts b/packages/desktop/test/remoteDynamicWorkflowUserMode.test.ts
+index 4e3d9082924fcb8b3d7980122d10994cfc60858f..684d74f6c23e1786100d9e3502eec107f9194a0b 100644
+--- a/packages/desktop/test/remoteDynamicWorkflowUserMode.test.ts
++++ b/packages/desktop/test/remoteDynamicWorkflowUserMode.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, expect, it, vi } from "vitest";
+ import type { RemoteTarget } from "@zcode/shared";
++import { pushCompactionPolicyToRemoteHosts } from "../src/host/connectDesktopSourceServer.js";
+ import { pushDynamicWorkflowUserModeToRemoteHosts } from "../src/host/remoteDynamicWorkflowUserMode.js";
+ 
+ // DWG-21（docs/dynamic-workflow/launch.md「The user's choice」）：desktop-attached remote Host 读不到
+@@ -57,3 +58,61 @@ describe("pushDynamicWorkflowUserModeToRemoteHosts（DWG-21）", () => {
+     expect(ok.syncDynamicWorkflowUserMode).toHaveBeenCalledWith({ mode: "disabled" });
+   });
+ });
++
++describe("pushCompactionPolicyToRemoteHosts", () => {
++  const POLICY = {
++    profile: "compact" as const,
++    tailBudgetTokens: 30_000,
++    summaryMaxOutputTokens: 9_000,
++  };
++
++  function compactionAgent() {
++    return { syncCompactionPolicy: vi.fn(async (_policy: typeof POLICY) => undefined) };
++  }
++
++  it("推给 SSH/WSL/Docker 连接，跳过 standalone server", async () => {
++    const ssh = compactionAgent();
++    const wsl = compactionAgent();
++    const server = compactionAgent();
++    const targets: Array<{
++      target: RemoteTarget;
++      zcodeAgentService: ReturnType<typeof compactionAgent>;
++    }> = [
++      { target: { kind: "ssh", host: "h", username: "u" }, zcodeAgentService: ssh },
++      { target: { kind: "wsl", distro: "Ubuntu" }, zcodeAgentService: wsl },
++      { target: { kind: "server", url: "https://s.example.com" }, zcodeAgentService: server },
++    ];
++    await pushCompactionPolicyToRemoteHosts(targets, POLICY, vi.fn());
++    expect(ssh.syncCompactionPolicy).toHaveBeenCalledWith(POLICY);
++    expect(wsl.syncCompactionPolicy).toHaveBeenCalledWith(POLICY);
++    expect(server.syncCompactionPolicy).not.toHaveBeenCalled();
++  });
++
++  it("握手中尚未进入 ready 列表的连接（无 target）也会推送", async () => {
++    const pending = compactionAgent();
++    await pushCompactionPolicyToRemoteHosts([{ zcodeAgentService: pending }], POLICY, vi.fn());
++    expect(pending.syncCompactionPolicy).toHaveBeenCalledWith(POLICY);
++  });
++
++  it("单个远程 Host 失败只报错，不影响其它连接也不抛出", async () => {
++    const broken = {
++      syncCompactionPolicy: vi.fn(async () => {
++        throw new Error("Unknown command");
++      }),
++    };
++    const ok = compactionAgent();
++    const onError = vi.fn();
++    await expect(
++      pushCompactionPolicyToRemoteHosts(
++        [
++          { target: { kind: "wsl", distro: "Ubuntu" }, zcodeAgentService: broken },
++          { target: { kind: "ssh", host: "h", username: "u" }, zcodeAgentService: ok },
++        ],
++        POLICY,
++        onError,
++      ),
++    ).resolves.toBeUndefined();
++    expect(onError).toHaveBeenCalledTimes(1);
++    expect(ok.syncCompactionPolicy).toHaveBeenCalledWith(POLICY);
++  });
++});
 diff --git a/packages/desktop/test/remoteWorkspaceSessionServices.test.ts b/packages/desktop/test/remoteWorkspaceSessionServices.test.ts
 index 541171736609ccfd001d3bab0ebc72ea56552389..1821a9a8a0d708da948343bb2784cb4730807d84 100644
 --- a/packages/desktop/test/remoteWorkspaceSessionServices.test.ts
