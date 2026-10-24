@@ -13,7 +13,7 @@ index a755ec45888b605736fe8ef09e813c4200452049..1dddec99c5b5ddb42337a7a27946a672
          "**/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/session-mapper.ts",
          "**/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts",
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..25a84760a4c9fb7385b74e6b4968a0ace2efe40b 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..735e1f635fec425ebc7ae97e92321dfb38adf106 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
 @@ -2,6 +2,37 @@ version: 1
@@ -287,7 +287,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..25a84760a4c9fb7385b74e6b4968a0ac
  
  global:
    # 临时时间戳（2026-09-10）：unmanaged-new-file 只约束此日期之后首次入库的文件。
-@@ -886,3 +1004,13 @@ exceptions:
+@@ -886,3 +1004,27 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.
@@ -301,21 +301,69 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..25a84760a4c9fb7385b74e6b4968a0ac
 +      - packages/ui/src/McpStatusDialog.tsx
 +      - packages/ui/src/lib/mcpStatusCommand.ts
 +    reason: Admitted new UI entry for the /mcp session diagnostics dialog; it reuses the managed session-diagnostics module and keeps provider/session ownership unchanged, and adopting the whole packages/ui/src root needs a separate module boundary refactor.
++  - id: max-lines-mechanical-extraction-unmanaged-files
++    rule: unmanaged-new-file
++    paths:
++      - apps/zcode-cli/packages/adapters/src/fs/ripgrep-search.ts
++      - apps/zcode-cli/packages/adapters/src/fs/text-search.ts
++      - apps/zcode-cli/packages/adapters/src/model/runner-stream-chunks.ts
++      - apps/zcode-cli/packages/adapters/src/model/runner-stream-settlement.ts
++    reason: 仅拆分 max-lines 800 超限的既有 CLI adapter 实现，把 ripgrep/JavaScript 搜索后端和 stream chunk/settlement helper 原样移到同目录；公开入口、运行时状态 owner、尝试重试/终态/yield 顺序均不变。zcode-cli 整个 legacy 模块与 fs/model 目录接管需单独的模块边界梳理，不在本次行数修复内；此处按精确路径准入，不新增通配规则。
++  - id: deferred-tool-call-legacy-edit
++    rule: unmanaged-new-file
++    paths:
++      - apps/zcode-cli/packages/core/src/tool/deferred-call.ts
++      - apps/zcode-cli/packages/core/src/tool/handlers/deferred-tool-call.ts
++    reason: DeferredToolCall 的既有 legacy owner 实现；两文件的 HEAD blob（590f87e57623e36f0edc886ae757330bde558594、bd5c253f59f2bdffd99edf377871b7d97f51031c）与 scripts/architecture/upstream-snapshot.json 的接纳记录一致。仅按精确路径准入该 legacy 编辑，不涉及本轮 max-lines 机械搬移，不改变 owner/边界。
+diff --git a/package.json b/package.json
+index 9eb14002208d60a971bd6697fa53539e24b2a66f..839d721d0c854123c29b7300a244fac82f9b72b3 100644
+--- a/package.json
++++ b/package.json
+@@ -2,6 +2,7 @@
+   "name": "zcode",
+   "version": "3.16.2",
+   "private": true,
++  "license": "Apache-2.0",
+   "type": "module",
+   "scripts": {
+     "dev:web": "concurrently -k -n server,web -c blue,green \"pnpm --filter @zcode/server dev\" \"pnpm --filter @zcode/web dev\"",
+@@ -126,8 +127,8 @@
+       "wdio-electron-service@9.2.1": "patches/wdio-electron-service@9.2.1.patch",
+       "@arms/rum-electron@0.0.3": "patches/@arms__rum-electron@0.0.3.patch",
+       "@ai-sdk/openai-compatible@2.0.60": "patches/@ai-sdk__openai-compatible@2.0.60.patch",
+-      "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch"
++      "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch",
++      "@opencode/ai@2.1.4": "patches/@opencode__ai@2.1.4.patch"
+     }
+-  },
+-  "license": "Apache-2.0"
++  }
+ }
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa82c055a8 100644
+index 01a75d1615566e721a3cd6576b621924ec7afe0d..91993ac36a9f3639dc5f58769b29b2f323bf26d0 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
-@@ -215,6 +215,9 @@ importers:
+@@ -18,6 +18,9 @@ patchedDependencies:
+   '@arms/rum-electron@0.0.3':
+     hash: 36855354851ea495bc47a03340b0484ff62836b739cad56904b8a69f18e2ae97
+     path: patches/@arms__rum-electron@0.0.3.patch
++  '@opencode/ai@2.1.4':
++    hash: b4e29160a906676735a17a3e0f459d393bff8dbbaf2aa551488dfbe69f1a7a33
++    path: patches/@opencode__ai@2.1.4.patch
+   '@radix-ui/react-collapsible@1.1.12':
+     hash: 4b7b3781f603e111bb33aef9c4b1694ac9bacd3dff47692606de9876d4631164
+     path: patches/@radix-ui__react-collapsible@1.1.12.patch
+@@ -215,6 +218,9 @@ importers:
        '@modelcontextprotocol/client':
          specifier: 2.0.0
          version: 2.0.0
 +      '@opencode/ai':
 +        specifier: 2.1.4
-+        version: 2.1.4
++        version: 2.1.4(patch_hash=b4e29160a906676735a17a3e0f459d393bff8dbbaf2aa551488dfbe69f1a7a33)
        '@zcode/contracts':
          specifier: workspace:*
          version: link:../contracts
-@@ -239,6 +242,9 @@ importers:
+@@ -239,6 +245,9 @@ importers:
        cheerio:
          specifier: ^1.0.0
          version: 1.2.0
@@ -325,7 +373,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
        iconv-lite:
          specifier: 0.7.2
          version: 0.7.2
-@@ -1345,6 +1351,9 @@ importers:
+@@ -1345,6 +1354,9 @@ importers:
        ignore:
          specifier: ^5.3.2
          version: 5.3.2
@@ -335,7 +383,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
        node-forge:
          specifier: ^1.4.0
          version: 1.4.0
-@@ -2139,6 +2148,99 @@ packages:
+@@ -2139,6 +2151,99 @@ packages:
    '@asamuzakjp/nwsapi@2.3.9':
      resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
  
@@ -435,7 +483,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@babel/code-frame@7.29.0':
      resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
      engines: {node: '>=6.9.0'}
-@@ -3581,6 +3683,12 @@ packages:
+@@ -3581,6 +3686,12 @@ packages:
    '@open-draft/until@2.1.0':
      resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
  
@@ -448,7 +496,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@opentelemetry/api-logs@0.214.0':
      resolution: {integrity: sha512-40lSJeqYO8Uz2Yj7u94/SJWE/wONa7rmMKjI1ZcIjgf3MHNHv1OZUCrCETGuaRF62d5pQD1wKIW+L4lmSMTzZA==}
      engines: {node: '>=8.0.0'}
-@@ -5547,6 +5655,58 @@ packages:
+@@ -5547,6 +5658,58 @@ packages:
      resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
      engines: {node: '>=18'}
  
@@ -507,7 +555,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@standard-schema/spec@1.1.0':
      resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
  
-@@ -6542,6 +6702,9 @@ packages:
+@@ -6542,6 +6705,9 @@ packages:
      resolution: {integrity: sha512-zJAaP9zxTcvTHRlejau3ZOY4V7SRpiByf3/dxx2uyKxxor19tpmpV2QRsTKikckwhaPmr2dVpxxMr7jOCYVp5g==}
      engines: {node: '>=6.0.0'}
  
@@ -517,7 +565,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    axios@1.13.6:
      resolution: {integrity: sha512-ChTCHMouEe2kn713WHbQGcuYrr6fXTBiu460OTwWrWob16g1bXn4vtz07Ope7ewMozJAnEquLk5lWQWtBig9DQ==}
  
-@@ -6633,6 +6796,9 @@ packages:
+@@ -6633,6 +6799,9 @@ packages:
      resolution: {integrity: sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg==}
      engines: {node: '>=0.6'}
  
@@ -527,7 +575,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    binary-extensions@2.3.0:
      resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
      engines: {node: '>=8'}
-@@ -6669,6 +6835,9 @@ packages:
+@@ -6669,6 +6838,9 @@ packages:
        react: 19.2.7
        react-dom: 19.2.7
  
@@ -537,7 +585,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    brace-expansion@1.1.14:
      resolution: {integrity: sha512-MWPGfDxnyzKU7rNOW9SP/c50vi3xrmrua/+6hfPbCS2ABNWfx24vPidzvC7krjU/RTo235sV776ymlsMtGKj8g==}
  
-@@ -6698,6 +6867,9 @@ packages:
+@@ -6698,6 +6870,9 @@ packages:
      resolution: {integrity: sha512-Db1SbgBS/fg/392AblrMJk97KggmvYhr4pB5ZIMTWtaivCPMWLkmb7m21cJvpvgK+J3nsU2CmmixNBZx4vFj/w==}
      engines: {node: '>=8.0.0'}
  
@@ -547,7 +595,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    buffer-from@1.1.2:
      resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
  
-@@ -7618,6 +7790,9 @@ packages:
+@@ -7618,6 +7793,9 @@ packages:
    easy-table@1.2.0:
      resolution: {integrity: sha512-OFzVOv03YpvtcWGe5AayU5G2hgybsg3iqA6drU8UaoZyB9jLGMTrz9+asnLp/E+6qPh88yEI1gvyZFZ41dmgww==}
  
@@ -557,7 +605,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    echarts@6.1.0:
      resolution: {integrity: sha512-q0yaFPggC9FUdsWH4blavRWFmxdrIodbkoKNAjJudAI6CA9gNPxHtV2RcZNEepZVlk4yvBYkOkbk6HIVpIyHZA==}
  
-@@ -7637,6 +7812,9 @@ packages:
+@@ -7637,6 +7815,9 @@ packages:
    ee-first@1.1.1:
      resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
  
@@ -567,7 +615,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    ejs@3.1.10:
      resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
      engines: {node: '>=0.10.0'}
-@@ -8177,6 +8355,18 @@ packages:
+@@ -8177,6 +8358,18 @@ packages:
      resolution: {integrity: sha512-R1fam6D4CyKQGNlvJne4dkNF+PvUUl7TAJInvTGa9fti9qAv95quQz29GXapA4d8Ec266mJJxFVh82M4GIIGDQ==}
      engines: {node: '>= 12'}
  
@@ -586,7 +634,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    geckodriver@6.1.0:
      resolution: {integrity: sha512-ZRXLa4ZaYTTgUO4Eefw+RsQCleugU2QLb1ME7qTYxxuRj51yAhfnXaItXNs5/vUzfIaDHuZ+YnSF005hfp07nQ==}
      engines: {node: '>=20.0.0'}
-@@ -8296,6 +8486,18 @@ packages:
+@@ -8296,6 +8489,18 @@ packages:
      resolution: {integrity: sha512-DpLKbNU4WylpxJykQujfCcwYWiV/Jhm50Goo0wrVILAv5jOr9d+H+UR3PhSCD2rCCEIg0uc+G+muBTwD54JhDQ==}
      engines: {node: '>= 0.4'}
  
@@ -605,7 +653,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    gopd@1.2.0:
      resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
      engines: {node: '>= 0.4'}
-@@ -8314,6 +8516,10 @@ packages:
+@@ -8314,6 +8519,10 @@ packages:
      resolution: {integrity: sha512-5bJ+nf/UCpAjHM8i06fl7eLyVC9iuNAjm9qzkiu2ZGhM0VscSvS6WDPfAwkdkBuoXGM9FJSbKl6wylMwP9Ktig==}
      engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
  
@@ -616,7 +664,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    hachure-fill@0.5.2:
      resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
  
-@@ -8922,6 +9128,9 @@ packages:
+@@ -8922,6 +9131,9 @@ packages:
      engines: {node: '>=6'}
      hasBin: true
  
@@ -626,7 +674,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    json-buffer@3.0.1:
      resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
  
-@@ -8968,6 +9177,12 @@ packages:
+@@ -8968,6 +9180,12 @@ packages:
      resolution: {integrity: sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==}
      engines: {node: '>=8'}
  
@@ -639,7 +687,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    katex@0.16.45:
      resolution: {integrity: sha512-pQpZbdBu7wCTmQUh7ufPmLr0pFoObnGUoL/yhtwJDgmmQpbkg/0HSVti25Fu4rmd1oCR6NGWe9vqTWuWv3GcNA==}
      hasBin: true
-@@ -10796,6 +11011,10 @@ packages:
+@@ -10796,6 +11014,10 @@ packages:
      deprecated: Rimraf versions prior to v4 are no longer supported
      hasBin: true
  
@@ -650,7 +698,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    ripgrep@0.3.1:
      resolution: {integrity: sha512-6bDtNIBh1qPviVIU685/4uv0Ap5t8eS4wiJhy/tR2LdIeIey9CVasENlGS+ul3HnTmGANIp7AjnfsztsRmALfQ==}
      hasBin: true
-@@ -12576,6 +12795,217 @@ snapshots:
+@@ -12576,6 +12798,217 @@ snapshots:
  
    '@asamuzakjp/nwsapi@2.3.9': {}
  
@@ -868,11 +916,11 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@babel/code-frame@7.29.0':
      dependencies:
        '@babel/helper-validator-identifier': 7.28.5
-@@ -14302,6 +14732,23 @@ snapshots:
+@@ -14302,6 +14735,23 @@ snapshots:
  
    '@open-draft/until@2.1.0': {}
  
-+  '@opencode/ai@2.1.4':
++  '@opencode/ai@2.1.4(patch_hash=b4e29160a906676735a17a3e0f459d393bff8dbbaf2aa551488dfbe69f1a7a33)':
 +    dependencies:
 +      '@aws-sdk/credential-providers': 3.1057.0
 +      '@opencode/schema': 2.1.4
@@ -892,7 +940,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@opentelemetry/api-logs@0.214.0':
      dependencies:
        '@opentelemetry/api': 1.9.0
-@@ -15893,6 +16340,75 @@ snapshots:
+@@ -15893,6 +16343,75 @@ snapshots:
  
    '@sindresorhus/merge-streams@4.0.0': {}
  
@@ -968,7 +1016,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    '@standard-schema/spec@1.1.0': {}
  
    '@standard-schema/utils@0.3.0': {}
-@@ -17190,6 +17706,8 @@ snapshots:
+@@ -17190,6 +17709,8 @@ snapshots:
  
    await-to-js@3.0.0: {}
  
@@ -977,7 +1025,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    axios@1.13.6:
      dependencies:
        follow-redirects: 1.16.0
-@@ -17258,6 +17776,8 @@ snapshots:
+@@ -17258,6 +17779,8 @@ snapshots:
  
    big-integer@1.6.52: {}
  
@@ -986,7 +1034,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    binary-extensions@2.3.0: {}
  
    binary@0.3.0:
-@@ -17301,6 +17821,8 @@ snapshots:
+@@ -17301,6 +17824,8 @@ snapshots:
        react: 19.2.7
        react-dom: 19.2.7(react@19.2.7)
  
@@ -995,7 +1043,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    brace-expansion@1.1.14:
      dependencies:
        balanced-match: 1.0.2
-@@ -17332,6 +17854,8 @@ snapshots:
+@@ -17332,6 +17857,8 @@ snapshots:
  
    buffer-crc32@1.0.0: {}
  
@@ -1004,7 +1052,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    buffer-from@1.1.2: {}
  
    buffer-indexof-polyfill@1.0.2: {}
-@@ -18324,6 +18848,10 @@ snapshots:
+@@ -18324,6 +18851,10 @@ snapshots:
      optionalDependencies:
        wcwidth: 1.0.1
  
@@ -1015,7 +1063,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    echarts@6.1.0:
      dependencies:
        tslib: 2.3.0
-@@ -18356,6 +18884,8 @@ snapshots:
+@@ -18356,6 +18887,8 @@ snapshots:
  
    ee-first@1.1.1: {}
  
@@ -1024,7 +1072,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    ejs@3.1.10:
      dependencies:
        jake: 10.9.4
-@@ -19105,6 +19635,31 @@ snapshots:
+@@ -19105,6 +19638,31 @@ snapshots:
      transitivePeerDependencies:
        - supports-color
  
@@ -1056,7 +1104,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    geckodriver@6.1.0:
      dependencies:
        '@wdio/logger': 9.18.0
-@@ -19270,6 +19825,22 @@ snapshots:
+@@ -19270,6 +19828,22 @@ snapshots:
        define-properties: 1.2.1
        gopd: 1.2.0
  
@@ -1079,7 +1127,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    gopd@1.2.0: {}
  
    got@11.8.6:
-@@ -19292,6 +19863,13 @@ snapshots:
+@@ -19292,6 +19866,13 @@ snapshots:
  
    graphql@16.13.2: {}
  
@@ -1093,7 +1141,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    hachure-fill@0.5.2: {}
  
    handlebars@4.7.9:
-@@ -20005,6 +20583,10 @@ snapshots:
+@@ -20005,6 +20586,10 @@ snapshots:
  
    jsesc@3.1.0: {}
  
@@ -1104,7 +1152,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    json-buffer@3.0.1: {}
  
    json-parse-even-better-errors@2.3.1: {}
-@@ -20045,6 +20627,17 @@ snapshots:
+@@ -20045,6 +20630,17 @@ snapshots:
  
    junk@3.1.0: {}
  
@@ -1122,7 +1170,7 @@ index 01a75d1615566e721a3cd6576b621924ec7afe0d..2b8e89fede094a924605beef2eb2cfaa
    katex@0.16.45:
      dependencies:
        commander: 8.3.0
-@@ -22432,6 +23025,10 @@ snapshots:
+@@ -22432,6 +23028,10 @@ snapshots:
      dependencies:
        glob: 7.2.3
  

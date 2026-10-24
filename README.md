@@ -13,7 +13,7 @@ byte, and nothing here rewrites the submodule history.
 | `patches/` | Generated directory patches plus `series` and `manifest.json` |
 | `patches.config.json` | Fixed base ref/commit, source and output directories, excludes |
 | `scripts/`, `tests/` | Patch export/prepare tooling and its regression tests |
-| `.github/workflows/desktop-release.yml` | Windows/Linux packaging and publishing |
+| `.github/workflows/desktop-build.yml` | Windows/Linux packaging as Actions artifacts |
 | `start-test.sh`, `start-test.ps1` | Local test-build launchers |
 | `AGENTS.md` | Development and delivery rules |
 
@@ -68,13 +68,17 @@ rpm, pacman). The job checks out the pinned submodule, verifies the gitlink, app
 `patches/series`, installs with the frozen lockfile, stamps a display version, then runs the
 existing `pnpm bundle:desktop -- --os <win|linux> --arch x64` pipeline.
 
-Nothing is published: there is no tag trigger, no GitHub Release and no upload step. The
-installers are attached to the workflow run for 30 days.
+The `platform` input accepts `all` (the default), `windows`, or `linux`. Selecting one platform
+creates only that platform's packaging job; omitting it preserves the Windows/Linux build.
+
+There is no tag trigger or GitHub Release. Installers are uploaded only as Actions artifacts
+and retained for 30 days.
 
 ```bash
-gh workflow run desktop-build --repo ackwrap/ZCoder     # start a build
-gh run list --repo ackwrap/ZCoder --limit 1
-gh run download <run-id> --repo ackwrap/ZCoder -D dist  # fetch both platforms
+gh workflow run desktop-build.yml --repo ackwrap/ZCoder --ref main -f version=3.16.3 -f platform=windows
+gh run list --repo ackwrap/ZCoder --workflow desktop-build.yml --event workflow_dispatch --branch main
+# Select the run matching the dispatched commit, then download only its Windows installer.
+gh run download <run-id> --repo ackwrap/ZCoder -n windows-x64-nsis -D dist/<unique-run-directory>
 ```
 
 Versions follow the upstream number with a fork suffix, so a build is identifiable without

@@ -1,0 +1,157 @@
+diff --git a/patches/@opencode__ai@2.1.4.patch b/patches/@opencode__ai@2.1.4.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..71a5bfaf2b85d279ca17a2843b33f566072fc2d6
+--- /dev/null
++++ b/patches/@opencode__ai@2.1.4.patch
+@@ -0,0 +1,151 @@
++diff --git a/dist/protocols/open-responses.d.ts b/dist/protocols/open-responses.d.ts
++index a51c808fd72347e6807a5a94f10020e2ae9c5519..2db998b0bb15b488bf6338a27f31f0df836c5080 100644
++--- a/dist/protocols/open-responses.d.ts
+++++ b/dist/protocols/open-responses.d.ts
++@@ -38,6 +38,7 @@ export type MediaInput = Schema.Schema.Type<typeof MediaInput>;
++ export declare const OpenResponsesOutputText: Schema.Struct<{
++     readonly type: Schema.tag<"output_text">;
++     readonly text: Schema.String;
+++    readonly annotations: Schema.optional<Schema.$Array<Schema.$Record<Schema.String, Schema.Unknown>>>;
++ }>;
++ export declare const MessagePhase: Schema.NullOr<Schema.Literals<readonly ["commentary", "final_answer"]>>;
++ type MessagePhase = Schema.Schema.Type<typeof MessagePhase>;
++diff --git a/dist/protocols/open-responses.js b/dist/protocols/open-responses.js
++index 9ae7e869e64049ca85807ffd58e4c857a117ac3a..cf78ec6706e9e33195666a01e45fabb675126b3c 100644
++--- a/dist/protocols/open-responses.js
+++++ b/dist/protocols/open-responses.js
++@@ -39,6 +39,7 @@ const OpenResponsesInputContent = Schema.Union([OpenResponsesInputText, MediaInp
++ export const OpenResponsesOutputText = Schema.Struct({
++     type: Schema.tag("output_text"),
++     text: Schema.String,
+++    annotations: optionalArray(JsonObject),
++ });
++ export const MessagePhase = Schema.NullOr(Schema.Literals(["commentary", "final_answer"]));
++ export const MessageMetadata = Schema.Struct({
++@@ -1052,6 +1053,50 @@ const onOutputItemDone = Effect.fnUntraced(function* (state, item) {
++     }
++     return [state, NO_EVENTS];
++ });
+++// Local extension: OpenAI Responses returns URL citations inside
+++// `output_text.annotations`, which the baseline parser previously discarded.
+++// Keep only http(s) links and expose them through finish providerMetadata so
+++// streaming and generate() consumers observe the same references.
+++const httpCitationUrl = (value) => {
+++    if (typeof value !== "string" || value.length === 0)
+++        return undefined;
+++    try {
+++        const parsed = new URL(value);
+++        return parsed.protocol === "http:" || parsed.protocol === "https:" ? value : undefined;
+++    }
+++    catch {
+++        return undefined;
+++    }
+++};
+++const urlCitationsFromResponseOutput = (output) => {
+++    if (!Array.isArray(output))
+++        return [];
+++    const seen = new Set();
+++    const citations = [];
+++    for (const item of output) {
+++        if (!ProviderShared.isRecord(item) || item.type !== "message" || !Array.isArray(item.content))
+++            continue;
+++        for (const part of item.content) {
+++            if (!ProviderShared.isRecord(part) || part.type !== "output_text" || !Array.isArray(part.annotations))
+++                continue;
+++            for (const annotation of part.annotations) {
+++                if (!ProviderShared.isRecord(annotation) || annotation.type !== "url_citation")
+++                    continue;
+++                const url = httpCitationUrl(annotation.url);
+++                if (!url || seen.has(url))
+++                    continue;
+++                seen.add(url);
+++                citations.push({
+++                    url,
+++                    ...(typeof annotation.title === "string" && annotation.title.length > 0
+++                        ? { title: annotation.title }
+++                        : {}),
+++                });
+++            }
+++        }
+++    }
+++    return citations;
+++};
++ const onResponseFinish = Effect.fnUntraced(function* (state, event) {
++     let current = state;
++     const events = [];
++@@ -1078,16 +1123,18 @@ const onResponseFinish = Effect.fnUntraced(function* (state, event) {
++         };
++         events.push(...pending.events);
++     }
+++    const urlCitations = urlCitationsFromResponseOutput(event.response?.output);
++     const lifecycle = Lifecycle.finish(current.lifecycle, events, {
++         reason: {
++             normalized: mapFinishReason(event, current.hasFunctionCall),
++             raw: event.response?.incomplete_details?.reason,
++         },
++         usage: mapUsage(event.response?.usage, current.providerMetadataKey),
++-        providerMetadata: event.response?.id || event.response?.service_tier
+++        providerMetadata: event.response?.id || event.response?.service_tier || urlCitations.length > 0
++             ? providerMetadata(current, {
++                 responseId: event.response.id,
++                 serviceTier: event.response.service_tier,
+++                ...(urlCitations.length > 0 ? { urlCitations } : {}),
++             })
++             : undefined,
++     });
++diff --git a/dist/protocols/openai-responses.js b/dist/protocols/openai-responses.js
++index 969fd4019e7591d4e8f6db834897a69783774a62..bf308e77532ce09cf4ea0309d1884f35cb59a733 100644
++--- a/dist/protocols/openai-responses.js
+++++ b/dist/protocols/openai-responses.js
++@@ -43,6 +43,13 @@ const OpenAIResponsesImageGenerationTool = Schema.Struct({
++         return Number(match[1]) > 0 && Number(match[2]) > 0 ? undefined : "image dimensions must be positive integers";
++     }))),
++ });
+++const OpenAIResponsesWebSearchTool = Schema.Struct({
+++    type: Schema.tag("web_search"),
+++    external_web_access: Schema.optional(Schema.Boolean),
+++    filters: Schema.optional(Schema.Struct({
+++        allowed_domains: Schema.optional(Schema.Array(Schema.String)),
+++    })),
+++});
++ const OpenAIResponsesHostedToolItem = Schema.Union([
++     Schema.StructWithRest(Schema.Struct({
++         type: Schema.tag("computer_call"),
++@@ -77,6 +84,7 @@ const OpenAIResponsesTools = Schema.Union([
++     OpenResponses.Tool,
++     OpenAIResponsesNamespace,
++     OpenAIResponsesImageGenerationTool,
+++    OpenAIResponsesWebSearchTool,
++ ]);
++ const OpenAIResponsesToolChoice = Schema.Union([
++     OpenResponses.ToolChoice,
++@@ -127,6 +135,11 @@ const nativeImageTool = (tool) => {
++     const native = nativeImageToolInput(tool);
++     return Schema.is(OpenAIResponsesImageGenerationTool)(native) ? native : undefined;
++ };
+++const nativeWebSearchToolInput = (tool) => {
+++    const native = tool.native?.openai;
+++    return ProviderShared.isRecord(native) && native.type === "web_search" ? native : undefined;
+++};
+++const unsupportedKeys = (value, allowed) => Object.keys(value).filter((key) => !allowed.includes(key));
++ const lowerTool = Effect.fnUntraced(function* (tool) {
++     const native = nativeImageToolInput(tool);
++     if (native !== undefined) {
++@@ -134,6 +147,17 @@ const lowerTool = Effect.fnUntraced(function* (tool) {
++             return native;
++         return yield* ProviderShared.invalidRequest("OpenAI Responses image generation tool options are invalid");
++     }
+++    const webSearch = nativeWebSearchToolInput(tool);
+++    if (webSearch !== undefined) {
+++        if (unsupportedKeys(webSearch, ["type", "external_web_access", "filters"]).length > 0)
+++            return yield* ProviderShared.invalidRequest("OpenAI Responses web search tool contains unsupported fields");
+++        const filters = ProviderShared.isRecord(webSearch.filters) ? webSearch.filters : undefined;
+++        if (filters !== undefined && unsupportedKeys(filters, ["allowed_domains"]).length > 0)
+++            return yield* ProviderShared.invalidRequest("OpenAI Responses web search filters contain unsupported fields");
+++        if (Schema.is(OpenAIResponsesWebSearchTool)(webSearch))
+++            return webSearch;
+++        return yield* ProviderShared.invalidRequest("OpenAI Responses web search tool options are invalid");
+++    }
++     return yield* OpenResponses.lowerTool(NAME, tool);
++ });
++ // Native namespaces hold only function tools, so deeper levels flatten into

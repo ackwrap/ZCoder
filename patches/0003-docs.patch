@@ -316,10 +316,10 @@ index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..bec96d65472f44ebbbcacfaefd6c2b6ac0edd286
+index 0000000000000000000000000000000000000000..c9b95885eaa845407b09725bcd8cce89e1f0cc1c
 --- /dev/null
 +++ b/docs/session-context-and-mcp-diagnostics.md
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,51 @@
 +# 会话上下文来源与 MCP 诊断
 +
 +## 范围与所有者
@@ -354,12 +354,9 @@ index 0000000000000000000000000000000000000000..bec96d65472f44ebbbcacfaefd6c2b6a
 +## 右侧会话信息栏
 +
 +- 复用 ConversationStatusPanel 的唯一展开/收起状态和会话容器断点，不新增平行侧栏。宽屏显示紧凑卡片，窄屏保留可展开摘要；不挤掉输入区，不改变 Browser/Side Pane 的生命周期。
-+- 卡片顺序为上下文、连接器、改动、后台任务，独立折叠。原有 Goal、计划、终端、工作流和子代理入口保留。
-+- 后台任务卡片沿用信息栏其他卡片的同一外观与标题行折叠样式（`rounded-xl`、`card-border`、`bg-card`、`p-3`、标题行箭头），不另画一套容器；只有嵌入信息栏时采用卡片外观，独立状态面板仍沿用状态分区样式。
-+- 后台任务卡片固定在「改动」之后，聚合同一会话里仍在跑的后台工作：终端后台命令（`kind: "bash"`）与子代理（`kind: "subagent"`）。它不新开数据源，直接消费 `ConversationStatusPanelModel.runningBashWorks` 与 `runningSubagentWorks`；`resultPending`/`failed`/`cancelled` 仍按各自既有区块语义处理，不在本卡重复计数。
-+- 卡片标题行给折叠箭头与总数；每行是一行式：类型图标（终端/子代理）、单行截断标题、耗时、可取消时的停止按钮。列表按 `startedAt` 升序，最老的在最前，滚动上限沿用 `max-h-48`。
-+- 已完成数量来自子代理目录的权威投影 `endedTotal`（`subagents.endedTotal`），在卡片底部以「N 已完成」展示；该计数覆盖已结束的子代理，不代表已结束的后台终端命令——后台终端跑完即从 `backgroundWorks` 移除，投影不保留历史，因此不臆造一个合并后的「全部已完成」数字。
-+- 卡片在没有运行中后台工作且已完成数为 0 时整体不渲染，避免常驻一个空壳。
++- 宽屏（`@min-[1280px]/conversation`）卡片模式的右栏必须铺满会话 pane 的可用高度：外层保持顶部/右侧 16px 外边距，并增加底部 16px 外边距，shell 用填充高度而不是视口百分比上限（不再使用 `64dvh` / `100dvh-10rem` 限高）。卡片列作为唯一滚动视口占满该高度，长卡片内部仍各自限高滚动，最后一张卡片必须能滚到可见位置。输入区与消息列的位置、宽度和偏移不变，信息栏不覆盖 Composer。窄容器（`<1280px`）的胶囊与展开浮层继续沿用原有限高与 overlay 行为，不因本规则被底部拉伸。
++- 信息卡片按上下文、连接器、改动、进程、智能体的相对顺序显示，独立折叠；原有 Goal、计划、终端和工作流入口仍按既有顺序穿插。移除聚合的「后台任务」卡片及其已完成计数，不在独立状态面板或信息栏重复展示终端与智能体。后台工作继续运行，查看输出、停止和已结束目录沿用各自原有入口，不修改任务投影、取消行为或权限。
++- 新会话默认只露出上下文与连接器的标题行，点击标题行展开；展开状态是 renderer 本会话内的局部状态，同一挂载会话内保持不变，切换会话或重新挂载仍回到默认折叠。改动卡不因本需求改变默认开合。「进程」（Todo）与「智能体」分区嵌入信息栏时同样使用信息卡容器（`rounded-xl`、`card-border`、`bg-card`、`p-3`、标题行箭头），不再保留透明背景与横线；独立状态面板仍沿用原状态分区样式。Agent 的默认折叠、运行中停止按钮和「已结束」目录行保持不变。
 +- 上下文总量来自当前 SessionUsageState.contextWindow，显示已用/窗口、占用率、剩余空间及真实压缩阈值。无有效用量显示“尚无上下文用量”，不伪装成 0%。配置窗口及来源复用 Resolver 投影，不能拿本机配置解释远程模型。
 +- 缓存命中率直接取运行时上报的 `cache.hitRate`；信息栏是诊断视图，不套用工具栏 78% 的展示阈值。未上报或非有限值时不显示该项，不显示 0%。
 +- 轮尾时间旁显示本轮的 token 速率：`turnHeader.outputTokens ÷ turnHeader.modelDurationMs`（输出 token / 模型耗时，不含工具执行与等待）。任一字段缺失、为 0 或非有限值时整段不显示，不用总耗时或字符数推算。两个字段都由 CLI 投影对**每个主轮**聚合，不限于高速轮：`outputTokens` 在 ModelComplete 累计，`modelDurationMs` 在 ModelNetworkStatus 的主链路请求完成/失败时累计 `durationMs`；高速轮额外带 `toolDurationMs`/`otherDurationMs` 供加速节省计算。
@@ -373,7 +370,7 @@ index 0000000000000000000000000000000000000000..bec96d65472f44ebbbcacfaefd6c2b6a
 +2. UI 验证来源标识、当前配置与旧会话窗口不同、无用量、阈值有效/缺失/异常/已越过。
 +3. MCP 验证展开、零工具、脱敏复制、复制失败、设置导航、status/connect 参数、关闭/切换后的迟到结果和 status 不支持。
 +4. 桌面定向 E2E 覆盖真实页面的上下文说明和 `/mcp` 诊断交互；不把 mock 结果表述为真实外部授权成功。窄窗口、深浅主题验证不溢出。
-+5. `session-inspector.test.mjs` 用真实状态面板与信息栏组件覆盖中英文、Zai 深浅主题、320/1200/1280/1440 容器宽度、键盘折叠、资源命令与首选 Git review source、只读和未知状态；fixture 回调不代替真实连接/提交验证。
++5. `session-inspector.test.mjs` 用真实状态面板与信息栏组件覆盖中英文、Zai 深浅主题、320/1200/1280/1440 容器宽度、上下文/连接器新会话默认折叠、键盘展开收起、资源命令、后台任务卡片缺席、进程/智能体卡片外壳一致性、终端输出与停止、Agent 停止与已结束入口、首选 Git review source、只读和未知状态；宽屏几何断言信息栏底边贴合会话 pane 底部外边距、高度不再受 `64dvh` 限制，窄屏断言浮层仍保留原限高且 Composer 可达。fixture 回调不代替真实连接/提交验证。
 diff --git a/docs/session-resource-controls.md b/docs/session-resource-controls.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..d96224eb818762120d1663c78645537ec84e9b4b
@@ -458,6 +455,21 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 +OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 +SOFTWARE.
+diff --git a/docs/ui/chat-summary-panel.md b/docs/ui/chat-summary-panel.md
+index 2d36f5662f9f00d709fb6d4bcfba8d5eb976a97b..1ea22df936dcde234913c900701c7eaa60473cd9 100644
+--- a/docs/ui/chat-summary-panel.md
++++ b/docs/ui/chat-summary-panel.md
+@@ -13,8 +13,8 @@ Chat status panel 是 V4 conversation pane 右上角的常驻状态面板，用
+ - `ChatViewEmptyState` 组件根节点在完整 status panel 使用 inline 布局时复用 `CHAT_VIEW_SUMMARY_PANEL_INLINE_OFFSET_CLASS_NAME`，并保留 transform 过渡，和消息列、输入区保持横向对齐；外层 empty region 与 task restore loading placeholder 共用居中布局，不应用该偏移。
+ - Workspace header 不展示 status panel 开关；展开态通过面板右上角按钮收起，收起态通过摘要行点击展开。
+ - 收起态摘要行只展示一项摘要，不把主状态与实时活动拼在同一胶囊。**在跑的工作流排在最前**：只要有 pending / running 的 workflow run，胶囊就显示第一条（启动序）的名称、状态灯、phase 词与 `+n`（规则见 `docs/dynamic-workflow/presentation.md`「Other places a run appears」）。它说的是名字和位置而不是一个计数，所以不与输入框的后台计数重复。点击显示工作流的胶囊时，展开面板并同时打开「工作流」分区——展开后看到的不能比胶囊还少。没有在跑的工作流时，主状态优先级沿用 Progress current、Goal active、Git、Goal done、Progress finish、Progress fallback：只要其中任一项可见，胶囊就只显示该主状态；只有没有任何主状态时，才用正在运行的资源作为兜底摘要。Progress current 使用 arrow-right 图标和当前 todo 标题；Goal active 使用 target 图标和 goal 标题；Git 只在 `added + removed > 0` 时使用 Git 变更图标以及 `Changes +added -removed / 更改 +added -removed`，其中 added / removed 使用 diff 语义色；Goal done 使用 target/goal 图标和 goal 标题；Progress finish 使用 circle-check-big 图标和最后一个已完成 todo 标题；Progress fallback 使用列表图标和 `Progress completed/total` / `进程 completed/total`。实时兜底中 Bash 从 `backgroundWorks` 统计，Subagent 从统一 `session/subagents.running` 统计；只有 Bash 时显示 terminal 图标，只有 Subagent 时显示 Bot 图标，两类并存时显示 Activity 图标，文字只显示 running 总数且不显示持续计时。已结束 subagent 不进入 mini。收起态摘要行内所有文字都使用普通 UI 字体，不使用 `font-mono`。
+-- Status panel shell 始终是同一个 `aside`。收起态视觉尺寸、高度和 padding 参考原摘要胶囊，但 shell 圆角和展开态统一使用 `rounded-2xl`。收起态胶囊常驻 DOM；展开态只通过 `opacity` / `visibility` / `pointer-events` 把它藏起来。收起态的 shell 宽度由 CSS 决定：`w-max`，上限 `max-w-[min(20rem,calc(100cqw-2rem))]`，即量的是 conversation 容器（`@container/conversation`）而不是窗口。不再用 JS 测量摘要宽度写进 CSS 变量：那套测量是为了给宽度做插值动画，shell 早已不过渡宽度，而测量值会比内容晚一次渲染、上限又按 `100vw` 算，两者都能让文字落到胶囊外面。展开态沿用原完整面板宽度 `w-80`（上限同一个容器表达式），高度上限统一取 `min(64dvh, 32rem)`，避免桌面断点用固定 `36rem` 覆盖相对视口约束。`p-2` 放在展开内容容器上，避免影响收起态胶囊尺寸。收展动画挂在 shell 上，过渡最大高度、圆角、padding、背景和阴影；内容只做轻量透明度切换，避免独立胶囊和面板卸载导致动画断裂。
+-- Status panel 外层相对 conversation pane 固定使用 `pt-4 right-4`（顶部和右侧均为 16px）；自动、始终展开和 mini 共用该外边距，不在窄屏降为 12px。
++- Status panel shell 始终是同一个 `aside`。收起态视觉尺寸、高度和 padding 参考原摘要胶囊，但 shell 圆角和展开态统一使用 `rounded-2xl`。收起态胶囊常驻 DOM；展开态只通过 `opacity` / `visibility` / `pointer-events` 把它藏起来。收起态的 shell 宽度由 CSS 决定：`w-max`，上限 `max-w-[min(20rem,calc(100cqw-2rem))]`，即量的是 conversation 容器（`@container/conversation`）而不是窗口。不再用 JS 测量摘要宽度写进 CSS 变量：那套测量是为了给宽度做插值动画，shell 早已不过渡宽度，而测量值会比内容晚一次渲染、上限又按 `100vw` 算，两者都能让文字落到胶囊外面。展开态沿用原完整面板宽度 `w-80`（上限同一个容器表达式），高度上限统一取 `min(64dvh, 32rem)`，避免桌面断点用固定 `36rem` 覆盖相对视口约束。信息栏卡片模式是例外：宽容器（`@min-[1280px]/conversation`）下外层额外使用 `bottom-4`，shell 以 `h-full` + `max-h-none` 铺满会话 pane 的可用高度，卡片列据此外层滚动；窄容器仍按上述限高显示浮层。`p-2` 放在展开内容容器上，避免影响收起态胶囊尺寸。收展动画挂在 shell 上，过渡最大高度、圆角、padding、背景和阴影；内容只做轻量透明度切换，避免独立胶囊和面板卸载导致动画断裂。
++- Status panel 外层相对 conversation pane 固定使用 `pt-4 right-4`（顶部和右侧均为 16px）；自动、始终展开和 mini 共用该外边距，不在窄屏降为 12px。宽容器下的信息栏卡片模式再增加 `bottom-4`，让右栏止于会话 pane 底部同一 16px 外边距。
+ - 收起态胶囊跟随摘要内容宽度，单条摘要内容高度为 `h-8`，宽度上限即 shell 的容器上限；内部摘要内容使用 `truncate`，避免长 goal / todo / 工作流标题撑开布局。
+ - 收起态摘要行 hover / focus 时左侧状态图标切换为 `maximize-2`，提示点击可展开完整 status panel。
+ - 用户点击面板右上角收起按钮或收起态摘要行写入当前 workspace shell 的手动偏好：`panel` 表示始终展开，`mini` 表示始终收起，`null` 表示 CSS 自动响应。自动模式下展开内容和 mini 摘要同时保持在同一个 shell 内，由 `@container/conversation` 互斥显示；React 不根据宽度切换 variant。展开态右上角的更多菜单只显示“自动”选项，选择后把偏好恢复为 `null`；“始终展开 / 始终收起”不再作为菜单选项，但既有收起/展开按钮及内部 `panel` / `mini` 逻辑继续保留。偏好只保存在当前 renderer 的 workspace shell 内，不写入 task、session、relay 或 main process，因此不会影响 desktop continuous 和 web remote replayable 的实时链路语义。
 diff --git a/docs/ui/composer-git-branch-switcher.md b/docs/ui/composer-git-branch-switcher.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..8c76532121475d525279f649a67baa053e76b3fa

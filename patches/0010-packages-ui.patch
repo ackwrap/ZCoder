@@ -2721,7 +2721,7 @@ index 0000000000000000000000000000000000000000..234d8a51a7d6296387e04fe6e2b1e579
 +  return { state, refresh };
 +}
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..1fa3ed69f60b03f56cc817d44bb6451727255a0a 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..2475faaeb5a66d83d815063c782ec3c8473fba9c 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,62 @@
@@ -2818,16 +2818,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..1fa3ed69f60b03f56cc817d44bb64517
    "chat.summaryPanel.duration.hours": "h",
    "chat.summaryPanel.duration.minutes": "m",
    "chat.summaryPanel.duration.seconds": "s",
-@@ -5871,6 +5933,8 @@ const enUS: Record<string, string> = {
-   "chat.statusPanel.todoWaitingFold": "{count} waiting",
-   "chat.statusPanel.terminals": "Terminals",
-   "chat.statusPanel.agents": "Agents",
-+  "chat.statusPanel.backgroundTasks": "Background tasks",
-+  "chat.statusPanel.backgroundTasksFinished": "{count} finished",
-   "chat.statusPanel.workflows": "Workflows",
-   "chat.statusPanel.runningStatusValue": "{count} in background",
-   "chat.statusPanel.runningStatusValuePlural": "{count} in background",
-@@ -5905,6 +5969,39 @@ const enUS: Record<string, string> = {
+@@ -5905,6 +5967,39 @@ const enUS: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
    "chat.slash.app.plan.label": "Plan mode",
    "chat.slash.app.plan.description": "Enable Plan mode",
@@ -2867,7 +2858,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..1fa3ed69f60b03f56cc817d44bb64517
    "chat.compact.runningBlocked": "Compact context after the current task finishes.",
    "chat.compact.queued": "Compaction queued and will run in order.",
    "chat.compact.duplicateBlocked": "A compaction is already running or queued.",
-@@ -6790,6 +6887,19 @@ const enUS: Record<string, string> = {
+@@ -6790,6 +6885,19 @@ const enUS: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "Result",
    "chat.toolCall.sessionContext.noResult": "No context returned.",
    "chat.toolCall.explore.label": "Explore",
@@ -2888,7 +2879,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..1fa3ed69f60b03f56cc817d44bb64517
    "chat.toolCall.explore.bucket.search.other": "searches",
    "chat.toolCall.explore.bucket.list.one": "list",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..92d70d9509aab00f2d19c5d3680b6f0caea626bc 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..c73710b58d6211d4c61bb78e77064967b055aa32 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,56 @@
@@ -2979,17 +2970,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..92d70d9509aab00f2d19c5d3680b6f0c
    "chat.summaryPanel.duration.hours": "小时",
    "chat.summaryPanel.duration.minutes": "分",
    "chat.summaryPanel.duration.seconds": "秒",
-@@ -5496,6 +5552,9 @@ const zhCN: Record<string, string> = {
-   "chat.statusPanel.todoWaitingFold": "待处理 {count} 项",
-   "chat.statusPanel.terminals": "终端",
-   "chat.statusPanel.agents": "智能体",
-+  // 后台任务卡：把终端后台命令与子代理合成一张跟随「改动」之后的一行式列表。
-+  "chat.statusPanel.backgroundTasks": "后台任务",
-+  "chat.statusPanel.backgroundTasksFinished": "已完成 {count} 项",
-   // Workflows 分区：与 Terminals / Agents 并列的
-   // 第三类实时活动。行内的状态词与步数复用 chat.toolCall.workflow.* 那一组，不另造词汇。
-   "chat.statusPanel.workflows": "工作流",
-@@ -5530,6 +5589,37 @@ const zhCN: Record<string, string> = {
+@@ -5530,6 +5586,37 @@ const zhCN: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal 无法在 Plan 模式下使用，请切换模式。",
    "chat.slash.app.plan.label": "计划模式",
    "chat.slash.app.plan.description": "开启计划模式",
@@ -3027,7 +3008,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..92d70d9509aab00f2d19c5d3680b6f0c
    "chat.compact.runningBlocked": "运行中不能压缩上下文，请等待当前任务结束。",
    "chat.compact.queued": "已加入队列，将按顺序压缩上下文。",
    "chat.compact.duplicateBlocked": "已有压缩任务正在运行或排队。",
-@@ -6463,6 +6553,19 @@ const zhCN: Record<string, string> = {
+@@ -6463,6 +6550,19 @@ const zhCN: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "结果",
    "chat.toolCall.sessionContext.noResult": "没有返回上下文。",
    "chat.toolCall.explore.label": "查阅",
@@ -3296,7 +3277,7 @@ index 27c580bef52afa3efb336d1dc0b228815aa46e40..7e8b56f667477d01eedaee8fa4519ebe
        providerFamilyDomain,
 diff --git a/packages/ui/src/session-diagnostics/CONTRACT.md b/packages/ui/src/session-diagnostics/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..973cb352ab07bc42582782840dacf48d064b3c7e
+index 0000000000000000000000000000000000000000..8d47639b9feb7ff7ebfa7618ab3eac6496cf9a65
 --- /dev/null
 +++ b/packages/ui/src/session-diagnostics/CONTRACT.md
 @@ -0,0 +1,13 @@
@@ -3312,7 +3293,7 @@ index 0000000000000000000000000000000000000000..973cb352ab07bc42582782840dacf48d
 +- `buildMcpDiagnosticReport`：只包含白名单字段，显示与复制共用脱敏结果，不输出配置、参数、环境、header 或授权 URL。
 +- `sanitizeMcpDiagnosticText`：全局刷新错误也复用同一脱敏边界，不遗漏已知配置值回显。
 +- 展示组件通过 `contract.ts` 导出；局部折叠与复制反馈不得回写领域状态。
-+- `SessionInspector`：按上下文、连接器、改动组织已有数据与操作；只订阅既有配置视图，不创建业务缓存、连接或请求。远程 scope 不采用本机 Provider SettingsView。上下文分项为字符占比，不推算分项 token。连接器卡片只列用户自己接入的资源，ZCode 自带与插件提供的不显示。
++- `SessionInspector`：按上下文、连接器、改动组织已有数据与操作；只订阅既有配置视图，不创建业务缓存、连接或请求。远程 scope 不采用本机 Provider SettingsView。上下文分项为字符占比，不推算分项 token。连接器卡片只列用户自己接入的资源，ZCode 自带与插件提供的不显示。上下文与连接器在新挂载时默认折叠，展开状态只属当前 renderer 挂载，换会话或重新挂载回到折叠；嵌入会话信息栏的 Todo/Agent 分区复用同一 `InspectorCard` 容器。
 diff --git a/packages/ui/src/session-diagnostics/ContextDiagnostics.tsx b/packages/ui/src/session-diagnostics/ContextDiagnostics.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..0293e29bc6544490051dfaf044391d60a80d5ade
@@ -3373,10 +3354,10 @@ index 0000000000000000000000000000000000000000..0293e29bc6544490051dfaf044391d60
 +}
 diff --git a/packages/ui/src/session-diagnostics/InspectorCard.tsx b/packages/ui/src/session-diagnostics/InspectorCard.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..b228adcb0ea2458a1c8d629dbb09504803cfed75
+index 0000000000000000000000000000000000000000..5e2df69034bb400e333459693a4a7c7147e2e521
 --- /dev/null
 +++ b/packages/ui/src/session-diagnostics/InspectorCard.tsx
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,69 @@
 +import { type ComponentProps, type ReactNode } from "react";
 +import { ChevronDownIcon } from "lucide-react";
 +import {
@@ -3400,6 +3381,8 @@ index 0000000000000000000000000000000000000000..b228adcb0ea2458a1c8d629dbb095048
 +  /** 受控开合；省略时默认展开。 */
 +  open?: boolean;
 +  onOpenChange?: (open: boolean) => void;
++  /** 非受控时的初始开合；省略时默认展开。 */
++  defaultOpen?: boolean;
 +}
 +
 +/**
@@ -3410,6 +3393,7 @@ index 0000000000000000000000000000000000000000..b228adcb0ea2458a1c8d629dbb095048
 +  children,
 +  className,
 +  contentClassName,
++  defaultOpen = true,
 +  id,
 +  onOpenChange,
 +  open,
@@ -3421,7 +3405,7 @@ index 0000000000000000000000000000000000000000..b228adcb0ea2458a1c8d629dbb095048
 +    <Collapsible
 +      {...collapsibleProps}
 +      data-inspector-card={id}
-+      defaultOpen={open === undefined ? true : undefined}
++      defaultOpen={open === undefined ? defaultOpen : undefined}
 +      open={open}
 +      onOpenChange={onOpenChange}
 +      className={cn("min-w-0 rounded-xl border border-card-border bg-card p-3", className)}
@@ -3510,7 +3494,7 @@ index 0000000000000000000000000000000000000000..9ce30bebcd32e8ec257fa198ac7b3a5d
 +}
 diff --git a/packages/ui/src/session-diagnostics/SessionInspector.tsx b/packages/ui/src/session-diagnostics/SessionInspector.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..23d45461801e0a0970cc516b2d4d95327b3b0096
+index 0000000000000000000000000000000000000000..f50a73f1d8061d139aaca5d5203af9e9c5763762
 --- /dev/null
 +++ b/packages/ui/src/session-diagnostics/SessionInspector.tsx
 @@ -0,0 +1,243 @@
@@ -3606,7 +3590,7 @@ index 0000000000000000000000000000000000000000..23d45461801e0a0970cc516b2d4d9532
 +  const isRepository = Boolean(gitSummary?.isGitAvailable && gitSummary.isRepository);
 +  return (
 +    <div className="space-y-2" data-testid="session-inspector">
-+      <InspectorCard id="context" title={label("chat.contextUsage.title")}>
++      <InspectorCard id="context" title={label("chat.contextUsage.title")} defaultOpen={false}>
 +        {validUsage ? (
 +          <>
 +            <div
@@ -3682,7 +3666,7 @@ index 0000000000000000000000000000000000000000..23d45461801e0a0970cc516b2d4d9532
 +          </div>
 +        ) : null}
 +      </InspectorCard>
-+      <InspectorCard id="connectors" title={label("chat.inspector.connectors")}>
++      <InspectorCard id="connectors" title={label("chat.inspector.connectors")} defaultOpen={false}>
 +        {resources ?? (
 +          <p className="text-ui-sm text-foreground-subtlest">
 +            {label("chat.inspector.noResources")}
@@ -5666,18 +5650,10 @@ index a367bba0009b0e7d593b5b6095559b6577e1cf80..ccb7a30094e9942b5da2ab9f66efee1a
        {unit.leadingBoundaryRows.map((row) =>
          renderReadonlyRow(
 diff --git a/packages/ui/src/v4/ConversationStatusPanel.tsx b/packages/ui/src/v4/ConversationStatusPanel.tsx
-index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0dead60acc0 100644
+index f272d19a838855802d46294f16ab4f03afd1d04d..9c4e990795f2968907813ee3a1c16b6152162ced 100644
 --- a/packages/ui/src/v4/ConversationStatusPanel.tsx
 +++ b/packages/ui/src/v4/ConversationStatusPanel.tsx
-@@ -24,6 +24,7 @@ import {
-   EllipsisIcon,
-   FileDiffIcon,
-   GoalIcon,
-+  LayersIcon,
-   ListChecksIcon,
-   Maximize2Icon,
-   Minimize2Icon,
-@@ -73,6 +74,7 @@ import {
+@@ -73,6 +73,7 @@ import {
  import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.js";
  import { ControlHintTooltip } from "@/ControlHintTooltip.js";
  import { formatBackgroundTaskElapsedLabel } from "@/BackgroundTaskElapsedLabel.js";
@@ -5685,7 +5661,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
  import { GitActionMenu } from "@/GitActionMenu.js";
  import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
  import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-@@ -151,6 +153,8 @@ export interface ConversationStatusPanelProps {
+@@ -151,6 +152,8 @@ export interface ConversationStatusPanelProps {
    onOpenWorkflowRun?: (target: ConversationStatusPanelWorkflowRunTarget) => void;
    onOpenWorkflowRunDirectory?: (request: OpenWorkflowRunDirectorySideTabRequest) => void;
    className?: string;
@@ -5694,203 +5670,228 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
  }
  
  // memo 组件默认 props 不内联创建数组，避免每次渲染生成新引用触发稳定引用边界测试。
-@@ -234,7 +238,8 @@ type StatusSectionKind =
-   | "plan"
-   | "terminal"
-   | "workflow"
--  | "agent";
-+  | "agent"
-+  | "backgroundTasks";
- 
- const STATUS_SECTION_SCROLL_POLICY = {
-   environment: null,
-@@ -246,6 +251,7 @@ const STATUS_SECTION_SCROLL_POLICY = {
-   // workflow 行定高 56px，列表滚到三行半（196px）：露出的半行告诉人下面还有。
-   workflow: "max-h-[12.25rem]",
-   agent: "max-h-48",
-+  backgroundTasks: "max-h-48",
- } as const satisfies Record<StatusSectionKind, string | null>;
- 
- function StatusSectionHeader({
-@@ -1430,6 +1436,177 @@ function WorkflowStatusSection({
-   );
+@@ -877,10 +880,16 @@ export function buildSessionPlanOpenRequest(
  }
  
-+function BackgroundTasksSection({
-+  bashWorks,
+ function PlanStatusSection({
 +  card = false,
-+  endedCount,
-+  onCancelBackgroundWork,
-+  onOpenBackgroundBash,
-+  onOpenChange,
-+  open,
-+  separated,
-+  subagents,
-+  title,
-+}: {
-+  bashWorks: readonly BackgroundWorkSummary[];
+   model,
+   popoverSide,
+   separated,
+ }: {
 +  /**
-+   * 嵌入信息栏时按其他信息卡（上下文/连接器/改动）的同一容器绘制：
-+   * 面板外壳此时是透明的，继续用状态分区样式会让这一块看起来没有卡片。
++   * 嵌入信息栏时按上下文/连接器卡片的同一容器绘制；面板外壳此时是透明的，
++   * 继续用裸状态分区会留下透明背景与横线。
 +   */
 +  card?: boolean;
-+  endedCount: number;
-+  onCancelBackgroundWork?: (workId: string) => void;
-+  onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
-+  onOpenChange?: (open: boolean) => void;
-+  open?: boolean;
-+  separated: boolean;
-+  subagents: readonly ConversationStatusPanelRunningSubagent[];
-+  title: string;
-+}) {
-+  const { intl } = useZCodeIntl();
-+  const [now, setNow] = useState(() => Date.now());
-+  const running = bashWorks.length + subagents.length;
-+  useEffect(() => {
-+    if (running === 0) return;
-+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-+    return () => window.clearInterval(timer);
-+  }, [running]);
-+  // 没有运行中工作、也没有已结束记录时整卡不渲染，避免常驻空壳。
-+  if (running === 0 && endedCount <= 0) return null;
-+  const orderedBash = [...bashWorks].sort((left, right) => left.startedAt - right.startedAt);
-+  const orderedSubagents = [...subagents].sort(
-+    (left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0),
+   model: ConversationStatusPanelModel;
+   popoverSide: "bottom" | "left";
+   separated: boolean;
+@@ -889,30 +898,55 @@ function PlanStatusSection({
+   const plan = model.plan;
+   if (!plan) return null;
+   const isCompleted = plan.totalCount > 0 && plan.completedCount >= plan.totalCount;
++  const trailing = (
++    <span
++      className={cn(
++        "tabular-nums",
++        isCompleted ? "text-[var(--color-success)]" : "text-[var(--color-foreground-subtle)]",
++      )}
++    >
++      {plan.completedCount}/{plan.totalCount}
++    </span>
 +  );
-+
-+  const finishedFooter =
-+    endedCount > 0 ? (
-+      <div
-+        data-testid="background-tasks-finished"
-+        className="flex items-center gap-1.5 px-2 py-1 text-ui-sm text-[var(--color-foreground-subtlest)]"
-+      >
-+        <LayersIcon className="size-3.5 shrink-0" />
-+        <span>
-+          {intl.formatMessage(
-+            { id: "chat.statusPanel.backgroundTasksFinished" },
-+            { count: String(endedCount) },
-+          )}
-+        </span>
-+      </div>
-+    ) : null;
-+  const worksList = (
-+    <ul className="space-y-0" data-testid="background-tasks-list">
-+      {orderedBash.map((work) => (
-+        <li
-+          key={`bash:${work.workId}`}
-+          data-testid={testId(TID_V4_BACKGROUND_WORK_ITEM, work.workId)}
-+          data-background-task-kind="bash"
-+          data-work-id={work.workId}
-+          data-work-status={work.status}
-+          className="group relative flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--color-hover)]"
-+        >
-+          {onOpenBackgroundBash ? (
-+            <button
-+              type="button"
-+              className="absolute inset-0 rounded-lg focus-visible:outline-ring"
-+              aria-label={intl.formatMessage({ id: "bashOutput.open" }, { title: work.title })}
-+              data-testid="background-bash-open"
-+              onClick={() => onOpenBackgroundBash(work)}
-+            />
-+          ) : null}
-+          <SquareTerminalIcon className="pointer-events-none relative z-[1] size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
-+          <span className="pointer-events-none relative z-[1] min-w-0 flex-1 truncate text-ui-base text-[var(--color-foreground)]">
-+            {work.title}
-+          </span>
-+          <span className="pointer-events-none relative z-[1] shrink-0 tabular-nums text-ui-sm text-[var(--color-foreground-subtle)]">
-+            {formatBackgroundTaskElapsedLabel(
-+              getBackgroundWorkElapsedMs(work, now),
-+              intl.formatMessage,
-+            )}
-+          </span>
-+          {work.cancellable !== false && onCancelBackgroundWork ? (
-+            <span className="relative z-[1] shrink-0">
-+              <RunningWorkCancelButton workId={work.workId} onCancel={onCancelBackgroundWork} />
-+            </span>
-+          ) : null}
-+        </li>
-+      ))}
-+      {orderedSubagents.map((subagent) => (
-+        <li
-+          key={`agent:${subagent.childSessionId}`}
-+          data-testid={
-+            subagent.controlWorkId
-+              ? testId(TID_V4_BACKGROUND_WORK_ITEM, subagent.controlWorkId)
-+              : undefined
-+          }
-+          data-background-task-kind="agent"
-+          data-child-session-id={subagent.childSessionId}
-+          data-work-id={subagent.controlWorkId}
-+          data-work-status="running"
-+          className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--color-hover)]"
-+        >
-+          <BotIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
-+          <span className="min-w-0 flex-1 truncate text-ui-base text-[var(--color-foreground)]">
-+            {subagent.title}
-+          </span>
-+          <span className="shrink-0 tabular-nums text-ui-sm text-[var(--color-foreground-subtle)]">
-+            {formatBackgroundTaskElapsedLabel(
-+              Math.max(0, now - (subagent.startedAt ?? now)),
-+              intl.formatMessage,
-+            )}
-+          </span>
-+          {subagent.controlWorkId && subagent.cancellable !== false && onCancelBackgroundWork ? (
-+            <span className="shrink-0">
-+              <RunningWorkCancelButton
-+                workId={subagent.controlWorkId}
-+                onCancel={onCancelBackgroundWork}
-+              />
-+            </span>
-+          ) : null}
-+        </li>
-+      ))}
-+    </ul>
++  const items = (
++    <PlanStatusItems
++      key={plan.displayItems
++        .map((item) => `${item.id}\u0000${item.content}\u0000${item.status}`)
++        .join("\u0001")}
++      plan={plan}
++      popoverSide={popoverSide}
++    />
 +  );
 +
 +  if (card) {
 +    return (
 +      <InspectorCard
-+        id="backgroundTasks"
-+        data-status-section="backgroundTasks"
-+        title={title}
-+        trailing={running > 0 ? running : null}
-+        open={open}
-+        onOpenChange={onOpenChange}
++        id="plan"
++        data-status-section="plan"
++        title={intl.formatMessage({ id: "chat.statusPanel.todo" })}
++        trailing={trailing}
 +      >
 +        <div
-+          data-status-section-scroll="backgroundTasks"
++          data-status-section-scroll="plan"
 +          className={cn(
-+            STATUS_SECTION_SCROLL_POLICY.backgroundTasks,
++            STATUS_SECTION_SCROLL_POLICY.plan,
 +            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
 +          )}
 +        >
-+          {worksList}
++          {items}
 +        </div>
-+        {finishedFooter}
++      </InspectorCard>
++    );
++  }
+ 
+   return (
+     <StatusSection
+       section="plan"
+       separated={separated}
+       title={intl.formatMessage({ id: "chat.statusPanel.todo" })}
+-      trailing={() => (
+-        <span
+-          className={cn(
+-            "tabular-nums",
+-            isCompleted ? "text-[var(--color-success)]" : "text-[var(--color-foreground-subtle)]",
+-          )}
+-        >
+-          {plan.completedCount}/{plan.totalCount}
+-        </span>
+-      )}
++      trailing={() => trailing}
+     >
+-      <PlanStatusItems
+-        key={plan.displayItems
+-          .map((item) => `${item.id}\u0000${item.content}\u0000${item.status}`)
+-          .join("\u0001")}
+-        plan={plan}
+-        popoverSide={popoverSide}
+-      />
++      {items}
+     </StatusSection>
+   );
+ }
+@@ -1431,6 +1465,7 @@ function WorkflowStatusSection({
+ }
+ 
+ function SubagentStatusSection({
++  card = false,
+   endedSubagentCount,
+   onCancelBackgroundWork,
+   onOpenChange,
+@@ -1443,6 +1478,8 @@ function SubagentStatusSection({
+   title,
+   subagents,
+ }: {
++  /** 与计划/上下文卡片一致：嵌入信息栏时使用信息卡容器，不再画透明分区横线。 */
++  card?: boolean;
+   endedSubagentCount: number;
+   onCancelBackgroundWork?: (workId: string) => void;
+   onOpenChange?: (open: boolean) => void;
+@@ -1457,6 +1494,7 @@ function SubagentStatusSection({
+ }) {
+   const { intl } = useZCodeIntl();
+   const [now, setNow] = useState(() => Date.now());
++  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+   const ordered = useMemo(
+     () => [...subagents].sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0)),
+     [subagents],
+@@ -1472,33 +1510,33 @@ function SubagentStatusSection({
+     0,
+   );
+ 
+-  return (
+-    <StatusSection
+-      section="agent"
+-      defaultOpen={false}
+-      open={open}
+-      onOpenChange={onOpenChange}
+-      separated={separated}
+-      title={title}
+-      trailing={(isOpen) =>
+-        subagents.length === 0 ? null : isOpen ? (
+-          <span>{formatRunningSubagentCount(intl.formatMessage, subagents.length)}</span>
+-        ) : (
+-          <>
+-            <span className="min-w-0 truncate">
+-              {formatDurationUnits(
+-                Math.max(1, Math.floor(longestElapsedMs / 1000)),
+-                intl.formatMessage,
+-              )}
+-            </span>
+-            <span className="shrink-0">·</span>
+-            <span className="shrink-0">
+-              {formatRunningSubagentCount(intl.formatMessage, subagents.length)}
+-            </span>
+-          </>
+-        )
+-      }
+-    >
++  const isOpen = open ?? uncontrolledOpen;
++  const handleOpenChange = useCallback(
++    (nextOpen: boolean) => {
++      if (open === undefined) setUncontrolledOpen(nextOpen);
++      onOpenChange?.(nextOpen);
++    },
++    [onOpenChange, open],
++  );
++  const renderTrailing = (expanded: boolean) =>
++    subagents.length === 0 ? null : expanded ? (
++      <span>{formatRunningSubagentCount(intl.formatMessage, subagents.length)}</span>
++    ) : (
++      <>
++        <span className="min-w-0 truncate">
++          {formatDurationUnits(
++            Math.max(1, Math.floor(longestElapsedMs / 1000)),
++            intl.formatMessage,
++          )}
++        </span>
++        <span className="shrink-0">·</span>
++        <span className="shrink-0">
++          {formatRunningSubagentCount(intl.formatMessage, subagents.length)}
++        </span>
++      </>
++    );
++  const content = (
++    <>
+       <ul className="space-y-0">
+         {ordered.map((subagent) => {
+           const request = buildRunningSubagentOpenRequest({
+@@ -1569,6 +1607,44 @@ function SubagentStatusSection({
+         onOpen={onOpenSubagentDirectory}
+         separated={subagents.length > 0}
+       />
++    </>
++  );
++
++  if (card) {
++    return (
++      <InspectorCard
++        id="agent"
++        data-status-section="agent"
++        title={title}
++        trailing={renderTrailing(isOpen)}
++        defaultOpen={false}
++        open={isOpen}
++        onOpenChange={handleOpenChange}
++      >
++        <div
++          data-status-section-scroll="agent"
++          className={cn(
++            STATUS_SECTION_SCROLL_POLICY.agent,
++            "min-h-0 overflow-x-hidden overflow-y-auto pr-1",
++          )}
++        >
++          {content}
++        </div>
 +      </InspectorCard>
 +    );
 +  }
 +
 +  return (
 +    <StatusSection
-+      section="backgroundTasks"
-+      defaultOpen
++      section="agent"
++      defaultOpen={false}
 +      open={open}
 +      onOpenChange={onOpenChange}
 +      separated={separated}
 +      title={title}
-+      trailing={() => (running > 0 ? <span>{running}</span> : null)}
-+      footer={finishedFooter}
++      trailing={renderTrailing}
 +    >
-+      {worksList}
-+    </StatusSection>
-+  );
-+}
-+
- function SubagentStatusSection({
-   endedSubagentCount,
-   onCancelBackgroundWork,
-@@ -1720,12 +1897,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
++      {content}
+     </StatusSection>
+   );
+ }
+@@ -1720,12 +1796,16 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
  }
  
  function StatusSummaryRow({
@@ -5907,7 +5908,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
    /** 已结束 run 的目录计数；宿主给 0 表示目录入口不可渲染（缺会话或缺回调）。 */
    endedWorkflowRunCount: number;
    gitWorktreeChangeSummary?: { added: number; removed: number } | null;
-@@ -1845,6 +2026,14 @@ function StatusSummaryRow({
+@@ -1845,6 +1925,14 @@ function StatusSummaryRow({
          {endedWorkflowRunCount}
        </span>
      </StatusSummaryMetric>
@@ -5922,7 +5923,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
    ) : null;
  
    if (!summaryMetric) {
-@@ -1871,6 +2060,8 @@ function StatusSummaryRow({
+@@ -1871,6 +1959,8 @@ function StatusSummaryRow({
  }
  
  function ConversationStatusPanelImpl({
@@ -5931,25 +5932,19 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
    workspacePath,
    workspaceIdentity,
    gitSummary,
-@@ -1955,11 +2146,16 @@ function ConversationStatusPanelImpl({
+@@ -1955,7 +2045,10 @@ function ConversationStatusPanelImpl({
    const panelMenuLabel = intl.formatMessage({
      id: "chat.summaryPanel.displayMode",
    });
 -  const canRenderGit = Boolean(model.git && gitSummary && onRefreshGit);
 +  const canRenderGit = !inspector && Boolean(model.git && gitSummary && onRefreshGit);
++  // 宽屏信息栏卡片模式铺满会话 pane 高度：外层 bottom-4 提供确定高度，shell 用 h-full 不再被
++  // 64dvh 视口上限截断。所有拉伸类都带 @min-[1280px] 容器前缀，窄屏胶囊/浮层保持原限高。
++  const wideInspectorCards = Boolean(inspector) && variant !== "mini";
    const canRenderGoal = Boolean(model.goal);
    const canRenderSessionPlans = Boolean(model.sessionPlans);
    const canRenderPlan = Boolean(model.plan);
-   const canRenderTerminals = model.runningBashWorks.length > 0;
-+  // 后台任务卡聚合终端后台命令与子代理；与终端/智能体区块并行存在，不替代它们。
-+  const canRenderBackgroundTasks =
-+    model.runningBashWorks.length > 0 ||
-+    model.runningSubagentWorks.length > 0 ||
-+    endedSubagentCount > 0;
-   // 已结束的 run 也开门（与 canRenderAgents 同判断）：重启后活动数为零，若只按它开门，
-   // 通往 run 目录的唯一入口会连带消失。
-   const canRenderEndedWorkflows = Boolean(
-@@ -1995,7 +2191,7 @@ function ConversationStatusPanelImpl({
+@@ -1995,7 +2088,7 @@ function ConversationStatusPanelImpl({
    // 会话会连整个胶囊一起消失——而那正是重启后打开一条旧对话的样子，run 目录的入口于是又没了。
    // 已结束的 run 因此单独开这道门。（Agents 的已结束行有同一个洞：`endedSubagentCount` 也
    // 没进 `hasContent`。那是既有行为，不在本轮一起翻。）
@@ -5958,7 +5953,15 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
      return null;
    }
  
-@@ -2020,6 +2216,7 @@ function ConversationStatusPanelImpl({
+@@ -2010,6 +2103,7 @@ function ConversationStatusPanelImpl({
+           : layoutMode === "auto"
+             ? "inset-x-0 flex justify-end px-4 @min-[1280px]/conversation:left-auto @min-[1280px]/conversation:right-4 @min-[1280px]/conversation:px-0"
+             : "inset-x-0 flex justify-end px-4",
++        wideInspectorCards && "@min-[1280px]/conversation:bottom-4",
+         className,
+       )}
+     >
+@@ -2020,6 +2114,7 @@ function ConversationStatusPanelImpl({
          data-testid={TID_CHAT_SUMMARY_PANEL}
          data-state={variant === "mini" ? "collapsed" : "expanded"}
          data-display-mode={variant}
@@ -5966,20 +5969,32 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
          data-goal-status={model.goal?.status}
          data-goal-objective={model.goal?.objective}
          data-running-background-count={
-@@ -2042,6 +2239,12 @@ function ConversationStatusPanelImpl({
+@@ -2040,8 +2135,22 @@ function ConversationStatusPanelImpl({
+           variant === "mini"
+             ? "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col"
              : variant === "panel"
-               ? "flex max-h-[min(64dvh,32rem)] w-80 max-w-[calc(100cqw-2rem)] flex-col"
-               : "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col @min-[1280px]/conversation:max-h-[min(64dvh,32rem)] @min-[1280px]/conversation:w-80",
+-              ? "flex max-h-[min(64dvh,32rem)] w-80 max-w-[calc(100cqw-2rem)] flex-col"
+-              : "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col @min-[1280px]/conversation:max-h-[min(64dvh,32rem)] @min-[1280px]/conversation:w-80",
++              ? cn(
++                  "flex w-80 max-w-[calc(100cqw-2rem)] flex-col",
++                  inspector ? "max-h-[min(64dvh,calc(100dvh-10rem))]" : "max-h-[min(64dvh,32rem)]",
++                )
++              : cn(
++                  "inline-flex max-h-8.5 w-max max-w-[min(20rem,calc(100cqw-2rem))] flex-col",
++                  inspector
++                    ? "@min-[1280px]/conversation:w-80"
++                    : "@min-[1280px]/conversation:max-h-[min(64dvh,32rem)] @min-[1280px]/conversation:w-80",
++                ),
 +          inspector &&
 +            variant === "panel" &&
-+            "max-h-[min(64dvh,calc(100dvh-10rem))] rounded-none border-0 bg-transparent shadow-none @min-[1280px]/conversation:max-h-[calc(100dvh-10rem)]",
++            "rounded-none border-0 bg-transparent shadow-none @min-[1280px]/conversation:h-full @min-[1280px]/conversation:max-h-none",
 +          inspector &&
 +            variant === "auto" &&
-+            "@min-[1280px]/conversation:max-h-[calc(100dvh-10rem)] @min-[1280px]/conversation:rounded-none @min-[1280px]/conversation:border-0 @min-[1280px]/conversation:bg-transparent @min-[1280px]/conversation:shadow-none",
++            "@min-[1280px]/conversation:h-full @min-[1280px]/conversation:max-h-none @min-[1280px]/conversation:rounded-none @min-[1280px]/conversation:border-0 @min-[1280px]/conversation:bg-transparent @min-[1280px]/conversation:shadow-none",
          )}
        >
          {variant !== "mini" ? (
-@@ -2104,8 +2307,10 @@ function ConversationStatusPanelImpl({
+@@ -2104,8 +2213,10 @@ function ConversationStatusPanelImpl({
              className={cn(
                "min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto p-2",
                variant === "auto" ? "hidden @min-[1280px]/conversation:flex" : "flex",
@@ -5990,82 +6005,23 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
              {canRenderGit ? (
                <GitStatusSection
                  model={model}
-@@ -2120,10 +2325,23 @@ function ConversationStatusPanelImpl({
-                 useVerticalFloatingPanels={useVerticalFloatingPanels}
-               />
-             ) : null}
-+            {canRenderBackgroundTasks ? (
-+              <BackgroundTasksSection
-+                bashWorks={model.runningBashWorks}
-+                subagents={model.runningSubagentWorks}
-+                endedCount={endedSubagentCount}
-+                // 信息栏模式下这里是第四张卡，必须与其他卡片同一容器；独立状态面板仍用状态分区。
-+                card={Boolean(inspector)}
-+                title={intl.formatMessage({ id: "chat.statusPanel.backgroundTasks" })}
-+                onOpenBackgroundBash={onOpenBackgroundBash}
-+                onCancelBackgroundWork={onCancelBackgroundWork}
-+                separated={canRenderGit}
-+              />
-+            ) : null}
-             {canRenderGoal ? (
-               <GoalStatusSection
-                 model={model}
--                separated={canRenderGit}
-+                separated={canRenderGit || canRenderBackgroundTasks}
-                 onPauseGoal={onPauseGoal}
-                 onResumeGoal={onResumeGoal}
-               />
-@@ -2133,14 +2351,16 @@ function ConversationStatusPanelImpl({
-                 model={model}
-                 parentSessionId={parentSessionId}
-                 onOpenPlanDetail={onOpenPlanDetail}
--                separated={canRenderGit || canRenderGoal}
-+                separated={canRenderGit || canRenderBackgroundTasks || canRenderGoal}
-               />
+@@ -2138,6 +2249,7 @@ function ConversationStatusPanelImpl({
              ) : null}
              {canRenderPlan ? (
                <PlanStatusSection
++                card={Boolean(inspector)}
                  model={model}
                  popoverSide={useVerticalFloatingPanels ? "bottom" : "left"}
--                separated={canRenderGit || canRenderGoal || canRenderSessionPlans}
-+                separated={
-+                  canRenderGit || canRenderBackgroundTasks || canRenderGoal || canRenderSessionPlans
-+                }
-               />
+                 separated={canRenderGit || canRenderGoal || canRenderSessionPlans}
+@@ -2177,6 +2289,7 @@ function ConversationStatusPanelImpl({
              ) : null}
-             {canRenderTerminals ? (
-@@ -2151,7 +2371,13 @@ function ConversationStatusPanelImpl({
-                 works={model.runningBashWorks}
-                 open={terminalSectionOpen}
-                 onOpenChange={onTerminalSectionOpenChange}
--                separated={canRenderGit || canRenderGoal || canRenderSessionPlans || canRenderPlan}
-+                separated={
-+                  canRenderGit ||
-+                  canRenderBackgroundTasks ||
-+                  canRenderGoal ||
-+                  canRenderSessionPlans ||
-+                  canRenderPlan
-+                }
-                 onCancelBackgroundWork={onCancelBackgroundWork}
-               />
-             ) : null}
-@@ -2164,6 +2390,7 @@ function ConversationStatusPanelImpl({
-                 onOpenChange={onWorkflowSectionOpenChange}
-                 separated={
-                   canRenderGit ||
-+                  canRenderBackgroundTasks ||
-                   canRenderGoal ||
-                   canRenderSessionPlans ||
-                   canRenderPlan ||
-@@ -2185,6 +2412,7 @@ function ConversationStatusPanelImpl({
-                 onOpenChange={onAgentSectionOpenChange}
-                 separated={
-                   canRenderGit ||
-+                  canRenderBackgroundTasks ||
-                   canRenderGoal ||
-                   canRenderSessionPlans ||
-                   canRenderPlan ||
-@@ -2197,6 +2425,7 @@ function ConversationStatusPanelImpl({
+             {canRenderAgents ? (
+               <SubagentStatusSection
++                card={Boolean(inspector)}
+                 title={intl.formatMessage({ id: "chat.statusPanel.agents" })}
+                 subagents={model.runningSubagentWorks}
+                 endedSubagentCount={canRenderEndedAgents ? endedSubagentCount : 0}
+@@ -2197,6 +2310,7 @@ function ConversationStatusPanelImpl({
                  onOpenSubagentDirectory={onOpenSubagentDirectory}
                />
              ) : null}
@@ -6073,7 +6029,7 @@ index f272d19a838855802d46294f16ab4f03afd1d04d..3e41d586456b82ede639f77e502cf0de
            </div>
          ) : null}
          <div
-@@ -2211,6 +2440,8 @@ function ConversationStatusPanelImpl({
+@@ -2211,6 +2325,8 @@ function ConversationStatusPanelImpl({
            )}
          >
            <StatusSummaryRow
@@ -7501,14 +7457,18 @@ index 0000000000000000000000000000000000000000..f02a00eb293d9b06d5dde93a1f7c0914
 +    }
 diff --git a/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx b/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb29fe89956
+index 0000000000000000000000000000000000000000..b9e32a5e52ff5ac1154823553d002249a43a7173
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/session-inspector.fixture.tsx
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,262 @@
 +import { useCallback, useState } from "react";
 +import { createRoot } from "react-dom/client";
 +import type { GitRepositorySummary, ZCodeSessionRunningSubagent } from "@zcode/shared";
-+import type { BackgroundWorkSummary, SessionResourcesState } from "@zcode/shared/zcode-protocol-v4";
++import type {
++  BackgroundWorkSummary,
++  PlanState,
++  SessionResourcesState,
++} from "@zcode/shared/zcode-protocol-v4";
 +import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 +import { TooltipProvider } from "@/components/ui/tooltip.js";
 +import { SessionInspector } from "@/session-diagnostics/contract.js";
@@ -7572,6 +7532,16 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +    startedAt: Date.now() - 5_000,
 +  },
 +];
++// Todo 卡的真实投影：一条已完成、一条进行中、两条待处理。
++const plan: PlanState = {
++  updatedAt: Date.now(),
++  items: [
++    { id: "fixture-1", content: "记录工作区并定位失败根因", status: "completed" },
++    { id: "fixture-2", content: "补规格、修复调用反馈并验证自纠回放", status: "inProgress" },
++    { id: "fixture-3", content: "修复相关存量 Lint/格式阻塞且不放宽规则", status: "pending" },
++    { id: "fixture-4", content: "定向验证、独立审核并按规则交付", status: "pending" },
++  ],
++};
 +const initialResources: SessionResourcesState = {
 +  policy: { revision: 0, disabledSkills: [], disabledMcpServers: [] },
 +  skills: [
@@ -7627,6 +7597,7 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +  const [review, setReview] = useState("");
 +  const [command, setCommand] = useState("");
 +  const [cancelled, setCancelled] = useState("");
++  const [openedBash, setOpenedBash] = useState("");
 +  const send: SessionResourceControlsProps["send"] = useCallback(async (type, payload) => {
 +    setCommand(JSON.stringify({ type, payload }));
 +    if (type === "setSessionResource")
@@ -7652,11 +7623,14 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +          : repository;
 +  const layout = variant === "mini" ? "none" : variant === "panel" ? "inline" : "auto";
 +  return (
-+    <main className="@container/conversation relative h-screen bg-background text-foreground">
-+      <header className="h-14 border-b border-border px-6 py-4 text-ui-base">
++    <main className="relative flex h-screen min-h-0 flex-col bg-background text-foreground">
++      <header className="h-14 shrink-0 border-b border-border px-6 py-4 text-ui-base">
 +        ZCode · Session fixture
 +      </header>
-+      <section className="relative h-[calc(100dvh-3.5rem)]">
++      <section
++        data-testid="fixture-conversation-pane"
++        className="@container/conversation relative flex min-h-0 flex-1 flex-col"
++      >
 +        <div className="flex h-full justify-center px-6">
 +          <div
 +            data-testid="fixture-conversation"
@@ -7679,6 +7653,11 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +          backgroundWorks={scenario === "no-background" ? [] : backgroundWorks}
 +          runningSubagents={scenario === "no-background" ? [] : runningSubagents}
 +          endedSubagentCount={scenario === "no-background" ? 0 : 3}
++          plan={plan}
++          parentSessionId="fixture-parent"
++          rootSessionId="fixture-root"
++          onOpenSubagentDirectory={() => {}}
++          onOpenBackgroundBash={(work) => setOpenedBash(work.workId)}
 +          onCancelBackgroundWork={(workId) => setCancelled(workId)}
 +          inspector={
 +            <SessionInspector
@@ -7729,6 +7708,9 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +      <output data-testid="fixture-cancelled" hidden>
 +        {cancelled}
 +      </output>
++      <output data-testid="fixture-opened-bash" hidden>
++        {openedBash}
++      </output>
 +    </main>
 +  );
 +}
@@ -7743,10 +7725,10 @@ index 0000000000000000000000000000000000000000..4a2e0d560a359ad8d9eee90837f7aeb2
 +);
 diff --git a/packages/ui/test/browser/manual-review/pending/session-inspector.test.mjs b/packages/ui/test/browser/manual-review/pending/session-inspector.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab281965622dad
+index 0000000000000000000000000000000000000000..c8f27de6ea2e1626fb8c30a3d85a0cf12b82af3b
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/session-inspector.test.mjs
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,392 @@
 +import assert from "node:assert/strict";
 +import { before, after, test } from "node:test";
 +import { createServer } from "vite";
@@ -7768,8 +7750,8 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +  await browser?.close();
 +  await server?.close();
 +});
-+async function openFixture(width, params) {
-+  const page = await browser.newPage({ viewport: { width, height: 900 } });
++async function openFixture(width, params, height = 900) {
++  const page = await browser.newPage({ viewport: { width, height } });
 +  page.setDefaultTimeout(30000);
 +  await page.goto(`${origin}fixture?${new URLSearchParams(params)}`, {
 +    timeout: 60000,
@@ -7777,6 +7759,35 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +  });
 +  await page.getByTestId("chat-summary-panel").waitFor();
 +  return page;
++}
++async function readRailGeometry(page) {
++  return page.evaluate(() => {
++    const aside = document.querySelector('[data-testid="chat-summary-panel"]');
++    const composer = document.querySelector('[data-testid="fixture-composer"]');
++    const pane = document.querySelector('[data-testid="fixture-conversation-pane"]');
++    const asideRect = aside.getBoundingClientRect();
++    const composerRect = composer.getBoundingClientRect();
++    return {
++      paneBottom: pane.getBoundingClientRect().bottom,
++      asideTop: asideRect.top,
++      asideBottom: asideRect.bottom,
++      asideHeight: asideRect.height,
++      asideLeft: asideRect.left,
++      composerTop: composerRect.top,
++      composerBottom: composerRect.bottom,
++      composerRight: composerRect.right,
++      innerHeight,
++    };
++  });
++}
++function assertRailReachesBottom(geometry) {
++  assert.ok(geometry.paneBottom <= geometry.innerHeight + 1);
++  assert.ok(
++    Math.abs(geometry.asideBottom - (geometry.paneBottom - 16)) <= 1.5,
++    `inspector bottom ${geometry.asideBottom} should reach pane bottom ${geometry.paneBottom - 16}`,
++  );
++  assert.ok(geometry.asideBottom <= geometry.innerHeight);
++  assert.ok(Math.abs(geometry.composerBottom - (geometry.paneBottom - 16)) <= 1.5);
 +}
 +async function noOverflow(page, width) {
 +  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -7808,7 +7819,17 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +              .evaluateAll((nodes) => nodes.map((node) => node.dataset.inspectorCard)),
 +            ["context", "connectors", "changes"],
 +          );
-+          assert.match(await page.getByTestId("inspector-context-usage").textContent(), /25%/);
++          // 新会话默认只露出上下文与连接器的标题行。
++          const trigger = page.getByTestId("inspector-context-trigger");
++          const connectorsTrigger = page.getByTestId("inspector-connectors-trigger");
++          assert.equal(await trigger.getAttribute("aria-expanded"), "false");
++          assert.equal(await connectorsTrigger.getAttribute("aria-expanded"), "false");
++          await trigger.focus();
++          await page.keyboard.press("Space");
++          assert.equal(await trigger.getAttribute("aria-expanded"), "true");
++          const usage = page.getByTestId("inspector-context-usage");
++          await usage.waitFor();
++          assert.match(await usage.textContent(), /25%/);
 +          assert.match(
 +            await page.getByTestId("inspector-cache-hit-rate").textContent(),
 +            locale === "zh-CN" ? /平均缓存命中率\s*4\.8%/ : /Average cache hit rate\s*4\.8%/,
@@ -7817,13 +7838,13 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +            await page.getByTestId("inspector-context-breakdown").textContent(),
 +            /37.5%/,
 +          );
-+          const trigger = page.getByTestId("inspector-context-trigger");
-+          await trigger.focus();
 +          await page.keyboard.press("Space");
 +          assert.equal(await trigger.getAttribute("aria-expanded"), "false");
-+          await page.getByTestId("inspector-context-usage").waitFor({ state: "hidden" });
++          await usage.waitFor({ state: "hidden" });
 +          await page.keyboard.press("Enter");
-+          await page.getByTestId("inspector-context-usage").waitFor();
++          await usage.waitFor();
++          assert.equal(await trigger.getAttribute("aria-expanded"), "true");
++          await connectorsTrigger.click();
 +          const controls = page.getByTestId("session-resource-controls");
 +          await page.waitForFunction(
 +            () =>
@@ -7890,15 +7911,24 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +          const composer = await page.getByTestId("fixture-composer").boundingBox();
 +          if (width >= 1280) {
 +            const bounds = await inspector.boundingBox();
++            const geometry = await readRailGeometry(page);
++            assert.ok(geometry.composerRight <= bounds.x, "wide inspector must not cover composer");
++            assertRailReachesBottom(geometry);
 +            assert.ok(
-+              composer.x + composer.width <= bounds.x,
-+              "wide inspector must not cover composer",
++              geometry.asideHeight > geometry.innerHeight * 0.64 + 1,
++              `wide inspector height ${geometry.asideHeight} must exceed the old 64dvh cap`,
 +            );
 +          } else {
 +            const bounds = await page.getByTestId("chat-summary-panel").boundingBox();
++            const geometry = await readRailGeometry(page);
 +            assert.ok(
 +              bounds.y + bounds.height <= composer.y,
 +              "expanded inspector must leave composer reachable",
++            );
++            // 窄容器保持既有浮层限高，不跟随宽屏拉伸。
++            assert.ok(
++              geometry.asideHeight <= Math.min(geometry.innerHeight * 0.64, 740) + 1,
++              `narrow inspector height ${geometry.asideHeight} must keep the existing cap`,
 +            );
 +          }
 +          assert.deepEqual(errors, []);
@@ -7908,8 +7938,69 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +        }
 +      });
 +    }
++test("wide inspector fills a low-height pane and scrolls to the last card", async () => {
++  const page = await openFixture(1440, { locale: "en-US", theme: "light" }, 640);
++  try {
++    await page.getByTestId("inspector-context-trigger").click();
++    await page.getByTestId("inspector-context-usage").waitFor();
++    await page.getByTestId("inspector-connectors-trigger").click();
++    await page.getByTestId("session-resource-controls").waitFor();
++    await page.getByTestId("inspector-agent-trigger").click();
++    await page
++      .locator('[data-inspector-card="agent"]')
++      .getByText("Ended", { exact: true })
++      .waitFor();
++    const metrics = await page.evaluate(() => {
++      const aside = document.querySelector('[data-testid="chat-summary-panel"]');
++      const root = document.querySelector('[data-testid="session-inspector"]');
++      const scroller = root.parentElement;
++      scroller.scrollTop = scroller.scrollHeight;
++      return {
++        asideBottom: aside.getBoundingClientRect().bottom,
++        innerHeight,
++        clientHeight: scroller.clientHeight,
++        scrollHeight: scroller.scrollHeight,
++        scrollTop: scroller.scrollTop,
++      };
++    });
++    assert.ok(metrics.scrollHeight > metrics.clientHeight, "cards should overflow in a low pane");
++    assert.ok(metrics.scrollTop > 0, "card column should scroll");
++    const aside = await page.getByTestId("chat-summary-panel").boundingBox();
++    const lastCard = await page.locator('[data-inspector-card="agent"]').boundingBox();
++    assert.ok(lastCard.y >= aside.y - 1, "last card should scroll into view");
++    assert.ok(
++      lastCard.y + lastCard.height <= aside.y + aside.height + 1,
++      "last card should be fully visible at the pane bottom",
++    );
++    const geometry = await readRailGeometry(page);
++    assertRailReachesBottom(geometry);
++    assert.ok(lastCard.y + lastCard.height <= geometry.innerHeight);
++    assert.ok(geometry.composerRight <= aside.x);
++  } finally {
++    await page.close();
++  }
++});
++test("explicit panel inspector also reaches the pane bottom", async () => {
++  const page = await openFixture(1440, { locale: "en-US", theme: "dark", variant: "panel" });
++  try {
++    assert.equal(
++      await page.getByTestId("chat-summary-panel").getAttribute("data-display-mode"),
++      "panel",
++    );
++    await page.getByTestId("chat-summary-panel").evaluate((node) => {
++      const animations = node.getAnimations();
++      return Promise.all(animations.map((animation) => animation.finished));
++    });
++    const geometry = await readRailGeometry(page);
++    assertRailReachesBottom(geometry);
++    assert.ok(geometry.asideHeight > geometry.innerHeight * 0.64 + 1);
++    assert.ok(geometry.composerRight <= geometry.asideLeft);
++  } finally {
++    await page.close();
++  }
++});
 +for (const width of [320, 1440])
-+  test(`background task card shares the inspector card shell ${width}`, async () => {
++  test(`background card is absent while terminal and agent controls work ${width}`, async () => {
 +    const page = await openFixture(width, { locale: "zh-CN", theme: "dark" });
 +    try {
 +      const errors = [];
@@ -7917,14 +8008,14 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +      if (width < 1280) {
 +        await page.getByRole("button", { name: "展开状态", exact: true }).click();
 +      }
-+      const card = page.locator('[data-inspector-card="backgroundTasks"]');
-+      await card.waitFor();
-+      // 四张卡同属一个信息栏，顺序为上下文、连接器、改动、后台任务。
++      assert.equal(await page.locator('[data-inspector-card="backgroundTasks"]').count(), 0);
++      assert.equal(await page.locator('[data-status-section="backgroundTasks"]').count(), 0);
++      assert.equal(await page.getByTestId("background-tasks-finished").count(), 0);
 +      assert.deepEqual(
 +        await page
 +          .locator("[data-inspector-card]")
 +          .evaluateAll((nodes) => nodes.map((node) => node.dataset.inspectorCard)),
-+        ["context", "connectors", "changes", "backgroundTasks"],
++        ["context", "connectors", "changes", "plan", "agent"],
 +      );
 +      // 用计算样式比对，而不是只比对类名：用户看到的是同一张卡。
 +      const shells = await page.locator("[data-inspector-card]").evaluateAll((nodes) =>
@@ -7940,16 +8031,31 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +        }),
 +      );
 +      for (const shell of shells.slice(1)) assert.deepEqual(shell, shells[0]);
-+      // 折叠保留：首次点击收起列表，再点展开。
-+      const trigger = page.getByTestId("inspector-backgroundTasks-trigger");
-+      assert.equal(await trigger.getAttribute("aria-expanded"), "true");
-+      await trigger.click();
-+      await page.getByTestId("background-tasks-list").waitFor({ state: "hidden" });
-+      await trigger.click();
-+      await page.getByTestId("background-tasks-list").waitFor();
-+      // 停止按钮仍走既有取消回调，不因换容器丢行为。
-+      await page.getByTestId("v4-background-work-cancel-fixture-bash").click();
++      // 进程（Todo）与智能体也使用同一张卡片，不再是透明背景加横线。
++      const planCard = page.locator('[data-inspector-card="plan"]');
++      await planCard.getByText("进程", { exact: true }).waitFor();
++      await planCard.getByText("记录工作区并定位失败根因", { exact: true }).waitFor();
++      const agentCard = page.locator('[data-inspector-card="agent"]');
++      const agentTrigger = page.getByTestId("inspector-agent-trigger");
++      // 智能体保持原有默认折叠；展开后停止与「已结束」入口仍在卡内。
++      assert.equal(await agentTrigger.getAttribute("aria-expanded"), "false");
++      await agentTrigger.click();
++      await agentCard
++        .getByText("Explore workspace structure for the background task card", {
++          exact: true,
++        })
++        .waitFor();
++      await agentCard.getByText("已结束", { exact: true }).waitFor();
++      await agentCard.getByTestId("v4-background-work-cancel-fixture-agent").click();
++      assert.equal(await page.getByTestId("fixture-cancelled").textContent(), "fixture-agent");
++      const terminal = page.locator('[data-status-section="terminal"]');
++      await terminal.locator('[data-status-section-trigger="terminal"]').click();
++      await terminal.getByTestId("background-bash-open").click();
++      assert.equal(await page.getByTestId("fixture-opened-bash").textContent(), "fixture-bash");
++      assert.equal(await page.getByTestId("fixture-cancelled").textContent(), "fixture-agent");
++      await terminal.getByTestId("v4-background-work-cancel-fixture-bash").click();
 +      assert.equal(await page.getByTestId("fixture-cancelled").textContent(), "fixture-bash");
++      assert.equal(await page.getByTestId("fixture-opened-bash").textContent(), "fixture-bash");
 +      await noOverflow(page, width);
 +      assert.deepEqual(errors, []);
 +    } finally {
@@ -8002,6 +8108,9 @@ index 0000000000000000000000000000000000000000..4a6fce3f07d1af9e92fe00f25cab2819
 +  test(`inspector truthful empty state ${scenario}`, async () => {
 +    const page = await openFixture(1440, { locale: "en-US", theme: "light", scenario });
 +    try {
++      // 上下文默认折叠：empty/remote 的空状态与模型名只在展开后可见。
++      if (scenario === "empty" || scenario === "remote")
++        await page.getByTestId("inspector-context-trigger").click();
 +      await page.getByText(text, { exact: true }).waitFor();
 +      if (scenario === "empty")
 +        assert.equal(await page.getByTestId("inspector-context-usage").count(), 0);
@@ -9762,10 +9871,10 @@ index 0000000000000000000000000000000000000000..90f8a17d8e4513613063564d3235da1b
 +});
 diff --git a/packages/ui/test/sessionInspector.test.ts b/packages/ui/test/sessionInspector.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0ddc30a3b3d
+index 0000000000000000000000000000000000000000..1c49721b75c43ae0314a744d2f5293fda47a6012
 --- /dev/null
 +++ b/packages/ui/test/sessionInspector.test.ts
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,235 @@
 +// @vitest-environment jsdom
 +import { createElement } from "react";
 +import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -9883,6 +9992,13 @@ index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0dd
 +        node.getAttribute("data-inspector-card"),
 +      ),
 +    ).toEqual(["context", "connectors", "changes"]);
++    // 上下文与连接器默认折叠；展开后再断言真实内容。
++    const contextTrigger = screen.getByTestId("inspector-context-trigger");
++    const connectorsTrigger = screen.getByTestId("inspector-connectors-trigger");
++    expect(contextTrigger.getAttribute("aria-expanded")).toBe("false");
++    expect(connectorsTrigger.getAttribute("aria-expanded")).toBe("false");
++    fireEvent.click(contextTrigger);
++    fireEvent.click(connectorsTrigger);
 +    expect(screen.getByTestId("inspector-context-usage").textContent).toContain("32K");
 +    expect(screen.getByTestId("inspector-context-usage").textContent).toContain("25%");
 +    expect(screen.getByTestId("inspector-context-breakdown").textContent).toContain("75%");
@@ -9897,6 +10013,7 @@ index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0dd
 +    const { rerender } = render(
 +      createElement(SessionInspector, { workspacePath: "/repo", usage: { ...usage, cache: {} } }),
 +    );
++    fireEvent.click(screen.getByTestId("inspector-context-trigger"));
 +    expect(screen.queryByTestId("inspector-cache-hit-rate")).toBeNull();
 +    rerender(
 +      createElement(SessionInspector, {
@@ -9915,6 +10032,7 @@ index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0dd
 +  });
 +  it("handles missing/invalid usage and never displays a fabricated zero percent", () => {
 +    const { rerender } = render(createElement(SessionInspector, { workspacePath: "/repo" }));
++    fireEvent.click(screen.getByTestId("inspector-context-trigger"));
 +    expect(screen.getByText("chat.inspector.noUsage")).toBeTruthy();
 +    expect(screen.queryByTestId("inspector-context-usage")).toBeNull();
 +    rerender(
@@ -9934,11 +10052,12 @@ index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0dd
 +        selection: { provider: "p", model: "m" },
 +      }),
 +    );
++    fireEvent.click(screen.getByTestId("inspector-context-trigger"));
 +    expect(screen.queryByTestId("context-configured-window")).toBeNull();
 +    // 远程 scope 不套用本机配置来源，但仍显示真实用量。
 +    expect(screen.getByTestId("inspector-context-usage")).toBeTruthy();
 +  });
-+  it("reuses the preferred review source and collapses cards by keyboard-capable triggers", () => {
++  it("reuses the preferred review source and starts context/connectors collapsed", () => {
 +    const review = vi.fn();
 +    render(
 +      createElement(SessionInspector, {
@@ -9953,10 +10072,31 @@ index 0000000000000000000000000000000000000000..f24763faeded35849df54abb4d13e0dd
 +    fireEvent.click(screen.getByTestId("inspector-open-changes"));
 +    expect(review).toHaveBeenCalledWith("staged");
 +    const trigger = screen.getByTestId("inspector-context-trigger");
++    expect(trigger.getAttribute("aria-expanded")).toBe("false");
++    expect(screen.getByTestId("inspector-connectors-trigger").getAttribute("aria-expanded")).toBe(
++      "false",
++    );
 +    fireEvent.click(trigger);
++    expect(trigger.getAttribute("aria-expanded")).toBe("true");
++    fireEvent.click(trigger);
++    expect(trigger.getAttribute("aria-expanded")).toBe("false");
++  });
++  it("keeps a user's expansion for the mounted session and resets on a new mount", () => {
++    const tree = createElement(SessionInspector, { workspacePath: "/repo" });
++    const first = render(tree);
++    const trigger = screen.getByTestId("inspector-context-trigger");
 +    expect(trigger.getAttribute("aria-expanded")).toBe("false");
 +    fireEvent.click(trigger);
 +    expect(trigger.getAttribute("aria-expanded")).toBe("true");
++    first.rerender(tree);
++    expect(screen.getByTestId("inspector-context-trigger").getAttribute("aria-expanded")).toBe(
++      "true",
++    );
++    first.unmount();
++    render(tree);
++    expect(screen.getByTestId("inspector-context-trigger").getAttribute("aria-expanded")).toBe(
++      "false",
++    );
 +  });
 +  it("shows a non-git empty state instead of a branch or actionable changes", () => {
 +    render(
@@ -10929,97 +11069,127 @@ index 0000000000000000000000000000000000000000..ac7ba5704ad9186966e0eef302d03b82
 +  });
 +});
 diff --git a/packages/ui/test/v4ConversationStatusPanel.test.ts b/packages/ui/test/v4ConversationStatusPanel.test.ts
-index 79a0fb4876bc9af54192e6987879540298e1ab02..88669656074aaeb1f6fbf3e80f4dbfb64600e182 100644
+index 79a0fb4876bc9af54192e6987879540298e1ab02..e1b9f6a1459e36fd86d13bbcc4e71409cda8cfc4 100644
 --- a/packages/ui/test/v4ConversationStatusPanel.test.ts
 +++ b/packages/ui/test/v4ConversationStatusPanel.test.ts
-@@ -1635,6 +1635,111 @@ describe("ConversationStatusPanel", () => {
+@@ -1635,6 +1635,141 @@ describe("ConversationStatusPanel", () => {
      expect(agentSection).not.toContain("启动开发服务器");
    });
  
-+  it("renders the background task card right after git changes with one-line rows", async () => {
-+    // 规格见 docs/session-context-and-mcp-diagnostics.md「右侧会话信息栏」。
-+    const html = await renderStatusPanel({
-+      summaryPanelVariantOverride: "panel",
-+      onCancelBackgroundWork: vi.fn(),
-+      endedSubagentCount: 7,
-+      backgroundWorks: [
-+        backgroundWork({ workId: "bg-older", kind: "bash", title: "构建产物", startedAt: 1_000 }),
-+        backgroundWork({ workId: "bg-newer", kind: "bash", title: "跑测试", startedAt: 2_000 }),
-+      ],
-+      runningSubagents: [
-+        runningSubagent({ childSessionId: "child-1", title: "扫描依赖", startedAt: 3_000 }),
-+      ],
-+    });
++  it.each([false, true])(
++    "omits the aggregate background card with inspector=%s",
++    async (inspector) => {
++      const html = await renderStatusPanel({
++        summaryPanelVariantOverride: "panel",
++        ...(inspector
++          ? { inspector: createElement("div", { "data-inspector-card": "changes" }) }
++          : {}),
++        onCancelBackgroundWork: vi.fn(),
++        onOpenBackgroundBash: vi.fn(),
++        onOpenSubagentDirectory: vi.fn(),
++        parentSessionId: "parent-session",
++        endedSubagentCount: 7,
++        backgroundWorks: [
++          backgroundWork({ workId: "bg-bash", kind: "bash", title: "构建产物" }),
++          backgroundWork({ workId: "bg-agent", kind: "subagent", childSessionId: "child-1" }),
++        ],
++        runningSubagents: [runningSubagent({ childSessionId: "child-1", title: "扫描依赖" })],
++      });
 +
-+    // 卡片存在，且位于改动之后、Goal/Terminal 之前。
-+    const cardIndex = html.indexOf('data-status-section="backgroundTasks"');
-+    const gitIndex = html.indexOf('data-status-section="environment"');
-+    const terminalIndex = html.indexOf('data-status-section="terminal"');
-+    expect(cardIndex).toBeGreaterThan(-1);
-+    expect(gitIndex).toBeGreaterThan(-1);
-+    expect(cardIndex).toBeGreaterThan(gitIndex);
-+    if (terminalIndex > -1) expect(terminalIndex).toBeGreaterThan(cardIndex);
++      expect(html).not.toContain('data-status-section="backgroundTasks"');
++      expect(html).not.toContain('data-inspector-card="backgroundTasks"');
++      expect(html).not.toContain('data-testid="background-tasks-finished"');
++      expect(html).toContain('data-status-section="terminal"');
++      expect(html).toContain('data-status-section="agent"');
++      expect(html.match(/data-testid="v4-background-work-item-bg-bash"/g)).toHaveLength(1);
++      expect(html.match(/data-testid="v4-background-work-item-bg-agent"/g)).toHaveLength(1);
++      expect(html).toContain('data-testid="background-bash-open"');
++      expect(html).toContain('data-testid="v4-background-work-cancel-bg-bash"');
++      expect(html).toContain('data-testid="v4-background-work-cancel-bg-agent"');
++      expect(html).toContain("chat.statusPanel.endedAgents");
++      expect(html).toContain("构建产物");
++      expect(html).toContain("扫描依赖");
++    },
++  );
 +
-+    const card = html.slice(cardIndex, terminalIndex > -1 ? terminalIndex : undefined);
-+    expect(card).toContain("chat.statusPanel.backgroundTasks");
-+    // 三种任务都在同一张卡里出现。
-+    expect(card).toContain("构建产物");
-+    expect(card).toContain("跑测试");
-+    expect(card).toContain("扫描依赖");
-+    // 已完成计数来自权威投影的 endedTotal。
-+    expect(card).toContain("chat.statusPanel.backgroundTasksFinished");
-+    expect(card).toContain('data-testid="background-tasks-finished"');
-+    // 独立状态面板没有信息卡外壳：仍是状态分区（含同名滚动视口），不套信息栏卡片。
-+    expect(html).not.toContain('data-inspector-card="backgroundTasks"');
-+    expect(html).toContain('data-status-section-scroll="backgroundTasks"');
-+  });
-+
-+  it("draws background tasks in the same card shell as the session info cards", async () => {
-+    // Bug：信息栏模式下其他卡片都有 rounded-xl/card-border/bg-card 外壳，
-+    // 后台任务却仍是裸分区，看起来不像卡片（截图：2026-10-24）。
++  it("draws Progress and Agents in the same inspector card shell", async () => {
++    // Bug：信息栏模式下 Todo 与智能体仍是透明分区并靠横线分隔（截图：2026-10-24）。
 +    statusPanelCapture.collapsibles = [];
 +    const html = await renderStatusPanel({
 +      summaryPanelVariantOverride: "panel",
 +      inspector: createElement("div", { "data-inspector-card": "changes" }),
-+      onCancelBackgroundWork: vi.fn(),
-+      endedSubagentCount: 4,
++      plan: planState(),
 +      backgroundWorks: [
-+        backgroundWork({ workId: "bg-keep", kind: "bash", title: "终端任务", startedAt: 1_000 }),
++        backgroundWork({
++          workId: "agent-work",
++          kind: "subagent",
++          childSessionId: "child-card",
++        }),
 +      ],
-+      runningSubagents: [
-+        runningSubagent({ childSessionId: "child-card", title: "子代理任务", startedAt: 2_000 }),
-+      ],
++      runningSubagents: [runningSubagent({ childSessionId: "child-card" })],
++      endedSubagentCount: 3,
++      parentSessionId: "parent-session",
++      rootSessionId: "root-session",
++      onCancelBackgroundWork: vi.fn(),
++      onOpenSubagentDirectory: vi.fn(),
 +    });
 +
-+    const changesIndex = html.indexOf('data-inspector-card="changes"');
-+    const cardIndex = html.indexOf('data-inspector-card="backgroundTasks"');
-+    // 卡片紧跟「改动」，且信息栏宿主已经隐藏独立的状态分区「改动」。
-+    expect(changesIndex).toBeGreaterThan(-1);
-+    expect(cardIndex).toBeGreaterThan(changesIndex);
-+    expect(html).not.toContain('data-status-section="environment"');
++    expect([...html.matchAll(/data-inspector-card="([^"]+)"/g)].map((match) => match[1])).toEqual([
++      "changes",
++      "plan",
++      "agent",
++    ]);
 +
-+    // 从卡片元素的起始标签开始切，才能看到容器上的 data-status-section。
-+    const card = html.slice(html.lastIndexOf("<div", cardIndex));
-+    // 与 SessionInspector 的卡片共用同一容器类名，不另画一套。
-+    expect(card).toContain("min-w-0 rounded-xl border border-card-border bg-card p-3");
-+    expect(card).toContain('data-status-section="backgroundTasks"');
-+    expect(card).toContain("chat.statusPanel.backgroundTasks");
-+    // 标题行给出总数（1 个终端 + 1 个子代理）。
-+    expect(card).toContain(
-+      'chat.statusPanel.backgroundTasks</span><span class="shrink-0 tabular-nums">2</span>',
++    for (const section of ["plan", "agent"]) {
++      const cardIndex = html.indexOf(`data-inspector-card="${section}"`);
++      const nextCardIndex = html.indexOf("data-inspector-card=", cardIndex + 1);
++      const card = html.slice(
++        html.lastIndexOf("<div", cardIndex),
++        nextCardIndex === -1 ? undefined : html.lastIndexOf("<div", nextCardIndex),
++      );
++      // 与 SessionInspector 的卡片共用同一容器类名，不另画一套。
++      expect(card).toContain("min-w-0 rounded-xl border border-card-border bg-card p-3");
++      expect(card).toContain(`data-status-section="${section}"`);
++      expect(card).toContain(`data-status-section-scroll="${section}"`);
++    }
++    const planIndex = html.indexOf('data-inspector-card="plan"');
++    expect(html.slice(planIndex, html.indexOf('data-inspector-card="agent"'))).toContain("1/2");
++
++    const agentCard = html.slice(
++      html.lastIndexOf("<div", html.indexOf('data-inspector-card="agent"')),
 +    );
-+    // 折叠仍然可用：卡片自带 Collapsible，宿主未受控时由卡片内部默认展开。
-+    expect(
-+      statusPanelCapture.collapsibles.find((entry) => entry.section === "backgroundTasks"),
-+    ).toBeDefined();
-+    // 列表仍在 max-h-48 的滚动视口里，且最老的在最前。
-+    expect(card).toContain('data-status-section-scroll="backgroundTasks"');
-+    expect(card).toContain("max-h-48");
-+    expect(card.indexOf("终端任务")).toBeLessThan(card.indexOf("子代理任务"));
-+    // 停止按钮与已完成计数都保留。
-+    expect(card).toContain("chat.summaryPanel.stopRunningBackgroundTask");
-+    expect(card).toContain('data-testid="background-tasks-finished"');
-+    expect(card).toContain("chat.statusPanel.backgroundTasksFinished 4");
++    expect(agentCard).toContain("chat.statusPanel.agents");
++    expect(agentCard).toContain("chat.statusPanel.runningAgentsValue 1");
++    // 结束任务目录行与停止按钮仍留在 Agent 卡片内，折叠默认关闭由卡片自身承载。
++    expect(agentCard).toContain("chat.statusPanel.endedAgents");
++    expect(agentCard).toContain("chat.statusPanel.runningStop");
++    expect(agentCard).toContain('data-work-id="agent-work"');
++    const agent = statusPanelCapture.collapsibles.find((entry) => entry.section === "agent");
++    expect(agent?.open).toBe(false);
++  });
++
++  it("stretches the wide inspector card column to the pane bottom", async () => {
++    // 截图 2026-10-24：宽屏信息栏被 64dvh 限高截断在输入框上方，底部留大段空白。
++    // 宽屏卡片模式必须让外层有确定高度、shell 铺满，卡片列才能滚到最后内容。
++    for (const summaryPanelVariantOverride of ["panel", null] as const) {
++      const html = await renderStatusPanel({
++        ...(summaryPanelVariantOverride ? { summaryPanelVariantOverride } : {}),
++        inspector: createElement("div", { "data-inspector-card": "changes" }),
++      });
++      expect(html).toContain("@min-[1280px]/conversation:bottom-4");
++      expect(html).toContain("@min-[1280px]/conversation:h-full");
++      expect(html).toContain("@min-[1280px]/conversation:max-h-none");
++      expect(html).not.toContain("@min-[1280px]/conversation:max-h-[calc(100dvh-10rem)]");
++      // 窄容器仍保留原来的限高，胶囊/浮层行为不能被底部拉伸影响。
++      expect(html).toMatch(/max-h-\[min\(64dvh,calc\(100dvh-10rem\)\)\]|max-h-8\.5/);
++    }
++  });
++
++  it("keeps the narrow status panel height cap without the inspector", async () => {
++    const html = await renderStatusPanel({});
++    expect(html).toContain("max-h-[min(64dvh,32rem)]");
++    expect(html).not.toContain("@min-[1280px]/conversation:bottom-4");
++    expect(html).not.toContain("@min-[1280px]/conversation:h-full");
 +  });
 +
 +  it("hides the background task card when there is nothing to show", async () => {
@@ -11155,6 +11325,41 @@ index 0000000000000000000000000000000000000000..1e51a6d593a3078e3b890961d2bba39b
 +    ).toBe("查阅 2 次, 网页抓取 1 次");
 +  });
 +});
+diff --git a/packages/ui/test/v4SessionPaneLayoutParity.test.ts b/packages/ui/test/v4SessionPaneLayoutParity.test.ts
+index 9bce67c57e8672fae6dedc6b5bc8630724f59266..0315dc4c9ec543ce6adea80a2088be49d476bc91 100644
+--- a/packages/ui/test/v4SessionPaneLayoutParity.test.ts
++++ b/packages/ui/test/v4SessionPaneLayoutParity.test.ts
+@@ -406,6 +406,30 @@ describe("SessionPane v4 chat layout parity", () => {
+     );
+   });
+ 
++  it("places the status rail in the full-height conversation container outside the timeline", () => {
++    const html = renderPane();
++    const conversationContainerStart = html.indexOf(
++      "@container/conversation relative flex min-h-0 flex-1 flex-col",
++    );
++    const statusIndex = html.indexOf('data-testid="mock-status"');
++    const timelineIndex = html.indexOf('data-v4-timeline-scroll="true"');
++    const composerIndex = html.indexOf('data-v4-composer-dock="true"');
++
++    expect(conversationContainerStart).toBeGreaterThanOrEqual(0);
++    // 右栏和 timeline 是该 relative flex-1 容器的兄弟节点；右栏 absolute wrapper 的
++    // containing block 底边就是会话 pane 可用底边，与窗口高度无关。
++    expect(conversationContainerStart).toBeLessThan(statusIndex);
++    expect(statusIndex).toBeLessThan(timelineIndex);
++    // composer 在 timeline 内部的滚动/裁剪容器里，不包含右栏，不能裁掉信息栏。
++    expect(timelineIndex).toBeLessThan(composerIndex);
++
++    const paneRootStart = html.indexOf('data-testid="v4-session-pane-workspace-main"');
++    expect(paneRootStart).toBeGreaterThanOrEqual(0);
++    expect(html.slice(paneRootStart, conversationContainerStart)).toContain(
++      "relative flex h-full min-h-0 flex-col",
++    );
++  });
++
+   it("anchors the back-to-bottom control to the composer dock above input", () => {
+     const html = renderPane();
+ 
 diff --git a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
 index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e9ef47f0e 100644
 --- a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts

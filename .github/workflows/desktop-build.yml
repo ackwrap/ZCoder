@@ -8,6 +8,15 @@ on:
         description: "Display version (defaults to 3.16.2-<run number>)"
         required: false
         type: string
+      platform:
+        description: "Platform to build"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - linux
 
 permissions:
   contents: read
@@ -32,18 +41,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: win
-            arch: x64
-            label: windows-x64
-            runner: windows-latest
-            shell: bash
-          - os: linux
-            arch: x64
-            label: linux-x64
-            runner: ubuntu-latest
-            shell: bash
+      matrix: ${{ fromJSON(inputs.platform == 'windows' && '{"include":[{"os":"win","arch":"x64","label":"windows-x64","runner":"windows-latest","shell":"bash"}]}' || inputs.platform == 'linux' && '{"include":[{"os":"linux","arch":"x64","label":"linux-x64","runner":"ubuntu-latest","shell":"bash"}]}' || '{"include":[{"os":"win","arch":"x64","label":"windows-x64","runner":"windows-latest","shell":"bash"},{"os":"linux","arch":"x64","label":"linux-x64","runner":"ubuntu-latest","shell":"bash"}]}') }}
     steps:
       - name: Checkout with pinned ZCode submodule
         uses: actions/checkout@v4
