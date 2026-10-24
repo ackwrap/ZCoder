@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "a2fe8dd74385c72332947db52cf45fa074015b7b",
-  "tree": "d2ec690d6189323a47a8ce0abd844fa765f9643e",
+  "sourceHead": "8a7f13e816b1f46c70446e8038d5b0f8268806b2",
+  "tree": "878e3cd57bdfb40892c7d3a30934e85fd2cd6717",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -152,7 +152,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "c7acd772f07f43c728aac3b1797090ddbf939ff682b1aa66992972cc370074e2",
+      "sha256": "b0ede41696354dbb4a9d1fbcb6a0a7e130593a61ccd78fa36b67b2e26ac9218a",
       "paths": [
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
@@ -167,7 +167,6 @@
         "docs/task-output-contract.md",
         "docs/third-party/opencode-codex-MIT.txt",
         "docs/ui/chat-summary-panel.md",
-        "docs/ui/composer-git-branch-switcher.md",
         "docs/ui/explore-run-summary.md",
         "docs/ui/login-page.md",
         "docs/ui/navigation-entry-removals.md",
@@ -315,9 +314,8 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "ab80c84c44a0954e181c790bbdf37464d892e7f62bd41b42b2e53bdb76283fc3",
+      "sha256": "98cea49081b736cfdb0fce87a6d878d1456bc71870a368f598aa4b55d7730aec",
       "paths": [
-        "packages/ui/src/GitBranchSwitcher.tsx",
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
         "packages/ui/src/SettingsPage.tsx",
@@ -349,7 +347,6 @@
         "packages/ui/src/lib/mcpStatusCommand.ts",
         "packages/ui/src/lib/settingsNavigation.ts",
         "packages/ui/src/project-sidebar/index.tsx",
-        "packages/ui/src/prompt-editor/useComposerToolbarFit.ts",
         "packages/ui/src/provider-model-discovery/CONTRACT.md",
         "packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx",
         "packages/ui/src/provider-model-discovery/contract.example.ts",
@@ -389,7 +386,6 @@
         "packages/ui/src/settings/settingsPageConfig.ts",
         "packages/ui/src/settingsPageHelpers.tsx",
         "packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx",
-        "packages/ui/src/v4/ConversationComposer.tsx",
         "packages/ui/src/v4/ConversationRowView.tsx",
         "packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx",
         "packages/ui/src/v4/ConversationStatusPanel.tsx",
@@ -418,8 +414,6 @@
         "packages/ui/test/codexConnection.test.ts",
         "packages/ui/test/codingPlanUpgradeDialogProvider.test.ts",
         "packages/ui/test/compactionProfileSettings.test.ts",
-        "packages/ui/test/composerToolbarFit.test.ts",
-        "packages/ui/test/gitBranchSwitcher.test.ts",
         "packages/ui/test/mcpStatusDialog.test.ts",
         "packages/ui/test/messageTaskControlToolCallBlock.test.ts",
         "packages/ui/test/modelProviderCodingPlan.test.ts",
@@ -438,7 +432,6 @@
         "packages/ui/test/toolLiveExpand.test.ts",
         "packages/ui/test/useSettingServiceCompactionPolicy.test.ts",
         "packages/ui/test/v4AssistantWorkRenderItems.test.ts",
-        "packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts",
         "packages/ui/test/v4ConversationStatusPanel.test.ts",
         "packages/ui/test/v4ConversationStatusPanelGitReview.test.ts",
         "packages/ui/test/v4ConversationTurnGroup.test.ts",

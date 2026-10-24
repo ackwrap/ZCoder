@@ -1,231 +1,3 @@
-diff --git a/packages/ui/src/GitBranchSwitcher.tsx b/packages/ui/src/GitBranchSwitcher.tsx
-index 1314165bbe922628f5abd4b32d7b75c1f7c73999..a810a00351a7c7f49345398c5af10eec9c2c8572 100644
---- a/packages/ui/src/GitBranchSwitcher.tsx
-+++ b/packages/ui/src/GitBranchSwitcher.tsx
-@@ -1,11 +1,4 @@
--import {
--  useCallback,
--  useEffect,
--  useMemo,
--  useRef,
--  useState,
--  type KeyboardEvent,
--} from "react";
-+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
- import type { GitRepositorySummary } from "@zcode/shared";
- import { Button } from "@/components/ui/button.js";
- import {
-@@ -16,11 +9,7 @@ import {
-   CommandItem,
-   CommandList,
- } from "@/components/ui/command.js";
--import {
--  Popover,
--  PopoverContent,
--  PopoverTrigger,
--} from "@/components/ui/popover.js";
-+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
- import { cn } from "@/components/lib/utils.js";
- import {
-   GitBranchCreateDialog,
-@@ -37,13 +26,7 @@ import {
-   isCoarseTouchDevice,
-   shouldRestoreChatInputFocusAfterPickerClose,
- } from "@/lib/pickerFocus.js";
--import {
--  ChevronDownIcon,
--  GitBranchIcon,
--  GitGraph,
--  LoaderIcon,
--  PlusIcon,
--} from "lucide-react";
-+import { ChevronDownIcon, GitBranchIcon, GitGraph, LoaderIcon, PlusIcon } from "lucide-react";
- 
- interface GitBranchSwitcherProps {
-   workspacePath: string;
-@@ -59,6 +42,10 @@ interface GitBranchSwitcherProps {
-   popoverSide?: "top" | "bottom" | "left" | "right";
-   avoidPopoverCollisions?: boolean;
-   showFooterActions?: boolean;
-+  /** 嵌入 composer 工具栏：窄宽度时按工具栏档位收成图标，菜单内容与动作不变。 */
-+  composerToolbar?: boolean;
-+  /** 弹层关闭后焦点归还的输入框选择器；v4 composer 的输入框 test id 与旧版不同。 */
-+  restoreFocusSelector?: string;
- }
- 
- export function GitBranchSwitcher({
-@@ -75,6 +62,8 @@ export function GitBranchSwitcher({
-   popoverSide = "top",
-   avoidPopoverCollisions = true,
-   showFooterActions = true,
-+  composerToolbar = false,
-+  restoreFocusSelector = '[data-testid="chat-input"]',
- }: GitBranchSwitcherProps) {
-   const { intl, locale } = useZCodeIntl();
-   const numberFormatter = new Intl.NumberFormat(locale);
-@@ -108,8 +97,7 @@ export function GitBranchSwitcher({
-   });
- 
-   const isVisible = gitSummary.isGitAvailable && gitSummary.isRepository;
--  const displayedCurrentBranchName =
--    branchesResult?.currentBranchName ?? gitSummary.branchName;
-+  const displayedCurrentBranchName = branchesResult?.currentBranchName ?? gitSummary.branchName;
-   const triggerLabel = useMemo(
-     () =>
-       resolveGitBranchTriggerLabel({
-@@ -143,8 +131,7 @@ export function GitBranchSwitcher({
-     });
-   }, [gitSummary.headRefType, intl, switchAssistState, triggerLabel]);
-   const branchSearchFilter = useCallback(
--    (value: string, search: string) =>
--      matchesGitBranchSearch(value, search) ? 1 : 0,
-+    (value: string, search: string) => (matchesGitBranchSearch(value, search) ? 1 : 0),
-     [],
-   );
- 
-@@ -155,9 +142,7 @@ export function GitBranchSwitcher({
- 
-     const frameId = window.requestAnimationFrame(() => {
-       const selectedItem =
--        commandListRef.current?.querySelector<HTMLElement>(
--          '[data-branch-current="true"]',
--        ) ?? null;
-+        commandListRef.current?.querySelector<HTMLElement>('[data-branch-current="true"]') ?? null;
-       selectedItem?.scrollIntoView({ block: "nearest" });
-     });
- 
-@@ -166,11 +151,10 @@ export function GitBranchSwitcher({
-     };
-   }, [branchesResult, open]);
- 
--  const handleContentKeyDown = useCallback(
--    (event: KeyboardEvent<HTMLDivElement>) => {
--      if (event.key !== "Tab") {
--        return;
--      }
-+  const handleContentKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-+    if (event.key !== "Tab") {
-+      return;
-+    }
- 
-     const highlightedItem =
-       event.currentTarget.querySelector<HTMLElement>(
-@@ -184,11 +168,9 @@ export function GitBranchSwitcher({
-       return;
-     }
- 
--      event.preventDefault();
--      highlightedItem.click();
--    },
--    [],
--  );
-+    event.preventDefault();
-+    highlightedItem.click();
-+  }, []);
- 
-   if (!isVisible) {
-     return null;
-@@ -198,7 +180,7 @@ export function GitBranchSwitcher({
-     <>
-       <div
-         data-workspace-header-branch={markAsWorkspaceHeaderBranch ? "true" : undefined}
--        className={cn("flex items-center px-1 pt-2", className)}
-+        className={cn("flex items-center", !composerToolbar && "px-1 pt-2", className)}
-       >
-         <Popover open={open} onOpenChange={setOpen}>
-           <PopoverTrigger asChild>
-@@ -207,6 +189,9 @@ export function GitBranchSwitcher({
-               variant="ghost"
-               size={"default"}
-               disabled={mutationPending}
-+              // composer 工具栏的压缩顺序由 useComposerToolbarFit 统一裁决；
-+              // 分支入口最后收成图标，不抢占模式/思考等高频控件的空间。
-+              data-composer-collapse-priority={composerToolbar ? "4" : undefined}
-               aria-label={intl.formatMessage({
-                 id: "git.branchSwitcher.trigger.ariaLabel",
-               })}
-@@ -214,8 +199,14 @@ export function GitBranchSwitcher({
-                 "min-w-0 rounded-full text-ui-base/relaxed",
-                 // Bugfix: 手机远控聊天页底部空间很窄，分支名会挤压输入工具栏；远控模式只保留图标入口。
-                 compactForRemoteControl
--                  ? "size-8 px-0"
--                  : "max-w-full pl-3 pr-2",
-+                  ? composerToolbar
-+                    ? "h-7 w-7 px-0"
-+                    : "size-8 px-0"
-+                  : composerToolbar
-+                    ? "max-w-full px-2"
-+                    : "max-w-full pl-3 pr-2",
-+                composerToolbar &&
-+                  "group/branch rounded-lg gap-1 data-[composer-compact=true]:w-7 data-[composer-compact=true]:gap-0 data-[composer-compact=true]:px-0",
-                 triggerClassName,
-               )}
-             >
-@@ -225,16 +216,18 @@ export function GitBranchSwitcher({
-               />
-               {!compactForRemoteControl ? (
-                 <>
--                  <span className="min-w-0 max-w-25 truncate text-left">{triggerLabel}</span>
-+                  <span className="min-w-0 max-w-25 truncate text-left group-data-[composer-compact=true]/branch:hidden">
-+                    {triggerLabel}
-+                  </span>
-                   {loadingBranches || mutationPending ? (
-                     <LoaderIcon
-                       data-branch-switcher-trailing-icon="true"
--                      className="size-3.5 animate-spin text-foreground-subtle"
-+                      className="size-3.5 animate-spin text-foreground-subtle group-data-[composer-compact=true]/branch:hidden"
-                     />
-                   ) : (
-                     <ChevronDownIcon
-                       data-branch-switcher-trailing-icon="true"
--                      className="size-3.5 text-foreground-subtle"
-+                      className="size-3.5 text-foreground-subtle group-data-[composer-compact=true]/branch:hidden"
-                     />
-                   )}
-                 </>
-@@ -258,9 +251,7 @@ export function GitBranchSwitcher({
-               if (!(target instanceof HTMLElement)) {
-                 return;
-               }
--              const searchInput = target.querySelector<HTMLElement>(
--                '[data-slot="command-input"]',
--              );
-+              const searchInput = target.querySelector<HTMLElement>('[data-slot="command-input"]');
-               searchInput?.focus();
-             }}
-             onCloseAutoFocus={(event) => {
-@@ -272,9 +263,7 @@ export function GitBranchSwitcher({
-               ) {
-                 return;
-               }
--              const input = document.querySelector<HTMLElement>(
--                '[data-testid="chat-input"]',
--              );
-+              const input = document.querySelector<HTMLElement>(restoreFocusSelector);
-               input?.focus();
-             }}
-           >
-@@ -302,8 +291,7 @@ export function GitBranchSwitcher({
-                   className="space-y-0.5 p-1 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-ui-base **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-foreground-subtle"
-                 >
-                   {(branchesResult?.branches ?? []).map((branch) => {
--                    const isCurrent =
--                      branch.name === displayedCurrentBranchName;
-+                    const isCurrent = branch.name === displayedCurrentBranchName;
-                     return (
-                       <CommandItem
-                         key={branch.name}
-@@ -311,9 +299,7 @@ export function GitBranchSwitcher({
-                         data-checked={isCurrent ? "true" : undefined}
-                         data-branch-current={isCurrent ? "true" : undefined}
-                         disabled={mutationPending}
--                        className={cn(
--                          "items-start gap-3 rounded-lg px-3 py-2 text-ui-base",
--                        )}
-+                        className={cn("items-start gap-3 rounded-lg px-3 py-2 text-ui-base")}
-                         onSelect={() => {
-                           void switchBranch(branch.name);
-                         }}
 diff --git a/packages/ui/src/McpStatusDialog.tsx b/packages/ui/src/McpStatusDialog.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..1532cc2caec461c6f8acf9b0bdc0fd1db741fd97
@@ -3627,21 +3399,6 @@ index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e6
                />
              </div>
            </div>
-diff --git a/packages/ui/src/prompt-editor/useComposerToolbarFit.ts b/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
-index 6b61355165a94be9eb22432871446572a0947861..2d7c1bba4484a43b0e5cb4428c6e8f789a27fe6e 100644
---- a/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
-+++ b/packages/ui/src/prompt-editor/useComposerToolbarFit.ts
-@@ -33,8 +33,8 @@ export function fitComposerToolbar(root: HTMLElement, { iconOnly = false } = {})
-   delete root.dataset.composerProviderCompact;
-   for (const control of controls) delete control.dataset.composerCompact;
-   const overflow = iconOnly ? () => Number.POSITIVE_INFINITY : () => toolbarOverflow(root);
--  // 前四档依次收起 Computer、mode、Plan、think 文字，不能合并裁决。
--  for (const priority of ["0", "1", "2", "3"]) {
-+  // 前五档依次收起 Computer、mode、Plan、think、Git 分支文字，不能合并裁决。
-+  for (const priority of ["0", "1", "2", "3", "4"]) {
-     if (overflow() <= 0) return;
-     for (const control of controls) {
-       if (control.dataset.composerCollapsePriority === priority) {
 diff --git a/packages/ui/src/provider-model-discovery/CONTRACT.md b/packages/ui/src/provider-model-discovery/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..d6d535f51659ded5c088638b52032bb432bcf28c
@@ -6337,89 +6094,6 @@ index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1b
    // 未注入时走 GlobalNoticeSurface 默认的 browserGlobalNoticeStore。
    return <GlobalNoticeSurface store={noticeStore ?? undefined} />;
  }
-diff --git a/packages/ui/src/v4/ConversationComposer.tsx b/packages/ui/src/v4/ConversationComposer.tsx
-index 8b19443f9b8c7b63b0bcaf904690ea1d790e9f2f..80d0e4dc2f2d99e6cc03db79cd51b7a6f1208be0 100644
---- a/packages/ui/src/v4/ConversationComposer.tsx
-+++ b/packages/ui/src/v4/ConversationComposer.tsx
-@@ -36,6 +36,7 @@ import { cn } from "@/components/lib/utils.js";
- import { HighspeedComposerBackground } from "@/highspeed/HighspeedActivationVisual.js";
- import { useHighspeedComposerEntrance } from "@/highspeed/useHighspeedComposerEntrance.js";
- import {
-+  type GitRepositorySummary,
-   type HighspeedCardSnapshot,
-   type PlanIdentitySnapshot,
-   type ZCodeProvider,
-@@ -69,6 +70,7 @@ import {
-   XIcon,
- } from "lucide-react";
- import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-+import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
- import {
-   ChatErrorBanner,
-   resolveChatErrorBannerDisplayMessage,
-@@ -490,6 +492,13 @@ export interface ConversationComposerProps {
-   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
-   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
-   onSwitchMode: (mode: string) => void;
-+  /**
-+   * 底栏 Git 分支入口的数据源：复用宿主/状态面板同一份 Git 快照，不新增读取路径。
-+   * `contextHeader` 已提供入口（草稿态）或不是 Git 仓库时不渲染。
-+   */
-+  gitSummary?: GitRepositorySummary | null;
-+  gitDirtyFileCount?: number;
-+  onRefreshGit?: () => void;
-   /** 打开当前 session 的 Status panel，并直达 Running 明细。 */
-   onOpenRunningBackgroundWorks?: () => void;
-   /**
-@@ -589,6 +598,9 @@ function ConversationComposerImpl({
-   onSelectModel,
-   onSelectThought,
-   onSwitchMode,
-+  gitSummary,
-+  gitDirtyFileCount = 0,
-+  onRefreshGit,
-   onOpenRunningBackgroundWorks,
-   backgroundWorkOpenTarget = "panel",
-   runningSubagentCount = 0,
-@@ -2494,6 +2506,23 @@ function ConversationComposerImpl({
-           onOpen={onOpenRunningBackgroundWorks}
-           openTarget={backgroundWorkOpenTarget}
-         />
-+        {/* 底栏分支入口复用状态面板的 Git 快照；草稿态上方 contextHeader 已提供入口，
-+            同一输入区不重复渲染。非 Git 工作区或无刷新通道时整个入口不挂载。 */}
-+        {gitSummary?.isGitAvailable && gitSummary.isRepository && onRefreshGit && !contextHeader ? (
-+          <GitBranchSwitcher
-+            workspacePath={workspacePath}
-+            gitSummary={gitSummary}
-+            dirtyFileCount={gitDirtyFileCount}
-+            onRefreshGit={onRefreshGit}
-+            composerToolbar
-+            compactForRemoteControl={isWebRemoteControl}
-+            // 输入区在底部：锁定向上展开，避免菜单遮挡编辑器。
-+            popoverSide="top"
-+            avoidPopoverCollisions={false}
-+            // v4 编辑器的输入框 test id 与旧版不同，关闭弹层后要把焦点还给当前输入框。
-+            restoreFocusSelector={`[data-testid="${TID_V4_COMPOSER_INPUT}"]`}
-+          />
-+        ) : null}
-       </>
-     ),
-     [
-@@ -2502,10 +2531,14 @@ function ConversationComposerImpl({
-       disabled,
-       runtimeBlocked,
-       draftConfig,
-+      gitDirtyFileCount,
-+      gitSummary,
-       handleConfigPickerOpenChange,
-       isWebRemoteControl,
-       backgroundWorkOpenTarget,
-+      contextHeader,
-       onOpenRunningBackgroundWorks,
-+      onRefreshGit,
-       onSwitchMode,
-       provider,
-       remoteSessionId,
 diff --git a/packages/ui/src/v4/ConversationRowView.tsx b/packages/ui/src/v4/ConversationRowView.tsx
 index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e895d14843 100644
 --- a/packages/ui/src/v4/ConversationRowView.tsx
@@ -7550,7 +7224,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9ae78ff7f5 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04a2914071 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -7726,18 +7400,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9a
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5443,6 +5428,10 @@ export function SessionPane({
-       workspacePath={workspacePath}
-       workspaceIdentity={workspaceIdentity}
-       remoteSessionId={remoteSessionId ?? undefined}
-+      // 底栏分支入口与状态面板共用同一份 Git 快照；切换成功后由 onRefreshGit 统一刷新。
-+      gitSummary={gitSummary}
-+      gitDirtyFileCount={gitDirtyFileCount}
-+      onRefreshGit={onRefreshGit}
-       modelSelectionView={
-         modelSelectionView ??
-         (modelSelectionRead.state.status === "loading" ? modelSelectionRead.state.catalog : null)
-@@ -5482,7 +5471,6 @@ export function SessionPane({
+@@ -5482,7 +5467,6 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -7745,7 +7408,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9a
        modelConfigTarget={modelConfigTarget}
        onOpenCodeViewer={onOpenCodeViewer}
        suppressGoalCommands={selectionSideChat}
-@@ -5570,12 +5558,6 @@ export function SessionPane({
+@@ -5570,12 +5554,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -7758,7 +7421,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9a
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5610,14 @@ export function SessionPane({
+@@ -5628,6 +5606,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -7773,7 +7436,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..85d7f9db0d7926bf6976433fe891af9a
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5749,39 @@ export function SessionPane({
+@@ -5759,6 +5745,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -10907,101 +10570,6 @@ index 0000000000000000000000000000000000000000..a085d46648f62d0d9b28b09a21d78d68
 +    await waitFor(() => expect(input.disabled).toBe(false));
 +  });
 +});
-diff --git a/packages/ui/test/composerToolbarFit.test.ts b/packages/ui/test/composerToolbarFit.test.ts
-index 36180737cb4961f813efd3469136f18850fc9381..6042c9c54e4749812103ac3f52cb2bbbf87ebdab 100644
---- a/packages/ui/test/composerToolbarFit.test.ts
-+++ b/packages/ui/test/composerToolbarFit.test.ts
-@@ -152,6 +152,37 @@ describe("composer toolbar fit", () => {
-     expect(f.root.dataset.composerProviderCompact).toBeUndefined();
-     expect(f.root.dataset.composerModelIcon).toBeUndefined();
-   });
-+
-+  it("Git 分支入口作为第五档收成图标，空间恢复后展开", () => {
-+    const root = document.createElement("div");
-+    root.style.columnGap = "12px";
-+    root.innerHTML = `<div data-composer-leading-actions><div data-composer-leading-content>
-+      <button data-composer-collapse-priority="4"></button>
-+    </div></div><div data-composer-trailing-actions><button></button></div>`;
-+    const branch = root.querySelector<HTMLElement>('[data-composer-collapse-priority="4"]')!;
-+    const leading = root.querySelector<HTMLElement>("[data-composer-leading-content]")!;
-+    const available = root.querySelector<HTMLElement>("[data-composer-leading-actions]")!;
-+    const trailing = root.querySelector<HTMLElement>("[data-composer-trailing-actions]")!;
-+    const rect = (width: number) => ({ width }) as DOMRect;
-+    const branchWidth = () => (branch.dataset.composerCompact ? 28 : 100);
-+    let width = 200;
-+    branch.getBoundingClientRect = () => rect(branchWidth());
-+    leading.getBoundingClientRect = () => rect(branchWidth());
-+    trailing.getBoundingClientRect = () => rect(28);
-+    available.getBoundingClientRect = () => rect(width - 28 - 12);
-+    root.getBoundingClientRect = () => rect(width);
-+
-+    fitComposerToolbar(root);
-+    expect(branch.dataset.composerCompact).toBeUndefined();
-+
-+    width = 120;
-+    fitComposerToolbar(root);
-+    expect(branch.dataset.composerCompact).toBe("true");
-+
-+    width = 200;
-+    fitComposerToolbar(root);
-+    expect(branch.dataset.composerCompact).toBeUndefined();
-+  });
- });
- 
- // Side Pane 完整视图浮窗的单行输入框：工具栏宽度随内容变化，不能测量，直接收到最后一级。
-diff --git a/packages/ui/test/gitBranchSwitcher.test.ts b/packages/ui/test/gitBranchSwitcher.test.ts
-index 8f28c604a932e804e3059ad5bde997e17c3fdd5a..765aa5a0f9ffdebc0b267bdab882dab555ef01b9 100644
---- a/packages/ui/test/gitBranchSwitcher.test.ts
-+++ b/packages/ui/test/gitBranchSwitcher.test.ts
-@@ -22,15 +22,12 @@ vi.mock("@/components/ui/button.js", () => ({
- 
- vi.mock("@/components/ui/command.js", () => ({
-   Command: ({ children }: { children: ReactNode }) => createElement("div", null, children),
--  CommandEmpty: ({ children }: { children: ReactNode }) =>
--    createElement("div", null, children),
--  CommandGroup: ({ children }: { children: ReactNode }) =>
--    createElement("div", null, children),
-+  CommandEmpty: ({ children }: { children: ReactNode }) => createElement("div", null, children),
-+  CommandGroup: ({ children }: { children: ReactNode }) => createElement("div", null, children),
-   CommandInput: (props: Record<string, unknown>) => createElement("input", props),
-   CommandItem: ({ children, ...props }: { children: ReactNode }) =>
-     createElement("div", props, children),
--  CommandList: ({ children }: { children: ReactNode }) =>
--    createElement("div", null, children),
-+  CommandList: ({ children }: { children: ReactNode }) => createElement("div", null, children),
- }));
- 
- vi.mock("@/components/ui/popover.js", () => ({
-@@ -152,4 +149,29 @@ describe("GitBranchSwitcher", () => {
-     expect(html).not.toContain("git.branchSwitcher.createAction");
-     expect(html).not.toContain("gitGraph.menuAction");
-   });
-+
-+  it("joins the composer toolbar collapse order in its compact form", async () => {
-+    const { GitBranchSwitcher } = await import("@/GitBranchSwitcher.js");
-+
-+    const html = renderToStaticMarkup(
-+      createElement(GitBranchSwitcher, {
-+        composerToolbar: true,
-+        dirtyFileCount: 0,
-+        gitSummary: {
-+          branchName: "main",
-+          headRefType: "branch",
-+          isGitAvailable: true,
-+          isRepository: true,
-+        },
-+        onRefreshGit: vi.fn(),
-+        workspacePath: "/workspace/zcode-cli",
-+      }),
-+    );
-+
-+    expect(html).toContain('data-composer-collapse-priority="4"');
-+    expect(html).toContain("group/branch");
-+    expect(html).toContain("data-[composer-compact=true]:w-7");
-+    // 工具栏形态不带工作区头部入口的独立内边距，避免把底栏行高撑开。
-+    expect(html).not.toContain("px-1 pt-2");
-+  });
- });
 diff --git a/packages/ui/test/mcpStatusDialog.test.ts b/packages/ui/test/mcpStatusDialog.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e8336b292281e03d0c1f5e45c48541b1036cd0fc
@@ -13161,177 +12729,6 @@ index e89297a203f59dee4af8755c965c47a75ff7eb2f..2d5692a115d4585a17b83f867086eac2
    });
  
    it("ends Explore and starts a Changes group for write tools", () => {
-diff --git a/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts b/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..ac7ba5704ad9186966e0eef302d03b82d71a54d6
---- /dev/null
-+++ b/packages/ui/test/v4ConversationComposerBranchSwitcher.test.ts
-@@ -0,0 +1,165 @@
-+// @vitest-environment node
-+import { createElement, type ComponentType, type ReactNode } from "react";
-+import { renderToStaticMarkup } from "react-dom/server";
-+import { afterEach, describe, expect, it, vi } from "vitest";
-+import { ConversationComposer } from "@/v4/ConversationComposer.js";
-+import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
-+
-+const captured = vi.hoisted(() => ({
-+  branchProps: null as Record<string, unknown> | null,
-+}));
-+
-+vi.mock("@/GitBranchSwitcher.js", async () => {
-+  const React = await import("react");
-+  return {
-+    GitBranchSwitcher: (props: Record<string, unknown>) => {
-+      captured.branchProps = props;
-+      return React.createElement("div", { "data-testid": "mock-git-branch-switcher" });
-+    },
-+  };
-+});
-+
-+vi.mock("@/ChatErrorBanner.js", async () => {
-+  const React = await import("react");
-+  return {
-+    ChatErrorBanner: () => React.createElement("section", { "data-testid": "mock-error-banner" }),
-+    resolveChatErrorBannerDisplayMessage: () => null,
-+    shouldSuppressChatErrorBanner: () => false,
-+  };
-+});
-+
-+vi.mock("@/ControlHintTooltip.js", async () => {
-+  const React = await import("react");
-+  return {
-+    ControlHintTooltip: ({ children }: { children: ReactNode }) =>
-+      React.createElement(React.Fragment, null, children),
-+  };
-+});
-+
-+vi.mock("@/prompt-editor/ChatPromptEditor.js", async () => {
-+  const React = await import("react");
-+  return {
-+    ChatPromptEditor: (props: { leadingActions?: ReactNode }) =>
-+      React.createElement(
-+        "form",
-+        { "data-testid": "mock-chat-prompt-editor" },
-+        props.leadingActions,
-+      ),
-+  };
-+});
-+
-+vi.mock("@/v4/composer/useComposerAttachments.js", () => ({
-+  useComposerAttachments: () => ({
-+    attachments: [],
-+    attachmentError: null,
-+    adoptSentAttachments: vi.fn(async () => {}),
-+    hasAttachments: false,
-+    hasUnreadyAttachments: false,
-+    isDraggingOverComposer: false,
-+    attachmentInputRef: { current: null },
-+    openAttachmentPicker: vi.fn(),
-+    handleAttachmentInputChange: vi.fn(),
-+    handlePaste: vi.fn(),
-+    handleDragOverComposer: vi.fn(),
-+    handleDragLeaveComposer: vi.fn(),
-+    handleDropComposer: vi.fn(),
-+    handleWhiteboardMentionSelected: vi.fn(),
-+    removeAttachment: vi.fn(),
-+    retryAttachment: vi.fn(),
-+    clearAttachments: vi.fn(),
-+    prepareForSend: vi.fn(async () => []),
-+    setAttachmentError: vi.fn(),
-+  }),
-+}));
-+
-+vi.mock("@/v4/composer/V4ComposerToolbar.js", async () => {
-+  const React = await import("react");
-+  const Stub = ({ label }: { label: string }) => React.createElement("span", null, label);
-+  return {
-+    V4ComposerModeSwitch: () => React.createElement(Stub, { label: "mode" }),
-+    V4ComposerModelControls: () => React.createElement(Stub, { label: "model" }),
-+  };
-+});
-+
-+const AnyConversationComposer = ConversationComposer as unknown as ComponentType<
-+  Record<string, unknown>
-+>;
-+
-+function renderComposer(overrides: Record<string, unknown> = {}): string {
-+  return renderToStaticMarkup(
-+    createElement(
-+      ZCodeIntlProvider,
-+      { initialLocale: "zh-CN" },
-+      createElement(AnyConversationComposer, {
-+        snapshot: null,
-+        sessionId: "session-1",
-+        workspacePath: "/workspace",
-+        composerDraft: { text: "", updatedAt: 1 },
-+        onSendText: vi.fn(async () => {}),
-+        onStop: vi.fn(),
-+        onSelectModel: vi.fn(),
-+        onSelectThought: vi.fn(),
-+        onSwitchMode: vi.fn(),
-+        ...overrides,
-+      }),
-+    ),
-+  );
-+}
-+
-+const repositorySummary = {
-+  branchName: "main",
-+  headRefType: "branch",
-+  isGitAvailable: true,
-+  isRepository: true,
-+} as const;
-+
-+afterEach(() => {
-+  captured.branchProps = null;
-+});
-+
-+describe("ConversationComposer Git branch entry", () => {
-+  it("在会话底栏渲染分支入口并复用宿主 Git 快照", () => {
-+    const onRefreshGit = vi.fn();
-+
-+    const html = renderComposer({
-+      gitSummary: repositorySummary,
-+      gitDirtyFileCount: 3,
-+      onRefreshGit,
-+    });
-+
-+    expect(html).toContain("mock-git-branch-switcher");
-+    expect(captured.branchProps).toMatchObject({
-+      composerToolbar: true,
-+      dirtyFileCount: 3,
-+      popoverSide: "top",
-+      avoidPopoverCollisions: false,
-+      restoreFocusSelector: '[data-testid="v4-composer-input"]',
-+      workspacePath: "/workspace",
-+    });
-+    expect(captured.branchProps?.onRefreshGit).toBe(onRefreshGit);
-+  });
-+
-+  it("草稿态上方已有 contextHeader 入口时不重复渲染", () => {
-+    const html = renderComposer({
-+      contextHeader: createElement("nav", { "data-testid": "mock-context-header" }),
-+      gitSummary: repositorySummary,
-+      onRefreshGit: vi.fn(),
-+    });
-+
-+    expect(html).toContain("mock-context-header");
-+    expect(html).not.toContain("mock-git-branch-switcher");
-+  });
-+
-+  it("非 Git 工作区或无刷新通道时不渲染入口", () => {
-+    expect(
-+      renderComposer({
-+        gitSummary: { ...repositorySummary, isRepository: false },
-+        onRefreshGit: vi.fn(),
-+      }),
-+    ).not.toContain("mock-git-branch-switcher");
-+
-+    expect(renderComposer({ gitSummary: repositorySummary })).not.toContain(
-+      "mock-git-branch-switcher",
-+    );
-+  });
-+});
 diff --git a/packages/ui/test/v4ConversationStatusPanel.test.ts b/packages/ui/test/v4ConversationStatusPanel.test.ts
 index 79a0fb4876bc9af54192e6987879540298e1ab02..e1b9f6a1459e36fd86d13bbcc4e71409cda8cfc4 100644
 --- a/packages/ui/test/v4ConversationStatusPanel.test.ts
