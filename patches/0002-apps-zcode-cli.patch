@@ -68,6 +68,67 @@ index d6f4112f084361b9b5c2c05bcf5e8f4602d1ebbc..3bf951a4dcacb80510349bd3d1765fdd
  ## Bash 临时输出路径隔离
  
  主应用及 workflow 子运行时装配 tmp 父目录 → execution adapter 实际准备具名输出文件 →
+diff --git a/apps/zcode-cli/docs/design/v2/tool/01-read.md b/apps/zcode-cli/docs/design/v2/tool/01-read.md
+index cdfff1e2415ec47277674ed19e47920a62b86e6b..2e52bc3e8d96c8f2feb800f0f616ff76751e6f24 100644
+--- a/apps/zcode-cli/docs/design/v2/tool/01-read.md
++++ b/apps/zcode-cli/docs/design/v2/tool/01-read.md
+@@ -17,13 +17,13 @@
+ 
+ 设计要求：
+ 
+-- 对模型提示必须明确 `file_path` 可使用绝对路径或相对 session cwd 的路径；运行时统一规范化为绝对路径。模型侧应优先使用用户提供的绝对路径或已经解析出来的绝对路径，避免路径歧义。
++- 对模型提示必须明确 `file_path` 可使用绝对路径或相对 session cwd 的路径；运行时统一规范化为绝对路径，output 中的 `filePath` 也是该规范化后的绝对路径，不回显相对输入。模型侧应优先使用用户提供的绝对路径或已经解析出来的绝对路径，避免路径歧义。
+ - `offset`、`limit` 只用于大文件或已知目标范围。`offset` 采用模型可见行号语义：`0` 和 `1` 都表示从第 1 行开始；adapter 内部再转换为零基行偏移。
+ - 未显式传 `limit` 时，默认最多读取前 `2000` 行；显式传 `limit` 时读取 `limit` 行。
+ - 只有当前 turn 的模型明确 `supportsPdf=true` 时，provider-visible schema 和 executor schema 才同时包含 `pages`；`false` / `undefined` 保持既有 Read shape，不接受该字段。
+ - PDF `pages` 支持单页 `N`、闭区间 `N-M` 和开放尾区间语法 `N-`。页码从 1 开始；单次最多 20 页，因此开放尾区间会按“超过 20 页”拒绝，而不是在本地扩成任意上限。
+ - 模型提示必须明确：当用户提供图片、截图或支持的图片路径时，必须优先使用 `Read`，不要用 `Bash` 读 base64、调用 `file`/`identify` 或写临时脚本来代替视觉读取。`Bash` 只用于列目录、查找路径或处理当前 `Read` 不支持的文件类型。
+-- 当前实现支持文本、常见图片（`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`）、视频（`.mp4`、`.m4v`、`.mov`、`.webm`、`.mkv`、`.avi`）和按模型能力条件开放的 PDF。Jupyter Notebook、SVG 和 device path 仍是后续实现项；未实现的能力不得写入 provider-visible prompt。
++- 当前实现支持文本、常见图片（`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`）、视频（`.mp4`、`.m4v`、`.mov`、`.webm`、`.mkv`、`.avi`）和按模型能力条件开放的 PDF。Jupyter Notebook、SVG 和 device path 仍是后续实现项；未实现的能力不得写入 provider-visible prompt。Notebook 未实现期间，`.ipynb` 按普通文本读取并返回 `text` 输出，不生成 notebook cell 结果。
+ 
+ ## 输出契约
+ 
+diff --git a/apps/zcode-cli/docs/design/v2/tool/07-subagent.md b/apps/zcode-cli/docs/design/v2/tool/07-subagent.md
+index f3c454e11ccee3dc8bcf560ecff4779969493d79..c9b24ba6039a6fd9adca086d79b510a5cc06c1a4 100644
+--- a/apps/zcode-cli/docs/design/v2/tool/07-subagent.md
++++ b/apps/zcode-cli/docs/design/v2/tool/07-subagent.md
+@@ -53,6 +53,10 @@ ZCode 需要把 schema gating 做成能力协商结果，而不是在 tool 内
+ | `completed` | `prompt` 加 `agentToolResultSchema` | 同步完成，返回子 agent 最终文本、usage、tool use 数、耗时和 `agentId` |
+ | `async_launched` | `agentId`、`description`、`prompt`、`outputFile`、`canReadOutputFile` | 后台启动成功，结果稍后通过 task notification 返回 |
+ 
++`Agent` 同步返回的模型可见结果预算为 32,000 字节，与前台 `Bash` 同量级。超过预算时，
++完整的模型可见文本保存到 session artifact，模型只看到最多 2,000 字符预览、原始大小和
++artifact 路径；不因预算收紧迫使子 Agent 提前终止。后台完成通知沿用原有链路，不在本次预算调整范围内。
++
+ 内部还有两个分支：
+ 
+ | `status` | 说明 |
+@@ -399,6 +403,10 @@ ZCode 应把 hook/MCP/skill 都视为外部 I/O 或扩展边界，必须带 trac
+ - runtime 仅在 `SubagentPort.sendMessage` 可用时注册模型可见 `SendMessage`；当前 profile-backed child 固定关闭 subagent 能力且不注入该 port，因此不会注册 `SendMessage`。若未来 child 提供该 port，tool allowlist/disallowlist 仍会继续过滤模型可见工具。
+ - 内建 agent 包含默认的 `general-purpose` 和只读搜索用的 `Explore`；project/user profile 可以覆盖 system prompt、tool policy、model、permission mode、skills 和 background 设置。profile 的 `tools: ["*"]` 仍需经过全局 child tool filter、profile `disallowedTools` 和 runtime allow/disallow 规则收敛。
+ - provider-visible `TaskStop` 可以停止当前 runtime 中已经 background 的 `local_agent` / `local_bash`；`local_agent` 的 result `command` 使用短 `description`，不得回退为完整 `prompt`。
++- 内建 `Explore` prompt 要求先按调用方给出的路径、符号或文件名窄定位，只读回答所需范围，
++  达成目标后停止；避免重复父级已完成的搜索/读取，最终返回短结论和行号。
++  `maxTurns` 仍是 profile/runtime 的显式预算，不因该 guidance 新增全局硬上限；调用方明确
++  要求深入或穷尽探索时，Explore 继续执行并说明未覆盖范围。
+ 
+ ### Built-in Explore 身份边界
+ 
+diff --git a/apps/zcode-cli/docs/design/v2/tool/08-glob.md b/apps/zcode-cli/docs/design/v2/tool/08-glob.md
+index ac223a04988a018b7a1da2fc641a6df6cc062d1b..324133db3d0370aff401c44ed4f7f2c4dc1b5e8d 100644
+--- a/apps/zcode-cli/docs/design/v2/tool/08-glob.md
++++ b/apps/zcode-cli/docs/design/v2/tool/08-glob.md
+@@ -57,7 +57,9 @@ Provider-visible input schema 不添加 `minLength` 等额外限制；运行时
+ 
+ ## 结果预算
+ 
+-默认最多返回 100 个路径。结果超过模型预算时必须通过 `resultBudget` 截断或进入 artifact/storage。
++默认最多返回 100 个路径。模型可见结果预算为 20,000 字节；超过预算时通过 `resultBudget`
++进入 artifact/storage，并只返回最多 2,000 字符预览、原始大小和完整结果路径。handler 输出中的
++`truncated` 仍只表示是否因 100 个路径上限截断。该字节预算与 `Grep` 一致，避免一次目录枚举占用过多上下文。
+ 
+ ## 失败路径
+ 
 diff --git a/apps/zcode-cli/docs/design/v2/usage-observability.md b/apps/zcode-cli/docs/design/v2/usage-observability.md
 index 9ba22c575e1d43c45a419f05ecd8103c3347dee4..076c4eeadd8b6e103c62ad576cbbbc8137afd311 100644
 --- a/apps/zcode-cli/docs/design/v2/usage-observability.md
@@ -3538,6 +3599,56 @@ index 0000000000000000000000000000000000000000..3607144e75ebfe0397d6784d214867c5
 +    });
 +  }
 +}
+diff --git a/apps/zcode-cli/packages/core/src/subagent/explore.ts b/apps/zcode-cli/packages/core/src/subagent/explore.ts
+index f32661d223ea015323948ea4bd2793726fe2c5ad..dea5eb4b440cbbc8737132139086051cda4ccc16 100644
+--- a/apps/zcode-cli/packages/core/src/subagent/explore.ts
++++ b/apps/zcode-cli/packages/core/src/subagent/explore.ts
+@@ -56,12 +56,17 @@ export function buildExploreAgentPrompt(options: ExploreAgentPromptOptions): str
+     "- Use Read when you know the specific file path you need to read",
+     `- Use Bash ONLY for read-only operations (${bashReadOnlyCommands})`,
+     "- NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification",
+-    "- Adapt your search approach based on the thoroughness level specified by the caller",
++    "- Start from the path, symbol, or file name the caller supplied; scan broadly only when that is insufficient",
++    "- Read only the ranges needed to answer the request, and expand a range only when the evidence requires it",
++    "- Stop searching once the request is answered; do not exhaustively map the codebase",
++    "- Avoid repeating searches or reads the caller already reported; work on non-overlapping areas",
++    "- Return concise findings with line numbers.",
++    "- If the caller explicitly asks for exhaustive or deep exploration, continue within that stated scope and say what remains uncovered",
+     "- Communicate your final report directly as a regular message - do NOT attempt to create files",
+     "",
+     "NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:",
+     "- Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations",
+-    "- Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files",
++    "- Run independent, non-overlapping searches and reads in parallel when that reduces latency",
+     "",
+     "Complete the user's search request efficiently and report your findings clearly.",
+   ].join("\n");
+diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/agent.ts b/apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
+index 0e8f679b49ef735092369a927dc6bd4464bd1f46..a4a420e46d7015748e2d5ce07244c896ff58ae52 100644
+--- a/apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
++++ b/apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
+@@ -17,7 +17,7 @@ import {
+ import { TASK_TOOL_NAME } from "../compat.js";
+ import type { ToolEntry, ToolHandler } from "../types.js";
+ 
+-const MAX_AGENT_MODEL_BYTES = 120_000;
++const MAX_AGENT_MODEL_BYTES = 32_000;
+ 
+ const AGENT_TOOL_OUTPUT_SCHEMA = {
+   $schema: "https://json-schema.org/draft/2020-12/schema",
+diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/glob.ts b/apps/zcode-cli/packages/core/src/tool/handlers/glob.ts
+index 3de2a0c9d9d09c8bb343bcab31b2e95ba3ed9cc3..76e03364991df0c8a36f33e8d685ae753ef84a79 100644
+--- a/apps/zcode-cli/packages/core/src/tool/handlers/glob.ts
++++ b/apps/zcode-cli/packages/core/src/tool/handlers/glob.ts
+@@ -18,7 +18,7 @@ import { resolveToolWorkingDirectory, resolveWorkspacePath } from "../path-polic
+ import type { ToolEntry, ToolHandler } from "../types.js";
+ 
+ const MAX_GLOB_RESULTS = 100;
+-const MAX_GLOB_MODEL_BYTES = 100_000;
++const MAX_GLOB_MODEL_BYTES = 20_000;
+ const GLOB_TOOL_DESCRIPTION =
+   'Fast file pattern matching. Supports glob patterns like "**/*.js" or "src/**/*.ts". Returns matching file paths sorted by modification time.';
+ 
 diff --git a/apps/zcode-cli/packages/core/tests/context-builder.test.ts b/apps/zcode-cli/packages/core/tests/context-builder.test.ts
 index ccfd346e97fc2b45c7096f794ce4bd8865afa60d..b9e096eb514879b32c791b769f08d3c1500c878c 100644
 --- a/apps/zcode-cli/packages/core/tests/context-builder.test.ts
@@ -3596,6 +3707,148 @@ index ccfd346e97fc2b45c7096f794ce4bd8865afa60d..b9e096eb514879b32c791b769f08d3c1
      );
      expect(text).toContain("\n\n# Harness\n- Text you output outside of tool use");
    });
+diff --git a/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts b/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts
+index 01179f8f8ad8e6e4cf9354fc771ef059f45e704a..2d0d637d61874cb5b54b7ec882df094b340246ea 100644
+--- a/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts
++++ b/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts
+@@ -401,7 +401,7 @@ describeReadStrictContract("Read strict model-result contract", () => {
+     expect(asModelText(result.modelContent)).toBe("2\tsecond");
+   });
+ 
+-  it("reads relative paths against cwd while preserving the original input path in output data", async () => {
++  it("resolves relative paths against cwd and reports the normalized absolute path", async () => {
+     const file = join(tmpDir, "relative.txt");
+     const fs = createMemoryFileSystem({
+       [file]: "relative content",
+@@ -417,7 +417,7 @@ describeReadStrictContract("Read strict model-result contract", () => {
+ 
+     expect(result.output).toMatchObject({
+       type: "text",
+-      filePath: "relative.txt",
++      filePath: file,
+       content: "relative content",
+       startLine: 1,
+       totalLines: 1,
+@@ -561,45 +561,42 @@ describeReadStrictContract("Read strict model-result contract", () => {
+     });
+   });
+ 
+-  it("reads notebooks and maps cells to model-facing text blocks", async () => {
++  it("reads notebooks as plain text until notebook output is implemented", async () => {
+     const file = join(tmpDir, "demo.ipynb");
++    const notebookSource = JSON.stringify({
++      metadata: { language_info: { name: "python" } },
++      cells: [
++        {
++          id: "markdown-1",
++          cell_type: "markdown",
++          source: ["# Title\n", "body"],
++        },
++        {
++          id: "code-1",
++          cell_type: "code",
++          execution_count: 3,
++          source: "print('hi')",
++          outputs: [
++            {
++              output_type: "stream",
++              text: "hi\n",
++            },
++          ],
++        },
++      ],
++    });
+     const fs = createMemoryFileSystem({
+-      [file]: JSON.stringify({
+-        metadata: { language_info: { name: "python" } },
+-        cells: [
+-          {
+-            id: "markdown-1",
+-            cell_type: "markdown",
+-            source: ["# Title\n", "body"],
+-          },
+-          {
+-            id: "code-1",
+-            cell_type: "code",
+-            execution_count: 3,
+-            source: "print('hi')",
+-            outputs: [
+-              {
+-                output_type: "stream",
+-                text: "hi\n",
+-              },
+-            ],
+-          },
+-        ],
+-      }),
++      [file]: notebookSource,
+     });
+ 
+     const result = await readForModel({ file_path: file }, contextWith(fs));
+ 
+     expect(result.output).toMatchObject({
+-      type: "notebook",
+-      notebookPath: file,
++      type: "text",
++      filePath: file,
++      content: notebookSource,
+     });
+-    expect(asModelText(result.modelContent)).toContain(
+-      '<cell id="markdown-1"><cell_type>markdown</cell_type># Title\nbody</cell id="markdown-1">',
+-    );
+-    expect(asModelText(result.modelContent)).toContain(
+-      '<cell id="code-1">print(\'hi\')</cell id="code-1">',
+-    );
++    expect(asModelText(result.modelContent)).toContain(notebookSource);
+   });
+ 
+   it("serializes PDF parts Read output for the model", () => {
+@@ -850,14 +847,10 @@ function createMemoryFileSystem(
+       };
+     },
+     async listDirectory(request) {
+-      const prefix = `${request.path.replace(/\/+$/u, "")}/`;
+-      const entries = Array.from(files.keys())
+-        .filter((path) => path.startsWith(prefix))
+-        .map((path) => ({
+-          kind: "file" as const,
+-          name: path.slice(prefix.length),
+-          path,
+-        }));
++      const entries = Array.from(files.keys()).flatMap((path) => {
++        const name = relativeToDirectory(request.path, path);
++        return name === undefined ? [] : [{ kind: "file" as const, name, path }];
++      });
+       return {
+         path: request.path,
+         durationMs: 0,
+@@ -866,8 +859,9 @@ function createMemoryFileSystem(
+       };
+     },
+     async searchFiles(request): Promise<FileSystemSearchFilesResult> {
+-      const prefix = `${request.path.replace(/\/+$/u, "")}/`;
+-      const filesMatched = Array.from(files.keys()).filter((path) => path.startsWith(prefix));
++      const filesMatched = Array.from(files.keys()).filter(
++        (path) => relativeToDirectory(request.path, path) !== undefined,
++      );
+       return {
+         path: request.path,
+         pattern: request.pattern,
+@@ -893,6 +887,14 @@ function createMemoryFileSystem(
+   return fs;
+ }
+ 
++function relativeToDirectory(directory: string, path: string): string | undefined {
++  const base = directory.replace(/[\\/]+$/u, "");
++  if (!path.startsWith(base)) return undefined;
++  const separator = path.charAt(base.length);
++  if (separator !== "/" && separator !== "\\") return undefined;
++  return path.slice(base.length + 1);
++}
++
+ function readTextOrThrow(
+   path: string,
+   files: Map<string, string>,
 diff --git a/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts b/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..43b136580eaebaaf5b0ef54400219c85d69fcb7d
@@ -3889,6 +4142,253 @@ index 0000000000000000000000000000000000000000..cbaf2da6e77e0f3b6d68a290de335306
 +    expect(f.sessionStore.saveSessionEntry).not.toHaveBeenCalled();
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/core/tests/subagent-explore.test.ts b/apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
+index d821a0be80568a88b4801082816b25fd259b04c6..7e99888fb0e29f754152be0c9ba72e9fe2ca405d 100644
+--- a/apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
++++ b/apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
+@@ -63,12 +63,17 @@ Guidelines:
+ - Use Read when you know the specific file path you need to read
+ - Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head, tail)
+ - NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
+-- Adapt your search approach based on the thoroughness level specified by the caller
++- Start from the path, symbol, or file name the caller supplied; scan broadly only when that is insufficient
++- Read only the ranges needed to answer the request, and expand a range only when the evidence requires it
++- Stop searching once the request is answered; do not exhaustively map the codebase
++- Avoid repeating searches or reads the caller already reported; work on non-overlapping areas
++- Return concise findings with line numbers.
++- If the caller explicitly asks for exhaustive or deep exploration, continue within that stated scope and say what remains uncovered
+ - Communicate your final report directly as a regular message - do NOT attempt to create files
+ 
+ NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
+ - Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations
+-- Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files
++- Run independent, non-overlapping searches and reads in parallel when that reduces latency
+ 
+ Complete the user's search request efficiently and report your findings clearly.`;
+ 
+diff --git a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts b/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
+index 943ff0b80cda36bce38ca3d36bf5e6a06aa5131f..c2ea310b1ef83ffaf2abd5505c53a1ace110e0a9 100644
+--- a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
++++ b/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
+@@ -914,6 +914,12 @@ describe("tool contract declarations", () => {
+     });
+     expect(explorePrompt).toContain("Use Glob for broad file pattern matching");
+     expect(explorePrompt).toContain("Use Grep for searching file contents with regex");
++    expect(explorePrompt).toContain(
++      "Start from the path, symbol, or file name the caller supplied",
++    );
++    expect(explorePrompt).toContain("Stop searching once the request is answered");
++    expect(explorePrompt).toContain("Return concise findings with line numbers.");
++    expect(explorePrompt).toContain("=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===");
+     expect(explorePrompt).not.toContain("Use WebSearch");
+     expect(explorePrompt).not.toContain("exact model ID");
+     expect(explorePrompt).not.toContain("Assistant knowledge cutoff");
+@@ -1096,6 +1102,10 @@ describe("tool contract declarations", () => {
+     expect(explorePrompt).toContain(
+       "Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head, tail)",
+     );
++    expect(explorePrompt).toContain(
++      "Avoid repeating searches or reads the caller already reported",
++    );
++    expect(explorePrompt).toContain("=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===");
+     expect(explorePrompt).not.toContain("Use Glob for broad file pattern matching");
+     expect(explorePrompt).not.toContain("Use Grep for searching file contents with regex");
+   });
+@@ -1305,6 +1315,25 @@ describe("tool contract declarations", () => {
+     );
+   });
+ 
++  it("bounds large Agent and Glob results while keeping full output retrievable", () => {
++    expect(agentToolEntry.metadata.maxOutputBytes).toBe(32_000);
++    expect(agentToolEntry.resultBudget).toMatchObject({
++      maxInlineBytes: 32_000,
++      maxModelBytes: 32_000,
++      strategy: "artifact",
++      preview: { direction: "head" },
++      artifact: { enabled: true, retention: "session" },
++    });
++    expect(globToolEntry.metadata.maxOutputBytes).toBe(20_000);
++    expect(globToolEntry.resultBudget).toMatchObject({
++      maxInlineBytes: 20_000,
++      maxModelBytes: 20_000,
++      strategy: "artifact",
++      preview: { direction: "head" },
++      artifact: { enabled: true, retention: "session" },
++    });
++  });
++
+   it("keeps Bash model input simple while accepting semantic runtime values", () => {
+     const properties = bashToolEntry.inputSchema.properties as Record<string, { type?: string }>;
+ 
+diff --git a/apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts b/apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts
+index 54589a98839fdc5f220d697b0e8f77c937b74f1b..643a643b0fdfc84d37612323cef2044edbddb8b1 100644
+--- a/apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts
++++ b/apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts
+@@ -25,6 +25,8 @@ import { OFFICIAL_CUA_PERMISSION_RULE_TOOL_NAME } from "@zcode/shared";
+ import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
+ import { createConfiguredHookRunner, createInMemoryHookRunner } from "../src/hooks/index.js";
+ import { createToolExecutor } from "../src/tool/executor.js";
++import { agentToolEntry } from "../src/tool/handlers/agent.js";
++import { globToolEntry } from "../src/tool/handlers/glob.js";
+ import { createToolRegistry } from "../src/tool/registry.js";
+ import type { ToolEntry, ToolExecutionContext, ToolHandler } from "../src/tool/types.js";
+ import { createTestRuntimeModel } from "./test-runtime-model.js";
+@@ -2915,6 +2917,155 @@ describe("ToolExecutor trace propagation", () => {
+     expect(payload.result.artifactPath).toBe("/artifacts/artifact-1.json");
+   });
+ 
++  it("keeps Agent results inline within 32 KB and preserves oversized output in an artifact", async () => {
++    const sessionId = createSessionId("agent-result-budget");
++    const turnId = createTurnId("tool-turn");
++    const traceContext = createRootTraceContext({ sessionId, turnId });
++    const registry = createToolRegistry();
++    const artifactStore = new RecordingArtifactStore();
++
++    const completedOutput = (text: string) => ({
++      status: "completed" as const,
++      agentId: "agent_budget",
++      agentType: "Explore",
++      description: "budget",
++      prompt: "budget",
++      content: [{ type: "text" as const, text }],
++      totalToolUseCount: 1,
++      totalDurationMs: 1,
++    });
++    registry.register({
++      ...agentToolEntry,
++      handler: async () => completedOutput("agent-finding ".repeat(1_500)),
++    });
++    const executor = createToolExecutor({
++      artifactStore,
++      emitEvent: async () => {},
++      permissionService: new PermissionService(defaultPermissionConfig),
++      registry,
++      sessionId,
++      turnId,
++      traceContext,
++    });
++    const executeAgent = () =>
++      executor.execute(
++        {
++          id: createToolCallId("call-agent-budget"),
++          input: { description: "budget", prompt: "budget", subagent_type: "Explore" },
++          name: "Agent",
++        },
++        { traceContext },
++      );
++
++    const inline = await executeAgent();
++    expect(inline.success).toBe(true);
++    expect(inline.serialization?.truncated).toBe(false);
++    expect(artifactStore.requests).toHaveLength(0);
++
++    registry.register(
++      {
++        ...agentToolEntry,
++        handler: async () => completedOutput("agent-finding ".repeat(3_000)),
++      },
++      { silentDuplicateWarning: true },
++    );
++    const oversized = await executor.execute(
++      {
++        id: createToolCallId("call-agent-oversized"),
++        input: { description: "budget", prompt: "budget", subagent_type: "Explore" },
++        name: "Agent",
++      },
++      { traceContext },
++    );
++
++    expect(oversized.success).toBe(true);
++    expect(artifactStore.requests).toHaveLength(1);
++    expect(artifactStore.requests[0]?.content).toContain("agent-finding ".repeat(3_000).trim());
++    expect(artifactStore.requests[0]?.content.length).toBeGreaterThan(32_000);
++    const stored = await artifactStore.readToolResultArtifact({
++      uri: "zcode-artifact://test/artifact-1",
++    });
++    expect(stored.content).toBe(artifactStore.requests[0]?.content);
++    expect(String(oversized.modelContent)).toContain("Preview (first 2 KB)");
++    expect(String(oversized.modelContent)).toContain("/artifacts/artifact-1.json");
++    expect(String(oversized.modelContent).length).toBeLessThan(3_000);
++  });
++
++  it("keeps Glob results inline within 20 KB and preserves oversized output in an artifact", async () => {
++    const sessionId = createSessionId("glob-result-budget");
++    const turnId = createTurnId("tool-turn");
++    const traceContext = createRootTraceContext({ sessionId, turnId });
++    const registry = createToolRegistry();
++    const artifactStore = new RecordingArtifactStore();
++
++    const globOutput = (count: number) => ({
++      durationMs: 1,
++      numFiles: count,
++      filenames: Array.from(
++        { length: count },
++        (_, index) => `src/generated/${"d".repeat(180)}/file-${index}.ts`,
++      ),
++      truncated: false,
++    });
++    const inlineFilenames = globOutput(90).filenames;
++    expect(inlineFilenames.length).toBeLessThanOrEqual(100);
++    expect(Buffer.byteLength(inlineFilenames.join("\n"), "utf8")).toBeLessThanOrEqual(20_000);
++    registry.register({
++      ...globToolEntry,
++      handler: async () => globOutput(90),
++    });
++    const executor = createToolExecutor({
++      artifactStore,
++      emitEvent: async () => {},
++      permissionService: new PermissionService(defaultPermissionConfig),
++      registry,
++      sessionId,
++      turnId,
++      traceContext,
++    });
++
++    const inline = await executor.execute(
++      { id: createToolCallId("call-glob-inline"), input: { pattern: "**/*.ts" }, name: "Glob" },
++      { traceContext },
++    );
++    expect(inline.success).toBe(true);
++    expect(inline.serialization?.truncated).toBe(false);
++    expect(artifactStore.requests).toHaveLength(0);
++
++    registry.register(
++      {
++        ...globToolEntry,
++        handler: async () => globOutput(100),
++      },
++      { silentDuplicateWarning: true },
++    );
++    const oversized = await executor.execute(
++      {
++        id: createToolCallId("call-glob-oversized"),
++        input: { pattern: "**/*.ts" },
++        name: "Glob",
++      },
++      { traceContext },
++    );
++
++    expect(oversized.success).toBe(true);
++    expect(artifactStore.requests).toHaveLength(1);
++    const oversizedFilenames = globOutput(100).filenames;
++    expect(oversizedFilenames.length).toBeLessThanOrEqual(100);
++    expect(Buffer.byteLength(oversizedFilenames.join("\n"), "utf8")).toBeGreaterThan(20_000);
++    expect(artifactStore.requests[0]?.content).toContain(
++      oversizedFilenames[oversizedFilenames.length - 1]!,
++    );
++    expect(Buffer.byteLength(artifactStore.requests[0]!.content, "utf8")).toBeGreaterThan(20_000);
++    const stored = await artifactStore.readToolResultArtifact({
++      uri: "zcode-artifact://test/artifact-1",
++    });
++    expect(stored.content).toBe(artifactStore.requests[0]?.content);
++    expect(String(oversized.modelContent)).toContain("Preview (first 2 KB)");
++    expect(String(oversized.modelContent)).toContain("/artifacts/artifact-1.json");
++    expect(String(oversized.modelContent).length).toBeLessThan(3_000);
++  });
++
+   it("keeps persisted artifact preview budget independent when hook context is appended", async () => {
+     const sessionId = createSessionId("tool-artifact-budget-with-hook");
+     const turnId = createTurnId("tool-turn");
 diff --git a/apps/zcode-cli/packages/core/tests/turn-model-timing.test.ts b/apps/zcode-cli/packages/core/tests/turn-model-timing.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..c82450537d88ef1e6d2760899d6d35db21cd27af

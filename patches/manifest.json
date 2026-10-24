@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "6cbb9d5f8f0237f81a3d8eaa07ac8f621eaebd39",
-  "tree": "b14d33e2963b842893d13ac7c989496a2544df35",
+  "sourceHead": "38e95118469668201f84c107541445d543743289",
+  "tree": "4d6878e612c3fa44359f721d8c714cfc5d724872",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -22,11 +22,14 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "c1432a82a9a2e5b8e85bfa35fdc26a7f3e8ade2098b8d3dedbc0f6ba72a1ba3d",
+      "sha256": "78125b0d0a5d702da43ea23ac8d2ac35dddd8719b890ae4fa0a2670a8c26ba9c",
       "paths": [
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
         "apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md",
         "apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md",
+        "apps/zcode-cli/docs/design/v2/tool/01-read.md",
+        "apps/zcode-cli/docs/design/v2/tool/07-subagent.md",
+        "apps/zcode-cli/docs/design/v2/tool/08-glob.md",
         "apps/zcode-cli/docs/design/v2/usage-observability.md",
         "apps/zcode-cli/packages/adapters/package.json",
         "apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md",
@@ -75,9 +78,16 @@
         "apps/zcode-cli/packages/core/src/session-resources/contract.example.ts",
         "apps/zcode-cli/packages/core/src/session-resources/contract.ts",
         "apps/zcode-cli/packages/core/src/session-resources/module.ts",
+        "apps/zcode-cli/packages/core/src/subagent/explore.ts",
+        "apps/zcode-cli/packages/core/src/tool/handlers/agent.ts",
+        "apps/zcode-cli/packages/core/src/tool/handlers/glob.ts",
         "apps/zcode-cli/packages/core/tests/context-builder.test.ts",
+        "apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts",
         "apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts",
         "apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts",
+        "apps/zcode-cli/packages/core/tests/subagent-explore.test.ts",
+        "apps/zcode-cli/packages/core/tests/tool-contracts.test.ts",
+        "apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts",
         "apps/zcode-cli/packages/core/tests/turn-model-timing.test.ts"
       ]
     },
