@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "d34de6fbd2d3c89bb84dacede50cf758f3e25d9f",
-  "tree": "7eab78076e2b50568e21dd9deace55c34eeb9bb1",
+  "sourceHead": "fd6d412584cf3b8752b7b8799445f33187cbe1ab",
+  "tree": "6461ee33802d5e8b6d1fb613d3001cad8aef3335",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -399,7 +399,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "f1da6b18a6175613af6b2ffb5eea010b020e6b4a3811df3dae1fbe33e1d08f85",
+      "sha256": "3a7f1857ce5f329a0e405644dbe4b52e4fd473042fd54e7d7ab36632804403a1",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -488,6 +488,16 @@
         "packages/ui/src/v4/conversationAssistantWorkItems.ts",
         "packages/ui/src/v4/conversationRowContext.ts",
         "packages/ui/src/v4/replaceableConversationTransport.ts",
+        "packages/ui/src/v4/slash-commands/commands/context.ts",
+        "packages/ui/src/v4/slash-commands/commands/copy.ts",
+        "packages/ui/src/v4/slash-commands/commands/exit.ts",
+        "packages/ui/src/v4/slash-commands/commands/export.ts",
+        "packages/ui/src/v4/slash-commands/commands/fork.ts",
+        "packages/ui/src/v4/slash-commands/index.ts",
+        "packages/ui/src/v4/slash-commands/messages.ts",
+        "packages/ui/src/v4/slash-commands/rows.ts",
+        "packages/ui/src/v4/slash-commands/transcript.ts",
+        "packages/ui/src/v4/slash-commands/types.ts",
         "packages/ui/src/v4/transport.ts",
         "packages/ui/src/v4/workspaceConnectionRegistry.ts",
         "packages/ui/test/agentV4ConnectionTransports.test.ts",
@@ -514,6 +524,7 @@
         "packages/ui/test/codexConnection.test.ts",
         "packages/ui/test/codingPlanUpgradeDialogProvider.test.ts",
         "packages/ui/test/compactionProfileSettings.test.ts",
+        "packages/ui/test/compatSlashCommands.test.ts",
         "packages/ui/test/mcpStatusDialog.test.ts",
         "packages/ui/test/messageTaskControlToolCallBlock.test.ts",
         "packages/ui/test/modelProviderCodingPlan.test.ts",

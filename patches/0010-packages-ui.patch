@@ -7628,7 +7628,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38abf173e8ae 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..b4061f0c01347a3878b50c4a8589a34dfc24ff8d 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -7639,6 +7639,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
    buildCustomSupplierKey,
    isHighspeedProviderId,
    isRemoteWorkspaceIdentity,
+@@ -63,7 +62,7 @@ import {
+   resolveConversationSharePublishErrorMessageId,
+   sanitizeConversationShareWarnings,
+ } from "@/lib/conversationShareError.js";
+-import { localizeConversationShareUrl } from "@zcode/shared";
++import { DesktopCommandIds, localizeConversationShareUrl } from "@zcode/shared";
+ import type {
+   ConversationShareAllowedArtifact,
+   ConversationShareTurnPreflightResult,
 @@ -136,10 +135,6 @@ import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
  import { buildGenUiModelContext } from "@zcode/shared/gen-ui";
  import { useWorkspaceHomePath } from "@/hooks/useWorkspaceHomePath.js";
@@ -7659,7 +7668,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
  import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
  import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
  import type { ConversationLatestTurnSummary } from "@/v4/conversationTimelineLiveTail.js";
-@@ -308,7 +305,6 @@ import {
+@@ -295,6 +292,7 @@ import {
+   type V4VisibleSlashCommand,
+ } from "@/v4/slashCommands.js";
+ import { useSlashCommands } from "@/hooks/useSlashCommands.js";
++import { buildCompatSlashCommands, findLatestForkableRow } from "./slash-commands/index.js";
+ import { useV4Conversation } from "@/v4/V4ConversationContext.js";
+ import { useConversationProjection } from "@/v4/useConversationProjection.js";
+ import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
+@@ -308,7 +306,6 @@ import {
  import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
  import type { ChatErrorBannerModelConfigTarget } from "@/ChatErrorBanner.js";
  import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
@@ -7667,7 +7684,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
  import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
  import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
  import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
-@@ -346,6 +342,8 @@ import {
+@@ -346,6 +343,8 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
@@ -7676,7 +7693,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -668,6 +666,7 @@ export function SessionPane({
+@@ -668,6 +667,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -7684,7 +7701,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1143,7 @@ export function SessionPane({
+@@ -1144,6 +1144,7 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -7692,7 +7709,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1900,6 @@ export function SessionPane({
+@@ -1900,7 +1901,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -7700,7 +7717,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2354,12 @@ export function SessionPane({
+@@ -2355,6 +2355,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -7713,7 +7730,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2863,6 +2868,16 @@ export function SessionPane({
+@@ -2863,6 +2869,16 @@ export function SessionPane({
        keywords: ["plan", "计划", "计划模式"],
        run: () => handleDraftSwitchMode("plan"),
      };
@@ -7730,7 +7747,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2888,7 @@ export function SessionPane({
+@@ -2873,7 +2889,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -7739,7 +7756,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2899,7 @@ export function SessionPane({
+@@ -2884,6 +2900,7 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -7747,7 +7764,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2982,6 +2998,8 @@ export function SessionPane({
+@@ -2982,6 +2999,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -7756,7 +7773,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3060,6 +3078,8 @@ export function SessionPane({
+@@ -3060,6 +3079,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -7765,7 +7782,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3898,6 +3918,11 @@ export function SessionPane({
+@@ -3898,6 +3919,11 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -7777,7 +7794,44 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -4943,7 +4968,8 @@ export function SessionPane({
+@@ -4704,6 +4730,36 @@ export function SessionPane({
+   const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
+   // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
+   const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
++  // 追加命令复用现有 fork / 窗口关闭入口与快照数据，实现与文案都在 ./slash-commands。
++  const compatSlashCommands = useMemo(
++    () =>
++      buildCompatSlashCommands({
++        locale,
++        rows: snapshot?.rows.window ?? [],
++        contextWindow: snapshot?.usage.contextWindow ?? null,
++        olderRowsAvailable: hasOlderRows(snapshot),
++        notify: toast,
++        forkLatest: forkActionsEnabled
++          ? () => {
++              // 与行内 fork 入口同源：只认 CLI 投影出的 canFork，不自行推断。
++              const target = findLatestForkableRow(snapshotRef.current?.rows.window ?? []);
++              if (!target) return false;
++              handleFork(target);
++              return true;
++            }
++          : null,
++        // Web 的 platform 桩同样实现 executeDesktopCommand（no-op），必须用 isDesktop 区分。
++        closeWindow:
++          isDesktop && platform?.executeDesktopCommand
++            ? () => {
++                void platform.executeDesktopCommand(DesktopCommandIds.CloseWindow).catch((error) => {
++                  logger.warn("[v4-pane] 关闭窗口失败", { error });
++                });
++              }
++            : null,
++      }),
++    [forkActionsEnabled, handleFork, isDesktop, locale, platform, snapshot],
++  );
+   // editUserQuery 已由 command 层防御 latest real user query，并在 running
+   // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
+   const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
+@@ -4943,7 +4999,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -7787,7 +7841,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5040,6 @@ export function SessionPane({
+@@ -5014,42 +5071,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -7830,7 +7884,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,7 +5472,6 @@ export function SessionPane({
+@@ -5482,11 +5503,16 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -7838,7 +7892,18 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        modelConfigTarget={modelConfigTarget}
        onOpenCodeViewer={onOpenCodeViewer}
        suppressGoalCommands={selectionSideChat}
-@@ -5570,12 +5559,6 @@ export function SessionPane({
+-      appSlashCommands={appSlashCommands}
++      appSlashCommands={[
++        ...(appSlashCommands ?? []),
++        // 与既有 app 命令同一门禁：CLI 已广播同名命令时让位，只读态也保留只读命令。
++        ...compatSlashCommands.filter(
++          (command) => !cliSlashCommandNames.has(command.value),
++        ),
++      ]}
+       onDropTargetControllerChange={handleDropTargetControllerChange}
+     />
+   );
+@@ -5570,12 +5596,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -7851,7 +7916,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5611,14 @@ export function SessionPane({
+@@ -5628,6 +5648,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -7866,7 +7931,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38ab
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5750,39 @@ export function SessionPane({
+@@ -5759,6 +5787,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -8351,6 +8416,532 @@ index 57a594887ca3c3c53fd4dc3f583a952d4c7e0bdd..98ee5b392ba896dd7358df28a73184a1
    plans(
      params: Parameters<ConversationTransport["plans"]>[0],
    ): ReturnType<ConversationTransport["plans"]> {
+diff --git a/packages/ui/src/v4/slash-commands/commands/context.ts b/packages/ui/src/v4/slash-commands/commands/context.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..89b429d47a27450b4af3c9793895f924aa8e04af
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/commands/context.ts
+@@ -0,0 +1,36 @@
++import type { Locale } from "@zcode/shared";
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { getCompatMessages } from "../messages.js";
++import { formatTokenCount } from "../transcript.js";
++import type { ContextWindowUsage } from "../types.js";
++
++export function createContextCommand(
++  contextWindow: ContextWindowUsage | null,
++  locale: Locale,
++  notify: (message: string) => void,
++): AppSlashCommand {
++  const messages = getCompatMessages(locale);
++  return {
++    value: messages.context.value,
++    label: `/${messages.context.value}`,
++    description: messages.context.description,
++    keywords: messages.context.keywords,
++    run: () => {
++      if (!contextWindow || contextWindow.maxTokens <= 0) {
++        notify(messages.contextUnavailable);
++        return;
++      }
++      const used = Math.max(0, contextWindow.usedTokens);
++      const max = contextWindow.maxTokens;
++      const percent = `${((used / max) * 100).toFixed(1)}%`;
++      const autoCompactThresholdTokens = contextWindow.autoCompactThresholdTokens;
++      const autoCompactThreshold =
++        typeof autoCompactThresholdTokens === "number" && autoCompactThresholdTokens > 0
++          ? formatTokenCount(autoCompactThresholdTokens)
++          : null;
++      notify(
++        messages.contextSummary(formatTokenCount(used), formatTokenCount(max), percent, autoCompactThreshold),
++      );
++    },
++  };
++}
+diff --git a/packages/ui/src/v4/slash-commands/commands/copy.ts b/packages/ui/src/v4/slash-commands/commands/copy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e68d23c9abde2d7319e760e2663a481a877dfa8d
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/commands/copy.ts
+@@ -0,0 +1,36 @@
++import type { Locale } from "@zcode/shared";
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { getCompatMessages } from "../messages.js";
++import { latestAssistantText, type TranscriptEntry } from "../transcript.js";
++
++export function createCopyCommand(
++  entries: readonly TranscriptEntry[],
++  locale: Locale,
++  notify: (message: string) => void,
++): AppSlashCommand {
++  const messages = getCompatMessages(locale);
++  return {
++    value: messages.copy.value,
++    label: `/${messages.copy.value}`,
++    description: messages.copy.description,
++    keywords: messages.copy.keywords,
++    run: () => {
++      const text = latestAssistantText(entries);
++      if (!text) {
++        notify(messages.copyEmpty);
++        return;
++      }
++      // 与既有复制入口一致：先确认 API 存在，避免非安全上下文同步抛错逃出命令面板。
++      const clipboard = navigator.clipboard;
++      if (typeof clipboard?.writeText !== "function") {
++        notify(messages.copyFailed);
++        return;
++      }
++      // 剪贴板是异步 API；命令本身是同步 UI 行为，失败只提示，不向会话写内容。
++      void clipboard.writeText(text).then(
++        () => notify(messages.copySucceeded),
++        () => notify(messages.copyFailed),
++      );
++    },
++  };
++}
+diff --git a/packages/ui/src/v4/slash-commands/commands/exit.ts b/packages/ui/src/v4/slash-commands/commands/exit.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c62b3154ee3a8534877475f470c47f4c76f994c4
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/commands/exit.ts
+@@ -0,0 +1,24 @@
++import type { Locale } from "@zcode/shared";
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { getCompatMessages } from "../messages.js";
++
++export function createExitCommand(
++  closeWindow: (() => void) | null,
++  locale: Locale,
++  notify: (message: string) => void,
++): AppSlashCommand {
++  const messages = getCompatMessages(locale);
++  return {
++    value: messages.exit.value,
++    label: `/${messages.exit.value}`,
++    description: messages.exit.description,
++    keywords: messages.exit.keywords,
++    run: () => {
++      if (!closeWindow) {
++        notify(messages.exitUnavailable);
++        return;
++      }
++      closeWindow();
++    },
++  };
++}
+diff --git a/packages/ui/src/v4/slash-commands/commands/export.ts b/packages/ui/src/v4/slash-commands/commands/export.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f468464d99763b2437de2f21dcad953b24b7a38d
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/commands/export.ts
+@@ -0,0 +1,52 @@
++import type { Locale } from "@zcode/shared";
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { getCompatMessages } from "../messages.js";
++import {
++  buildExportFileName,
++  buildMarkdownTranscript,
++  type TranscriptEntry,
++} from "../transcript.js";
++
++export function createExportCommand(
++  entries: readonly TranscriptEntry[],
++  olderRowsAvailable: boolean,
++  locale: Locale,
++  notify: (message: string) => void,
++): AppSlashCommand {
++  const messages = getCompatMessages(locale);
++  return {
++    value: messages.export.value,
++    label: `/${messages.export.value}`,
++    description: messages.export.description,
++    keywords: messages.export.keywords,
++    run: () => {
++      if (entries.length === 0) {
++        notify(messages.exportEmpty);
++        return;
++      }
++      try {
++        const markdown = buildMarkdownTranscript(entries, {
++          untitled: messages.untitled,
++          userLabel: messages.userLabel,
++          assistantLabel: messages.assistantLabel,
++        });
++        const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
++        const url = URL.createObjectURL(blob);
++        const anchor = document.createElement("a");
++        anchor.href = url;
++        anchor.download = buildExportFileName(new Date());
++        anchor.rel = "noopener";
++        anchor.click();
++        // 立即 revoke 会让部分 Chromium 版本拿不到内容，等下载启动后再释放。
++        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
++        notify(
++          olderRowsAvailable
++            ? messages.exportPartialSucceeded(entries.length)
++            : messages.exportSucceeded(entries.length),
++        );
++      } catch {
++        notify(messages.exportFailed);
++      }
++    },
++  };
++}
+diff --git a/packages/ui/src/v4/slash-commands/commands/fork.ts b/packages/ui/src/v4/slash-commands/commands/fork.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2489de5b912b72770b279baae4c90377f97ec5d8
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/commands/fork.ts
+@@ -0,0 +1,27 @@
++import type { Locale } from "@zcode/shared";
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { getCompatMessages } from "../messages.js";
++
++/** fork 与 branch 在协议层是同一个 `forkAssistant`，这里只区分菜单文案。 */
++export type ForkCommandKind = "fork" | "branch";
++
++export function createForkCommand(
++  kind: ForkCommandKind,
++  forkLatest: (() => boolean) | null,
++  locale: Locale,
++  notify: (message: string) => void,
++): AppSlashCommand {
++  const messages = getCompatMessages(locale);
++  const text = kind === "branch" ? messages.branch : messages.fork;
++  return {
++    value: text.value,
++    label: `/${text.value}`,
++    description: text.description,
++    keywords: text.keywords,
++    run: () => {
++      if (!forkLatest || !forkLatest()) {
++        notify(messages.forkUnavailable);
++      }
++    },
++  };
++}
+diff --git a/packages/ui/src/v4/slash-commands/index.ts b/packages/ui/src/v4/slash-commands/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8d06c8f2b9544ba30301e2729393eee5ff2be10e
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/index.ts
+@@ -0,0 +1,32 @@
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { createContextCommand } from "./commands/context.js";
++import { createCopyCommand } from "./commands/copy.js";
++import { createExitCommand } from "./commands/exit.js";
++import { createExportCommand } from "./commands/export.js";
++import { createForkCommand } from "./commands/fork.js";
++import { collectTranscriptEntries } from "./transcript.js";
++import type { CompatSlashCommandDeps } from "./types.js";
++
++export * from "./rows.js";
++export * from "./types.js";
++
++/**
++ * 构造追加到 `/` 面板的本地命令。调用方只需把返回值并入 `appSlashCommands`；
++ * 与 CLI 广播命令同名时的让位仍由 SlashCommandPlugin 现有逻辑处理。
++ */
++export function buildCompatSlashCommands(deps: CompatSlashCommandDeps): AppSlashCommand[] {
++  const entries = collectTranscriptEntries(deps.rows);
++  return [
++    createCopyCommand(entries, deps.locale, deps.notify),
++    createExportCommand(entries, deps.olderRowsAvailable, deps.locale, deps.notify),
++    createContextCommand(deps.contextWindow, deps.locale, deps.notify),
++    // 只读或当前视图不允许 fork 时不注册写命令，避免面板出现必然失败的入口。
++    ...(deps.forkLatest
++      ? [
++          createForkCommand("fork", deps.forkLatest, deps.locale, deps.notify),
++          createForkCommand("branch", deps.forkLatest, deps.locale, deps.notify),
++        ]
++      : []),
++    createExitCommand(deps.closeWindow, deps.locale, deps.notify),
++  ];
++}
+diff --git a/packages/ui/src/v4/slash-commands/messages.ts b/packages/ui/src/v4/slash-commands/messages.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2539ba4e04eaa077ff74b31fe493e90997c432a6
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/messages.ts
+@@ -0,0 +1,143 @@
++import type { Locale } from "@zcode/shared";
++
++export interface CompatCommandText {
++  value: string;
++  description: string;
++  keywords: readonly string[];
++}
++
++export interface CompatMessages {
++  copy: CompatCommandText;
++  export: CompatCommandText;
++  context: CompatCommandText;
++  fork: CompatCommandText;
++  branch: CompatCommandText;
++  exit: CompatCommandText;
++  copyEmpty: string;
++  copySucceeded: string;
++  copyFailed: string;
++  exportEmpty: string;
++  exportSucceeded: (messageCount: number) => string;
++  exportPartialSucceeded: (messageCount: number) => string;
++  exportFailed: string;
++  contextUnavailable: string;
++  forkUnavailable: string;
++  exitUnavailable: string;
++  contextSummary: (
++    used: string,
++    max: string,
++    percent: string,
++    autoCompactThreshold: string | null,
++  ) => string;
++  untitled: string;
++  userLabel: string;
++  assistantLabel: string;
++}
++
++// 文案跟随新目录，避免为单个命令往两份 locale 文件追加 key；keywords 同时保留中英文，
++// 任一输入习惯都能在 `/` 面板搜到。
++const ZH_CN: CompatMessages = {
++  copy: {
++    value: "copy",
++    description: "复制最近一条助手回复",
++    keywords: ["copy", "clipboard", "answer", "复制", "剪贴板", "回复"],
++  },
++  export: {
++    value: "export",
++    description: "导出当前对话为 Markdown 文件",
++    keywords: ["export", "download", "markdown", "导出", "下载", "记录"],
++  },
++  context: {
++    value: "context",
++    description: "查看当前上下文用量与压缩阈值",
++    keywords: ["context", "usage", "window", "上下文", "用量", "窗口", "压缩"],
++  },
++  fork: {
++    value: "fork",
++    description: "从最近一个可创建分支的助手回复派生会话",
++    keywords: ["fork", "branch", "copy session", "分支", "派生", "复制会话"],
++  },
++  branch: {
++    value: "branch",
++    description: "从最近一个可创建分支的助手回复派生会话",
++    keywords: ["branch", "fork", "分支", "派生", "复制会话"],
++  },
++  exit: {
++    value: "exit",
++    description: "关闭当前窗口",
++    keywords: ["exit", "quit", "close", "退出", "关闭", "关窗"],
++  },
++  copyEmpty: "没有可复制的助手回复。",
++  copySucceeded: "已复制最近一条助手回复。",
++  copyFailed: "复制失败，请检查剪贴板权限。",
++  exportEmpty: "当前对话还没有可导出的内容。",
++  exportSucceeded: (messageCount) => `已导出 ${messageCount} 条消息为 Markdown 文件。`,
++  exportPartialSucceeded: (messageCount) =>
++    `已导出当前窗口的 ${messageCount} 条消息；更早历史尚未加载。`,
++  exportFailed: "导出失败。",
++  contextUnavailable: "当前会话还没有上下文用量数据。",
++  forkUnavailable: "当前没有可创建分支的助手回复。",
++  exitUnavailable: "当前环境不支持关闭窗口。",
++  contextSummary: (used, max, percent, autoCompactThreshold) =>
++    autoCompactThreshold
++      ? `上下文 ${used} / ${max}（${percent}），自动压缩阈值 ${autoCompactThreshold}。`
++      : `上下文 ${used} / ${max}（${percent}），未设置自动压缩阈值。`,
++  untitled: "ZCode 对话",
++  userLabel: "用户",
++  assistantLabel: "助手",
++};
++
++const EN_US: CompatMessages = {
++  copy: {
++    value: "copy",
++    description: "Copy the latest assistant reply",
++    keywords: ["copy", "clipboard", "answer", "回复", "复制"],
++  },
++  export: {
++    value: "export",
++    description: "Export this conversation as a Markdown file",
++    keywords: ["export", "download", "markdown", "导出", "下载"],
++  },
++  context: {
++    value: "context",
++    description: "Show context usage and compaction threshold",
++    keywords: ["context", "usage", "window", "上下文", "用量"],
++  },
++  fork: {
++    value: "fork",
++    description: "Fork a branch session from the latest forkable assistant reply",
++    keywords: ["fork", "branch", "copy session", "分支", "派生"],
++  },
++  branch: {
++    value: "branch",
++    description: "Branch from the latest forkable assistant reply",
++    keywords: ["branch", "fork", "分支", "派生"],
++  },
++  exit: {
++    value: "exit",
++    description: "Close the current window",
++    keywords: ["exit", "quit", "close", "退出", "关闭"],
++  },
++  copyEmpty: "No assistant reply to copy yet.",
++  copySucceeded: "Copied the latest assistant reply.",
++  copyFailed: "Copy failed. Check clipboard permissions.",
++  exportEmpty: "This conversation has nothing to export yet.",
++  exportSucceeded: (messageCount) => `Exported ${messageCount} messages as a Markdown file.`,
++  exportPartialSucceeded: (messageCount) =>
++    `Exported ${messageCount} messages from the current window; older history is not loaded.`,
++  exportFailed: "Export failed.",
++  contextUnavailable: "No context usage data for this session yet.",
++  forkUnavailable: "No assistant reply is available to fork from.",
++  exitUnavailable: "Closing the window is not supported in this environment.",
++  contextSummary: (used, max, percent, autoCompactThreshold) =>
++    autoCompactThreshold
++      ? `Context ${used} / ${max} (${percent}), auto-compact threshold ${autoCompactThreshold}.`
++      : `Context ${used} / ${max} (${percent}), no auto-compact threshold configured.`,
++  untitled: "ZCode conversation",
++  userLabel: "User",
++  assistantLabel: "Assistant",
++};
++
++export function getCompatMessages(locale: Locale): CompatMessages {
++  return locale === "zh-CN" ? ZH_CN : EN_US;
++}
+diff --git a/packages/ui/src/v4/slash-commands/rows.ts b/packages/ui/src/v4/slash-commands/rows.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ced06b53ff54105a020bd2e0b55337a064c25014
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/rows.ts
+@@ -0,0 +1,20 @@
++import type {
++  ConversationRow,
++  ConversationRowTarget,
++} from "@zcode/shared/zcode-protocol-v4";
++
++/**
++ * 窗口内最近一个可 fork 的助手行。判定与行内 fork 入口同源：只认 CLI 投影出的
++ * `actions.canFork` 和 `entityId`，UI 不自行推断稳定边界。
++ */
++export function findLatestForkableRow(
++  rows: readonly ConversationRow[],
++): ConversationRowTarget | null {
++  for (let index = rows.length - 1; index >= 0; index -= 1) {
++    const row = rows[index];
++    if (row?.kind === "assistantText" && row.entityId && row.actions?.canFork) {
++      return { rowId: row.rowId, entityId: row.entityId };
++    }
++  }
++  return null;
++}
+diff --git a/packages/ui/src/v4/slash-commands/transcript.ts b/packages/ui/src/v4/slash-commands/transcript.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2ace32c8f0e496649172da381a0ec9983ee3ef7
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/transcript.ts
+@@ -0,0 +1,72 @@
++import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
++import { splitUserInputEpilogue } from "@/v4/ConversationUserInputEpilogue.js";
++
++export interface TranscriptEntry {
++  role: "user" | "assistant";
++  text: string;
++}
++
++/** 从行窗口按时间顺序提取可导出的纯文本；工具调用、推理等行不进入导出。 */
++export function collectTranscriptEntries(
++  rows: readonly ConversationRow[],
++): TranscriptEntry[] {
++  const entries: TranscriptEntry[] = [];
++  for (const row of rows) {
++    if (row.kind === "userInput") {
++      // 启动轮的 userInput 由 run 卡代言，时间线不显示，导出也跳过。
++      if (row.origin === "workflowLaunch") continue;
++      // 与消息气泡一致：只导出正文，引擎附加的尾注折叠内容不进文件。
++      const { body } = splitUserInputEpilogue(row.text, row.epilogueStart);
++      const text = body.trim();
++      if (text) entries.push({ role: "user", text });
++      continue;
++    }
++    if (row.kind === "assistantText") {
++      const text = row.text.trim();
++      if (text) entries.push({ role: "assistant", text });
++    }
++  }
++  return entries;
++}
++
++export function latestAssistantText(entries: readonly TranscriptEntry[]): string | null {
++  for (let index = entries.length - 1; index >= 0; index -= 1) {
++    const entry = entries[index];
++    if (entry?.role === "assistant") return entry.text;
++  }
++  return null;
++}
++
++export function buildMarkdownTranscript(
++  entries: readonly TranscriptEntry[],
++  labels: { untitled: string; userLabel: string; assistantLabel: string },
++): string {
++  const lines = [`# ${labels.untitled}`, ""];
++  for (const entry of entries) {
++    lines.push(
++      `## ${entry.role === "user" ? labels.userLabel : labels.assistantLabel}`,
++      "",
++      entry.text,
++      "",
++    );
++  }
++  return lines.join("\n");
++}
++
++export function buildExportFileName(now: Date): string {
++  return `zcode-conversation-${now.toISOString().replace(/[:.]/g, "-")}.md`;
++}
++
++export function formatTokenCount(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens < 0) return "0";
++  if (tokens < 1000) return String(Math.round(tokens));
++  const millions = tokens / 1_000_000;
++  // 999.5k 起向上取整会得到 1000k，统一进位成 m，避免出现四位数单位。
++  if (millions >= 0.9995) {
++    const digits = millions >= 100 ? 0 : 1;
++    return `${millions.toFixed(digits).replace(/\.0$/, "")}m`;
++  }
++  const thousands = tokens / 1000;
++  const digits = thousands >= 100 ? 0 : 1;
++  return `${thousands.toFixed(digits).replace(/\.0$/, "")}k`;
++}
+diff --git a/packages/ui/src/v4/slash-commands/types.ts b/packages/ui/src/v4/slash-commands/types.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c0ba1f1cc7b2f65035c0969a9d525236654b1705
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/types.ts
+@@ -0,0 +1,24 @@
++import type { Locale } from "@zcode/shared";
++import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
++
++/** `/context` 需要的最小用量结构；只取快照已投影的字段，命令实现不直接读 store。 */
++export interface ContextWindowUsage {
++  usedTokens: number;
++  maxTokens: number;
++  autoCompactThresholdTokens?: number | null;
++}
++
++/** 追加到 `/` 面板的本地命令依赖；数据与提示入口都由 SessionPane 注入。 */
++export interface CompatSlashCommandDeps {
++  locale: Locale;
++  rows: readonly ConversationRow[];
++  contextWindow: ContextWindowUsage | null;
++  /** 窗口是否只是尾部切片；为 true 时导出提示会说明更早历史未包含。 */
++  olderRowsAvailable: boolean;
++  /** 轻量提示入口；接入方传入全局 toast。 */
++  notify: (message: string) => void;
++  /** 复用现有 fork 入口；返回 false 表示没有可 fork 的行。null 表示当前视图不允许。 */
++  forkLatest: (() => boolean) | null;
++  /** 复用现有窗口关闭入口；null 表示非桌面环境。 */
++  closeWindow: (() => void) | null;
++}
 diff --git a/packages/ui/src/v4/transport.ts b/packages/ui/src/v4/transport.ts
 index f536d0e7aea0902165a7b914bd42e918aa81ec12..ec4c0a2b40cd28d51af156c1b2db63caa285dc7e 100644
 --- a/packages/ui/src/v4/transport.ts
@@ -11494,6 +12085,327 @@ index 0000000000000000000000000000000000000000..a085d46648f62d0d9b28b09a21d78d68
 +      await pendingSave;
 +    });
 +    await waitFor(() => expect(input.disabled).toBe(false));
++  });
++});
+diff --git a/packages/ui/test/compatSlashCommands.test.ts b/packages/ui/test/compatSlashCommands.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ffc61e8ea078656c547423df87ff628dcb69f40
+--- /dev/null
++++ b/packages/ui/test/compatSlashCommands.test.ts
+@@ -0,0 +1,315 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
++import {
++  buildCompatSlashCommands,
++  findLatestForkableRow,
++  type CompatSlashCommandDeps,
++} from "@/v4/slash-commands/index.js";
++import { formatTokenCount } from "@/v4/slash-commands/transcript.js";
++
++function makeRows(
++  entries: Array<{ kind: "userInput" | "assistantText"; text: string }>,
++): ConversationRow[] {
++  return entries.map((entry, index) => ({
++    rowId: index + 1,
++    kind: entry.kind,
++    text: entry.text,
++  })) as unknown as ConversationRow[];
++}
++
++function buildDeps(overrides: Partial<CompatSlashCommandDeps> = {}): CompatSlashCommandDeps {
++  return {
++    locale: "zh-CN",
++    rows: [],
++    contextWindow: null,
++    olderRowsAvailable: false,
++    notify: vi.fn(),
++    forkLatest: null,
++    closeWindow: null,
++    ...overrides,
++  };
++}
++
++function build(locale: "zh-CN" | "en-US", rows: ConversationRow[] = []) {
++  const notify = vi.fn();
++  const commands = buildCompatSlashCommands(buildDeps({ locale, rows, notify }));
++  return { commands, notify };
++}
++
++function stubDownloadEnvironment() {
++  const anchor = { href: "", download: "", rel: "", click: vi.fn() };
++  const parts: string[] = [];
++  const revokeObjectURL = vi.fn();
++  vi.stubGlobal("document", { createElement: () => anchor });
++  vi.stubGlobal("URL", {
++    createObjectURL: () => "blob:mock",
++    revokeObjectURL,
++  });
++  vi.stubGlobal("window", { setTimeout: (callback: () => void) => callback() });
++  vi.stubGlobal(
++    "Blob",
++    class {
++      constructor(blobParts: string[]) {
++        parts.push(...blobParts);
++      }
++    },
++  );
++  return { anchor, parts, revokeObjectURL };
++}
++
++describe("compat slash commands", () => {
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it("registers copy, export, context, fork, branch and exit", () => {
++    const commands = buildCompatSlashCommands(
++      buildDeps({ forkLatest: () => true, closeWindow: () => {} }),
++    );
++    expect(commands.map((command) => command.value)).toEqual([
++      "copy",
++      "export",
++      "context",
++      "fork",
++      "branch",
++      "exit",
++    ]);
++  });
++
++  it("omits fork writes when the current view cannot fork", () => {
++    const { commands } = build("zh-CN");
++    expect(commands.map((command) => command.value)).toEqual([
++      "copy",
++      "export",
++      "context",
++      "exit",
++    ]);
++  });
++
++  it("copies the latest assistant reply only", async () => {
++    const writeText = vi.fn(async () => {});
++    vi.stubGlobal("navigator", { clipboard: { writeText } });
++    const { commands, notify } = build(
++      "zh-CN",
++      makeRows([
++        { kind: "assistantText", text: "旧回复" },
++        { kind: "userInput", text: "下一个问题" },
++        { kind: "assistantText", text: "最新回复" },
++      ]),
++    );
++
++    commands.find((command) => command.value === "copy")?.run();
++
++    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("最新回复"));
++    await vi.waitFor(() => expect(notify).toHaveBeenCalledWith("已复制最近一条助手回复。"));
++  });
++
++  it("reports an empty transcript instead of touching the clipboard", () => {
++    const writeText = vi.fn(async () => {});
++    vi.stubGlobal("navigator", { clipboard: { writeText } });
++    const { commands, notify } = build("zh-CN");
++
++    commands.find((command) => command.value === "copy")?.run();
++
++    expect(writeText).not.toHaveBeenCalled();
++    expect(notify).toHaveBeenCalledWith("没有可复制的助手回复。");
++  });
++
++  it("reports copy failure when the clipboard API is unavailable", () => {
++    vi.stubGlobal("navigator", {});
++    const { commands, notify } = build(
++      "zh-CN",
++      makeRows([{ kind: "assistantText", text: "回复" }]),
++    );
++
++    commands.find((command) => command.value === "copy")?.run();
++
++    expect(notify).toHaveBeenCalledWith("复制失败，请检查剪贴板权限。");
++  });
++
++  it("exports the transcript as a Markdown download", () => {
++    const { anchor, parts, revokeObjectURL } = stubDownloadEnvironment();
++    const notify = vi.fn();
++    const commands = buildCompatSlashCommands(
++      buildDeps({
++        rows: makeRows([
++          { kind: "userInput", text: "问题" },
++          { kind: "assistantText", text: "回答" },
++        ]),
++        notify,
++      }),
++    );
++
++    commands.find((command) => command.value === "export")?.run();
++
++    expect(parts[0]).toContain("# ZCode 对话");
++    expect(parts[0]).toContain("## 用户\n\n问题");
++    expect(parts[0]).toContain("## 助手\n\n回答");
++    expect(anchor.download).toMatch(/^zcode-conversation-.+\.md$/);
++    expect(anchor.click).toHaveBeenCalledTimes(1);
++    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
++    expect(notify).toHaveBeenCalledWith("已导出 2 条消息为 Markdown 文件。");
++  });
++
++  it("says when only the loaded window was exported", () => {
++    stubDownloadEnvironment();
++    const notify = vi.fn();
++    const commands = buildCompatSlashCommands(
++      buildDeps({
++        rows: makeRows([{ kind: "assistantText", text: "回答" }]),
++        olderRowsAvailable: true,
++        notify,
++      }),
++    );
++
++    commands.find((command) => command.value === "export")?.run();
++
++    expect(notify).toHaveBeenCalledWith("已导出当前窗口的 1 条消息；更早历史尚未加载。");
++  });
++
++  it("reports an empty transcript instead of writing a file", () => {
++    const { anchor } = stubDownloadEnvironment();
++    const { commands, notify } = build("zh-CN");
++
++    commands.find((command) => command.value === "export")?.run();
++
++    expect(anchor.click).not.toHaveBeenCalled();
++    expect(notify).toHaveBeenCalledWith("当前对话还没有可导出的内容。");
++  });
++
++  it("drops engine epilogue text and workflow launch rows from exports", () => {
++    const { parts } = stubDownloadEnvironment();
++    const rows = [
++      {
++        rowId: 1,
++        kind: "userInput",
++        text: "问题\n---\n尾注",
++        origin: "realUser",
++        epilogueStart: 2,
++      },
++      { rowId: 2, kind: "userInput", text: "启动轮", origin: "workflowLaunch" },
++      { rowId: 3, kind: "assistantText", text: "回答" },
++    ] as unknown as ConversationRow[];
++    const commands = buildCompatSlashCommands(buildDeps({ rows }));
++
++    commands.find((command) => command.value === "export")?.run();
++
++    expect(parts[0]).toContain("问题");
++    expect(parts[0]).not.toContain("尾注");
++    expect(parts[0]).not.toContain("启动轮");
++  });
++
++  it("formats context usage with the compaction threshold", () => {
++    const notify = vi.fn();
++    const commands = buildCompatSlashCommands(
++      buildDeps({
++        locale: "en-US",
++        contextWindow: {
++          usedTokens: 1500,
++          maxTokens: 200000,
++          autoCompactThresholdTokens: 160000,
++        },
++        notify,
++      }),
++    );
++
++    commands.find((command) => command.value === "context")?.run();
++
++    expect(notify).toHaveBeenCalledWith("Context 1.5k / 200k (0.8%), auto-compact threshold 160k.");
++  });
++
++  it("falls back when usage is unavailable", () => {
++    const { commands, notify } = build("en-US");
++    commands.find((command) => command.value === "context")?.run();
++    expect(notify).toHaveBeenCalledWith("No context usage data for this session yet.");
++  });
++
++  it("reuses the existing fork entry", () => {
++    const forkLatest = vi.fn(() => true);
++    const commands = buildCompatSlashCommands(buildDeps({ forkLatest }));
++
++    commands.find((command) => command.value === "fork")?.run();
++
++    expect(forkLatest).toHaveBeenCalledTimes(1);
++  });
++
++  it("reuses the same fork entry for branch", () => {
++    const forkLatest = vi.fn(() => true);
++    const commands = buildCompatSlashCommands(buildDeps({ forkLatest }));
++
++    commands.find((command) => command.value === "branch")?.run();
++
++    expect(forkLatest).toHaveBeenCalledTimes(1);
++  });
++
++  it("reports fork unavailable when no row can fork", () => {
++    const notify = vi.fn();
++    const commands = buildCompatSlashCommands(
++      buildDeps({ locale: "en-US", forkLatest: () => false, notify }),
++    );
++
++    commands.find((command) => command.value === "fork")?.run();
++
++    expect(notify).toHaveBeenCalledWith("No assistant reply is available to fork from.");
++  });
++
++  it("reuses the desktop close-window entry", () => {
++    const closeWindow = vi.fn();
++    const commands = buildCompatSlashCommands(buildDeps({ closeWindow }));
++
++    commands.find((command) => command.value === "exit")?.run();
++
++    expect(closeWindow).toHaveBeenCalledTimes(1);
++  });
++
++  it("reports exit unavailable when the platform cannot close windows", () => {
++    const { commands, notify } = build("en-US");
++
++    commands.find((command) => command.value === "exit")?.run();
++
++    expect(notify).toHaveBeenCalledWith(
++      "Closing the window is not supported in this environment.",
++    );
++  });
++});
++
++describe("findLatestForkableRow", () => {
++  it("returns the newest forkable assistant row and skips newer non-forkable ones", () => {
++    const rows = [
++      {
++        rowId: 1,
++        kind: "assistantText",
++        entityId: "entity-1",
++        text: "旧",
++        actions: { canFork: true },
++      },
++      { rowId: 2, kind: "assistantText", entityId: "entity-2", text: "新", actions: {} },
++    ] as unknown as ConversationRow[];
++
++    expect(findLatestForkableRow(rows)).toEqual({ rowId: 1, entityId: "entity-1" });
++  });
++
++  it("returns null when no assistant row can fork", () => {
++    const rows = [
++      { rowId: 1, kind: "assistantText", entityId: "entity-1", text: "新", actions: {} },
++    ] as unknown as ConversationRow[];
++
++    expect(findLatestForkableRow(rows)).toBeNull();
++    expect(findLatestForkableRow([])).toBeNull();
++  });
++});
++
++describe("formatTokenCount", () => {
++  it("keeps small counts intact and scales thousands", () => {
++    expect(formatTokenCount(999)).toBe("999");
++    expect(formatTokenCount(1000)).toBe("1k");
++    expect(formatTokenCount(1500)).toBe("1.5k");
++    expect(formatTokenCount(200000)).toBe("200k");
++  });
++
++  it("promotes rounding boundaries to millions", () => {
++    expect(formatTokenCount(999_499)).toBe("999k");
++    expect(formatTokenCount(999_500)).toBe("1m");
++    expect(formatTokenCount(1_500_000)).toBe("1.5m");
 +  });
 +});
 diff --git a/packages/ui/test/mcpStatusDialog.test.ts b/packages/ui/test/mcpStatusDialog.test.ts

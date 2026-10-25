@@ -6,3 +6,5 @@ node_modules/
 .patch-backups/
 .patch-export-*/
 .patch-export.lock
+/dist/
+/dist-single/

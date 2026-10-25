@@ -11,6 +11,14 @@
 - 已获授权：每项源码改动完成验收后，在本地开发分支按本轮范围提交，无需逐次询问；不推送、不更新外层 gitlink、不改远程配置。切换到其他分支、调整官方基准及外层仓库提交仍须明确授权。
 - 保留 staged、unstaged、untracked 内容；禁用 `reset --hard`、`clean -fd` 或强制覆盖取得干净环境。
 
+## 最小侵入式修改
+
+- 改 `ZCode/` 子仓库以上游可升级为前提：优先“新增文件 + 单点接入”，不重写现有实现内部逻辑。一个功能只保留一个必要接入点；能通过已有注册表、回调注入或配置项挂载的，不改调用链。
+- 新功能、文案和测试一律放在新目录或新文件；现有文件只保留不得不改的最小 diff（插入 import 与一次调用、一行展开），不搬运代码、不重排、不顺手格式化无关行。
+- 选择扩展点按此顺序：已有注册表或插件点 > 既有回调或依赖注入 > 在稳定边界插入一次包装调用 > 修改现有函数内部。前三者能完成时不得采用最后一种。
+- 必须修改现有实现时，先说明原因、影响面与可回滚点，并限制在最小行数；同一需求不因“顺手”扩大到相邻文件。
+- 接入点要便于上游升级时重放补丁：不依赖行号或易变的相邻代码，优先挂在稳定的导出、类型、hook 或既有扩展位上。
+
 ## 开工与工作区复用
 
 - 记录外层/子模块 Git 状态、HEAD、gitlink 和配置基准；差异先说明。基准引用漂移、HEAD 不包含固定基准或 index 有冲突时停止，不以远程最新提交自动替换基准。
@@ -51,6 +59,13 @@
 - Codex 浏览器 UI：`node --test packages/ui/test/browser/manual-review/pending/codex-device.test.mjs`；需 Chrome，或用 `CHROME_EXECUTABLE_PATH` 指向 Chromium。
 - 不默认跑全量。`test:unit:affected` 全选时会跳过并成功退出，不等于通过；`verify:pre-push` 要求干净推送状态且不含 typecheck，不能替代补丁验收。详见 `docs/testing/pre-push-hook.md`。
 - 源码须实际跑类型、Lint、受影响测试，交互变化加 E2E；报告阻塞、存量警告及未测平台，mock 不证明真实授权/调用。**只改外层文档仅查内容、路径、格式，不启动上游构建或测试。** 外层补丁工具改行为须先补规格，测顺序、失败停止、基线不符及保护已有改动。
+
+## 斜杠命令扩展
+
+- `/` 面板新增本地命令只在 `packages/ui/src/v4/SessionPane.tsx` 内接入：命令由 `./slash-commands/` 的 `buildCompatSlashCommands` 构造，合并进传给 Composer 的 `appSlashCommands`；不改 `SlashCommandPlugin`、`slashCommandPanelSections` 的渲染与键盘逻辑，命令实现与文案统一放在 `packages/ui/src/v4/slash-commands/`。
+- 已有 UI 入口的命令（fork、窗口关闭等）通过依赖注入直接复用现有回调，不重复实现；新命令沿用既有门禁：与 CLI 广播命令同名时让位（`cliSlashCommandNames`），只读态不下发写操作命令（`readOnly`）。
+- CLI 已实现但不在 UI 可见白名单（`apps/zcode-cli/packages/bootstrap/src/slash-command-surface.ts`）的命令，用 app 命令在 `run()` 内转发；不为此扩展可见白名单。
+- 只有协议层或主进程确实缺能力（如清空并新建会话、一键对话 rewind）才修改现有源码，先说明边界和影响面；纯渲染层可完成的命令不得改动上述接入点以外的现有文件。
 
 ## 预览与启动陷阱
 
