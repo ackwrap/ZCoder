@@ -5,14 +5,14 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "1601a053ee0be52f6773727bf6e68d60984dcd05",
-  "tree": "374786daff4400d0a47309fb1ed0a5b9011e4c7e",
+  "sourceHead": "79a8384e3bcfb6d0af63e72d27719b415306b961",
+  "tree": "8aea2ee1fa08af6eac1f4d9b4f7eacb33d7a6d78",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "f9007954f79ea90b25ae5c779964c431fbec9fb5ca4252c856e4d37df31c0ad6",
+      "sha256": "46e26bf043a0ab7cfee563bf7bb85cdaade7a47878fd7188715e4323e3c544b7",
       "paths": [
         ".oxlintrc.json",
         "architecture-policy.yaml",
@@ -453,7 +453,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "69fac13ec649121226510d978958ae8cb63436879fe10f35699fbeaa08fd0b63",
+      "sha256": "6027635fd277ade88c4ff2b59cada0bee0c47e550cee7744208f585acfa185e7",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -467,7 +467,16 @@
         "packages/ui/src/ToolCallBlocks/renderers/explore.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/task-output.tsx",
         "packages/ui/src/ToolCallBlocks/toolResultDisplay.ts",
+        "packages/ui/src/WorkspaceHeader.tsx",
         "packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx",
+        "packages/ui/src/WorkspaceHeaderSections/shared.ts",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/CONTRACT.md",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/SubagentDirectoryButton.tsx",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.example.ts",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.test.ts",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.ts",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/index.ts",
+        "packages/ui/src/WorkspaceHeaderSections/subagent-directory/module.ts",
         "packages/ui/src/WorkspaceSidebarFooter.tsx",
         "packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx",
         "packages/ui/src/app-shell/SelectionSideChatPane.tsx",
@@ -664,6 +673,8 @@
         "packages/ui/test/settingsPageIntegratedTerminalShell.test.ts",
         "packages/ui/test/sidebarBottomActivity.test.ts",
         "packages/ui/test/specs/header-side-pane-close.md",
+        "packages/ui/test/specs/header-subagent-directory.md",
+        "packages/ui/test/subagentDirectoryButton.test.ts",
         "packages/ui/test/tokensPerSecond.test.ts",
         "packages/ui/test/toolLiveExpand.test.ts",
         "packages/ui/test/toolLiveExpansionTransitions.test.ts",

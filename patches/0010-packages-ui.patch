@@ -967,23 +967,56 @@ index 1e1f61905ac192b0d5d4cf835a73253c988b40d5..eade5ae13921916d27d82c8b54d482cc
        ...(taskStatus !== undefined ? { taskStatus } : {}),
        ...(output !== undefined ? { output } : {}),
        ...(truncated === true ? { truncated: true } : {}),
+diff --git a/packages/ui/src/WorkspaceHeader.tsx b/packages/ui/src/WorkspaceHeader.tsx
+index 1b5ee26cad2ea5199147ca916a49ceb848c554e6..9dde0ac434681c7c59ead51f305bd8b4d7f81b0c 100644
+--- a/packages/ui/src/WorkspaceHeader.tsx
++++ b/packages/ui/src/WorkspaceHeader.tsx
+@@ -85,6 +85,7 @@ export function WorkspaceHeader({
+   onRefreshGit,
+   onToggleTerminal,
+   onToggleSidePane,
++  onOpenSubagentDirectory,
+   toggleSidePaneShortcutLabel,
+   onReloadSession,
+   reloadSessionDisabled,
+@@ -134,6 +135,9 @@ export function WorkspaceHeader({
+   onToggleTerminal: () => void;
+   onToggleBrowser: () => void;
+   onToggleSidePane: () => void;
++  onOpenSubagentDirectory?: (
++    request: import("@/lib/workspaceSidePane.js").OpenScopedSubagentDirectorySideTabRequest,
++  ) => void;
+   toggleSidePaneShortcutLabel?: string;
+   onReloadSession: (options?: {
+     resumeTaskId?: string | null;
+@@ -239,6 +243,7 @@ export function WorkspaceHeader({
+           isSidePaneOpen={isSidePaneOpen}
+           onToggleTerminal={onToggleTerminal}
+           onToggleSidePane={onToggleSidePane}
++          onOpenSubagentDirectory={onOpenSubagentDirectory}
+           toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
+           simplifyForNarrowRemote={simplifyForNarrowRemote}
+           hideHelpMenu={false}
 diff --git a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx b/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
-index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..0a083216002d5c13be96819366a39fe8f9371088 100644
+index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..183f635343cae40bad45ae6251f6295f37ca167b 100644
 --- a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
 +++ b/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
-@@ -4,20 +4,16 @@ import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.j
+@@ -4,20 +4,20 @@ import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.j
  import { cn } from "@/components/lib/utils.js";
  import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
  import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
 -import { ConversationShareMenu } from "@/ConversationShareMenu.js";
  import { DesktopWindowControls } from "@/DesktopWindowControls.js";
++import { SubagentDirectoryButton } from "./subagent-directory/index.js";
  
  export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
  
  export function WorkspaceHeaderActionSection({
    variant = "task",
--  activeTaskId,
+   activeTaskId,
 -  user,
++  remoteSessionId,
++  onOpenSubagentDirectory,
    readOnlyReason,
    workspaceAbsPath,
    workspaceIdentity,
@@ -992,7 +1025,7 @@ index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..0a083216002d5c13be96819366a39fe8
    isDesktop,
    isTerminalOpen,
    isSidePaneOpen,
-@@ -48,14 +44,11 @@ export function WorkspaceHeaderActionSection({
+@@ -48,20 +48,24 @@ export function WorkspaceHeaderActionSection({
            onSelectedEditorChange={onSelectedEditorChange}
          />
        ) : null}
@@ -1012,7 +1045,20 @@ index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..0a083216002d5c13be96819366a39fe8
            useWindowsCaptionSpacing={useWindowsCaptionSpacing}
          />
        ) : null}
-@@ -71,15 +64,6 @@ export function WorkspaceHeaderActionSection({
+       {!simplifyForNarrowRemote ? (
+         <>
+           {!hideHelpMenu ? <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} /> : null}
++          <SubagentDirectoryButton
++            sessionId={activeTaskId}
++            workspacePath={workspaceAbsPath}
++            workspaceIdentity={workspaceIdentity}
++            remoteSessionId={remoteSessionId}
++            onOpen={onOpenSubagentDirectory}
++          />
+           {/* Bugfix: 远程控制移动端头部空间过窄，终端入口在这里会和核心操作争抢宽度。 */}
+           <WorkspaceTerminalToggleButton
+             isTerminalOpen={isTerminalOpen}
+@@ -71,15 +75,6 @@ export function WorkspaceHeaderActionSection({
            />
          </>
        ) : null}
@@ -1028,6 +1074,144 @@ index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..0a083216002d5c13be96819366a39fe8
        {showWindowControls && !isSidePaneOpen ? <DesktopWindowControls /> : null}
      </div>
    );
+diff --git a/packages/ui/src/WorkspaceHeaderSections/shared.ts b/packages/ui/src/WorkspaceHeaderSections/shared.ts
+index 81da4426b034fc3aa11b2f2e3402d0a7f3b4a5d6..dde75eb10b85b155e8c747b4e02f917c46bc0d59 100644
+--- a/packages/ui/src/WorkspaceHeaderSections/shared.ts
++++ b/packages/ui/src/WorkspaceHeaderSections/shared.ts
+@@ -75,6 +75,9 @@ export interface WorkspaceHeaderActionSectionProps {
+   onToggleTerminal: () => void;
+   onToggleSidePane: () => void;
+   toggleSidePaneShortcutLabel?: string;
++  onOpenSubagentDirectory?: (
++    request: import("@/lib/workspaceSidePane.js").OpenScopedSubagentDirectorySideTabRequest,
++  ) => void;
+   onSelectedEditorChange?: (editor: EditorInfo | null) => void;
+   simplifyForNarrowRemote?: boolean;
+   hideHelpMenu?: boolean;
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/CONTRACT.md b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..68c34e5b9750ad31b7e92cc8e113c1141c417576
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/CONTRACT.md
+@@ -0,0 +1,5 @@
++# header-subagent-directory
++
++为工作区头部提供当前会话的子智能体目录快捷入口。只发出一次目录打开意图，不持有列表状态、不请求模型或启动子智能体。
++
++当前会话与工作区范围由宿主注入，草稿或缺少回调时隐藏。现有侧栏管理器唯一拥有目录标签的创建、去重和激活；远程身份原样传递，不能退回本地默认工作区。
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/SubagentDirectoryButton.tsx b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/SubagentDirectoryButton.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..d6189435e48200fb124cccdc0b20a25795dd329e
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/SubagentDirectoryButton.tsx
+@@ -0,0 +1,46 @@
++import { ListTree } from "lucide-react";
++import { Button } from "@/components/ui/button.js";
++import { ControlHintTooltip } from "@/ControlHintTooltip.js";
++import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++import type { OpenScopedSubagentDirectorySideTabRequest } from "@/lib/workspaceSidePane.js";
++
++export function SubagentDirectoryButton({
++  sessionId,
++  workspacePath,
++  workspaceIdentity,
++  remoteSessionId,
++  onOpen,
++}: {
++  sessionId?: string | null;
++  workspacePath: string;
++  workspaceIdentity?: string;
++  remoteSessionId?: string;
++  onOpen?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
++}) {
++  const { intl } = useZCodeIntl();
++  if (!sessionId || !onOpen) return null;
++  const label = intl.formatMessage({ id: "subagentDirectory.title" });
++  return (
++    <ControlHintTooltip title={label} side="bottom">
++      <Button
++        type="button"
++        variant="ghost"
++        size="icon-md"
++        className="text-foreground hover:bg-hover hover:text-foreground [app-region:no-drag]"
++        aria-label={label}
++        data-testid="header-subagent-directory"
++        onClick={() =>
++          onOpen({
++            rootSessionId: sessionId,
++            parentSessionId: sessionId,
++            workspacePath,
++            workspaceIdentity,
++            remoteSessionId,
++          })
++        }
++      >
++        <ListTree className="size-4" />
++      </Button>
++    </ControlHintTooltip>
++  );
++}
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.example.ts b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..470661493cbd8b32bbbef3513860db12e4fd6b95
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.example.ts
+@@ -0,0 +1,9 @@
++import { createElement } from "react";
++import { SubagentDirectoryButton } from "./contract.js";
++
++export const exampleHeaderSubagentDirectory = () =>
++  createElement(SubagentDirectoryButton, {
++    sessionId: "session-1",
++    workspacePath: "/workspace",
++    onOpen: (request) => { void request; },
++  });
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.test.ts b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c453a47ab71351194b4f53315ec753c607eef499
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.test.ts
+@@ -0,0 +1,10 @@
++import { describe, expect, it } from "vitest";
++
++import { headerSubagentDirectoryModule } from "./module.js";
++
++// 契约测试只 import contract 与 module，不知道实现是谁；同一份测试应同时跑真实现与跨进程代理。
++describe("header-subagent-directory contract", () => {
++  it("declares its module manifest", () => {
++    expect(headerSubagentDirectoryModule.id).toBe("header-subagent-directory");
++  });
++});
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.ts b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..113fe85f514d1858300cd7209219a446f0d0af6c
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/contract.ts
+@@ -0,0 +1 @@
++export { SubagentDirectoryButton } from "./SubagentDirectoryButton.js";
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/index.ts b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..880952c71a1f7028ed730c5099f42878e2599886
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/index.ts
+@@ -0,0 +1 @@
++export { SubagentDirectoryButton } from "./contract.js";
+diff --git a/packages/ui/src/WorkspaceHeaderSections/subagent-directory/module.ts b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d95566855949b379ed2735b2167a09012a7ddfe9
+--- /dev/null
++++ b/packages/ui/src/WorkspaceHeaderSections/subagent-directory/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * header-subagent-directory 模块清单（architecture-governance managed 模块）。
++ * 层：ui。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const headerSubagentDirectoryModule = {
++  id: "header-subagent-directory",
++  requires: ["ui"],
++  provides: ["header-subagent-directory"],
++  publicEntrypoints: ["index.ts", "contract.ts"],
++} as const;
 diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
 index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c613a18fbe1 100644
 --- a/packages/ui/src/WorkspaceSidebarFooter.tsx
@@ -1732,7 +1916,7 @@ index 60a9fb083d25d2c2fc4a5002d8e4a02debf19472..e7ea7d60af99ee117078525dda566f68
      <V4PaneConversationProvider scope={scope}>
        <SessionPane
 diff --git a/packages/ui/src/app-shell/WorkspaceShellLayout.tsx b/packages/ui/src/app-shell/WorkspaceShellLayout.tsx
-index 36ffea241837942f383577c5abe3dde58af3d066..541431461fc9b9ea28e3d851df980a16cb3c11a7 100644
+index 36ffea241837942f383577c5abe3dde58af3d066..d90c33b34b30456f6c5ab4eb772edee57423708a 100644
 --- a/packages/ui/src/app-shell/WorkspaceShellLayout.tsx
 +++ b/packages/ui/src/app-shell/WorkspaceShellLayout.tsx
 @@ -116,6 +116,11 @@ import { isWorkspaceTab } from "@/store/tabStore.js";
@@ -1747,7 +1931,15 @@ index 36ffea241837942f383577c5abe3dde58af3d066..541431461fc9b9ea28e3d851df980a16
  
  const WEB_REMOTE_CONTROL_MOBILE_QUERY = "(max-width: 767px)";
  const WEB_REMOTE_CONTROL_COLLAPSE_ONCE_SESSION_KEY =
-@@ -2180,7 +2185,8 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
+@@ -2075,6 +2080,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
+                 onToggleTerminal={handleToggleTerminal}
+                 onToggleBrowser={handleToggleBrowser}
+                 onToggleSidePane={handleToggleSidePane}
++                onOpenSubagentDirectory={handleOpenSubagentDirectory}
+                 toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
+                 onReloadSession={handleReloadSession}
+                 reloadSessionDisabled={workspaceSessionActionDisabled}
+@@ -2180,7 +2186,8 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                    activeSessionId，避免新建 v4 session 因 meta 缓存未刷新而停在 draft。 */}
                  {/* Bug 根因：计划详情功能只给桌面 V4WorkspaceChatArea 接了回调，手机卡片因此
                    显示按钮却无法打开抽屉；两端必须复用同一个 renderer Side Pane 入口。 */}
@@ -1757,7 +1949,15 @@ index 36ffea241837942f383577c5abe3dde58af3d066..541431461fc9b9ea28e3d851df980a16
                    allowEscapeStopOutsidePane={
                      isWorkspaceVisible && !isSidePaneOpen && !isSidePaneVisible
                    }
-@@ -2624,7 +2630,8 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
+@@ -2482,6 +2489,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
+                             onToggleTerminal={handleToggleTerminal}
+                             onToggleBrowser={handleToggleBrowser}
+                             onToggleSidePane={handleToggleSidePane}
++                            onOpenSubagentDirectory={handleOpenSubagentDirectory}
+                             toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
+                             onReloadSession={handleReloadSession}
+                             reloadSessionDisabled={workspaceSessionActionDisabled}
+@@ -2624,7 +2632,8 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                                    永远停在 draft。v4 语义下 sessionId ≡ taskId，meta 只服务 Header 显示。
                                    M5⑤：桌面主区升级为分屏宿主（Layout/Focus 两层）；primary pane
                                    绑定语义与 testid 契约（paneId=workspace-main）不变。 */}
@@ -17004,6 +17204,92 @@ index 0000000000000000000000000000000000000000..61d324434fa9269419f2968b82a66e7d
 +- 侧边栏关闭时，该位置隐藏，不提供打开按钮。
 +- 保留编辑器、帮助、终端及窗口控制的既有顺序与行为。
 +- Windows 标题栏按钮继续使用既有 caption 间距。
+diff --git a/packages/ui/test/specs/header-subagent-directory.md b/packages/ui/test/specs/header-subagent-directory.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae046921dc683f2fd9163ff34b32b00ca8a0ed18
+--- /dev/null
++++ b/packages/ui/test/specs/header-subagent-directory.md
+@@ -0,0 +1,7 @@
++# 头部子智能体任务列表快捷入口
++
++- 问号帮助按钮右侧显示紧凑的列表树图标，使用现有子智能体目录标题作为提示与无障碍标签。
++- 仅在当前会话 ID 和目录打开回调存在时显示；空草稿隐藏。
++- 点击复用现有子智能体目录打开流程，传递当前会话、工作区身份及远程连接范围，不启动子智能体。
++- 同时接入桌面和远程头部，窄屏远程模式沿用隐藏辅助工具按钮的规则。
++- 不改变目录标签去重、历史读取、权限或列表渲染逻辑。
+diff --git a/packages/ui/test/subagentDirectoryButton.test.ts b/packages/ui/test/subagentDirectoryButton.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc42381c916fb78fadb45085f3094a69e511feb8
+--- /dev/null
++++ b/packages/ui/test/subagentDirectoryButton.test.ts
+@@ -0,0 +1,67 @@
++import { createElement } from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import { describe, expect, it, vi } from "vitest";
++import type { ReactNode, ReactElement } from "react";
++import { SubagentDirectoryButton } from "@/WorkspaceHeaderSections/subagent-directory/index.js";
++
++vi.mock("@/i18n/IntlProvider.js", () => ({
++  useZCodeIntl: () => ({
++    intl: { formatMessage: ({ id }: { id: string }) => id },
++  }),
++}));
++vi.mock("@/ControlHintTooltip.js", () => ({
++  ControlHintTooltip: ({ children }: { children: ReactNode }) => children,
++}));
++
++describe("header subagent directory button", () => {
++  it("hides without an active session or an available callback", () => {
++    expect(
++      renderToStaticMarkup(
++        createElement(SubagentDirectoryButton, {
++          workspacePath: "/work",
++          onOpen: vi.fn(),
++        }),
++      ),
++    ).toBe("");
++    expect(
++      renderToStaticMarkup(
++        createElement(SubagentDirectoryButton, {
++          workspacePath: "/work",
++          sessionId: "s1",
++        }),
++      ),
++    ).toBe("");
++  });
++
++  it("renders a compact labelled button", () => {
++    const html = renderToStaticMarkup(
++      createElement(SubagentDirectoryButton, {
++        workspacePath: "/work",
++        sessionId: "s1",
++        onOpen: vi.fn(),
++      }),
++    );
++    expect(html).toContain('data-testid="header-subagent-directory"');
++    expect(html).toContain('aria-label="subagentDirectory.title"');
++  });
++
++  it("opens the existing directory with the current session and workspace scope", () => {
++    const onOpen = vi.fn();
++    const tree = SubagentDirectoryButton({
++      sessionId: "s1",
++      workspacePath: "/remote/work",
++      workspaceIdentity: "remote:ssh:host",
++      remoteSessionId: "remote-1",
++      onOpen,
++    })!;
++    const button = tree.props.children as ReactElement<{ onClick: () => void }>;
++    button.props.onClick();
++    expect(onOpen).toHaveBeenCalledExactlyOnceWith({
++      rootSessionId: "s1",
++      parentSessionId: "s1",
++      workspacePath: "/remote/work",
++      workspaceIdentity: "remote:ssh:host",
++      remoteSessionId: "remote-1",
++    });
++  });
++});
 diff --git a/packages/ui/test/tokensPerSecond.test.ts b/packages/ui/test/tokensPerSecond.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..63d1e4c9820b07b3156179aa0b416a349a0ed6b1
