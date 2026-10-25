@@ -37,7 +37,7 @@ index a755ec45888b605736fe8ef09e813c4200452049..e9c4ec1eb32e0ceda1413bd775e46060
      },
      {
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..59a695ee109221d1fe294ea6d7a253cebc52245d 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..ad0822fbb3e2917fdf4c62a27a7e96c24e807848 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
 @@ -2,6 +2,52 @@ version: 1
@@ -261,7 +261,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..59a695ee109221d1fe294ea6d7a253ce
      owner: conversation
  
    # task-groups：由 architecture:adopt 登记
-@@ -732,13 +807,264 @@ modules:
+@@ -732,13 +807,271 @@ modules:
      layers:
        ui: .
      owner: conversation
@@ -516,6 +516,13 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..59a695ee109221d1fe294ea6d7a253ce
 +    layers:
 +      ui: .
 +    owner: conversation
++  - id: compact-turn-tail
++    roots: [apps/zcode-cli/packages/core/src/compact/turn-tail]
++    managed: true
++    requires: [zcode-cli]
++    publicEntrypoints: [apps/zcode-cli/packages/core/src/compact/turn-tail/contract.ts]
++    layers: { app: . }
++    owner: conversation
  
  global:
    # 临时时间戳（2026-09-10）：unmanaged-new-file 只约束此日期之后首次入库的文件。
@@ -527,7 +534,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..59a695ee109221d1fe294ea6d7a253ce
    maxContractLines: 300
    maxPublicMethods: 12
    forbidCycles: true
-@@ -886,3 +1212,27 @@ exceptions:
+@@ -886,3 +1219,27 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.

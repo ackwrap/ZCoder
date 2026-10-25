@@ -1,3 +1,31 @@
+diff --git a/apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md b/apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..204991d8c481210463ea6d1ff43d1d7fc5c9fc9b
+--- /dev/null
++++ b/apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md
+@@ -0,0 +1,22 @@
++# 精简压缩的长工具轮次保留
++
++## 回归证据
++
++本机 2026-10-26 的会话记录显示：精简模式、15,000 token 保留预算下，同一用户任务连续执行工具，在 04:49–04:53 产生 28 个不同 operationId 的 auto/context_limit/skipped 记录。下一条真实用户消息进入后，旧任务才进入摘要。
++
++原因是精简模式将真实用户发起的整轮任务作为不可拆分尾部，且无条件保留最近一轮。长任务因此即使远超预算也完全不会被摘要。
++
++## 行为
++
++- 详细模式保持原行为。
++- 精简模式中，预算内的用户轮次仍完整分组，不因工具数量变化拆散短轮次。
++- 当单个用户轮次超过尾部预算时，允许在后续 assistant 消息前拆分；分界处必须没有尚未完成的工具调用。
++- 第一段包含用户意图和至少一个 assistant 消息，不能单独把用户提示移入摘要而丢失配对现场。
++- 并行调用、嵌套工具调用、夹入的用户/系统消息不得把同一工具调用与结果分到摘要和保留区两侧；无安全分界时宁可超预算保留。
++- 最近一个安全段仍必须保留，即使该段本身过大；不能靠删除、截断工具输出或丢失审批状态满足预算。
++- 手动、阈值自动和超窗恢复压缩复用同一选择流程；保留区必须是原始历史的连续 suffix。
++- 摘要与保留区通过既有持久化锚点及冷恢复链路保存，不引入新状态、队列或压缩事件来源。
++
++## 验证
++
++覆盖单轮连续工具调用、并行未完成调用、介入用户消息、不可拆段超限、预算内不变、真实用户边界以及实时/冷恢复一致性。长轮次自动压缩应产生真实 boundary，而不是反复 skipped。使用模型 mock 验证运行时流程，不代表真实供应商调用验证。
 diff --git a/apps/zcode-cli/docs/design/v2/llm/codex-provider.md b/apps/zcode-cli/docs/design/v2/llm/codex-provider.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..1af19f040746c723c662bcc151afefa2a42d1c93
@@ -15409,6 +15437,107 @@ index 0000000000000000000000000000000000000000..a5c724b1f12407ddbdbc2ac3ba3ef238
 +    effectiveThresholdTokens,
 +  };
 +}
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/CONTRACT.md b/apps/zcode-cli/packages/core/src/compact/turn-tail/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..3346b9d579e5ef2db668f432ff1630cf68f0a4fd
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/CONTRACT.md
+@@ -0,0 +1,7 @@
++# compact-turn-tail
++
++精简模式的纯历史分组策略，不持有可变运行状态，不执行 IO。预算内保留完整真实用户轮次；超预算轮次只在无待完成工具调用的后续 assistant 边界拆分。第一段至少包含一个 assistant，确保用户意图不独立被丢入不可摘要区。
++
++分组是原始条目的连续分区，不重排、删减或复制条目。并行工具全部完成前不能切分，夹入真实用户或系统消息也不改变这一约束。最近安全段仍可因不可拆分而超预算。
++
++调用方注入既有 token 估算器并唯一决定保留多少组；摘要、权限、持久化和冷恢复继续由既有压缩运行时负责。详细模式不使用本模块。
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.example.ts b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9cc518c93565a30db464af4b9af2efefca1e8dbb
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.example.ts
+@@ -0,0 +1,9 @@
++import type { RuntimeMessageEntry } from "../../agent/message-history.js";
++import { groupCompactTailRounds } from "./contract.js";
++
++export function exampleCompactTurnTail(entries: readonly RuntimeMessageEntry[]) {
++  return groupCompactTailRounds(entries, {
++    tailBudgetTokens: 15_000,
++    estimateTokens: (group) => group.length * 10,
++  });
++}
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.test.ts b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e3f7c138ed856830706ebfe5439d20390e1a625
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.test.ts
+@@ -0,0 +1,10 @@
++import { describe, expect, it } from "vitest";
++import { groupCompactTailRounds } from "./contract.js";
++import { compactTurnTailModule } from "./module.js";
++
++describe("compact turn tail contract", () => {
++  it("declares its owner and handles empty history", () => {
++    expect(compactTurnTailModule.id).toBe("compact-turn-tail");
++    expect(groupCompactTailRounds([], { tailBudgetTokens: 15_000, estimateTokens: () => 0 })).toEqual([]);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.ts b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3d47fbdd081ddb3e11272c314d89391cfbbae12c
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/contract.ts
+@@ -0,0 +1 @@
++export { groupCompactTailRounds, type CompactTurnTailOptions } from "./runtime.js";
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/module.ts b/apps/zcode-cli/packages/core/src/compact/turn-tail/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..382784b6960a251878e6e61125ae8a93904593cd
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/module.ts
+@@ -0,0 +1,6 @@
++export const compactTurnTailModule = {
++  id: "compact-turn-tail",
++  requires: ["zcode-cli"],
++  provides: ["compact-turn-tail"],
++  publicEntrypoints: ["contract.ts"],
++} as const;
+diff --git a/apps/zcode-cli/packages/core/src/compact/turn-tail/runtime.ts b/apps/zcode-cli/packages/core/src/compact/turn-tail/runtime.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..62caf480c38002e0c96cc7c105650f034f052df8
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/turn-tail/runtime.ts
+@@ -0,0 +1,32 @@
++import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../../agent/message-history.js";
++import { groupByUserStartedRounds } from "../rounds.js";
++export interface CompactTurnTailOptions {
++  tailBudgetTokens: number;
++  estimateTokens: (entries: readonly RuntimeMessageEntry[]) => number;
++}
++
++export function groupCompactTailRounds(
++  entries: readonly RuntimeMessageEntry[],
++  options: CompactTurnTailOptions,
++): RuntimeMessageEntry[][] {
++  return groupByUserStartedRounds(entries).flatMap((round) => {
++    if (options.estimateTokens(round) <= options.tailBudgetTokens) return [round];
++    const groups: RuntimeMessageEntry[][] = [];
++    const pendingTools = new Set<string>();
++    let current: RuntimeMessageEntry[] = [];
++    let hasAssistant = false;
++    for (const entry of round) {
++      const message = isRuntimeAttachmentEntry(entry) ? undefined : entry.message;
++      if (message?.role === "assistant" && hasAssistant && pendingTools.size === 0) {
++        groups.push(current);
++        current = [];
++      }
++      current.push(entry);
++      if (message?.role === "assistant") hasAssistant = true;
++      for (const call of message?.toolCalls ?? []) pendingTools.add(call.id);
++      if (message?.role === "tool" && message.toolCallId) pendingTools.delete(message.toolCallId);
++    }
++    if (current.length > 0) groups.push(current);
++    return groups;
++  });
++}
 diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7dbfad814fcd993717d266d73f513cdaf9404df3
@@ -16402,20 +16531,19 @@ index 3827ffd28f1c9170f2f64fc03d5c64ba0f2015dc..b8cfae6434f04fe31797a7b4512908aa
  export function countCompactPreservedRuntimeMessages(
    entries: readonly RuntimeMessageEntry[],
 diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
-index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516ea99e6be8 100644
+index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..384ac65a3a14ec6cb5adb0afa08ceb28bc1e1fd2 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/helpers/compact-selection.ts
-@@ -13,7 +13,8 @@ import {
-   isRuntimeAttachmentEntry,
+@@ -14,6 +14,8 @@ import {
    type RuntimeMessageEntry,
  } from "../../agent/message-history.js";
--import { groupByAssistantStartedRounds } from "../../compact/rounds.js";
-+import { groupByAssistantStartedRounds, groupByUserStartedRounds } from "../../compact/rounds.js";
+ import { groupByAssistantStartedRounds } from "../../compact/rounds.js";
++import { groupCompactTailRounds } from "../../compact/turn-tail/contract.js";
 +import { resolveCompactionPolicy, type CompactionRuntimePolicy } from "../../compact/policy.js";
  import { buildProviderRequestMessages } from "./provider-request-messages.js";
  
  interface CompactRetryLogger {
-@@ -31,14 +32,32 @@ export function selectCompactEntries(input: {
+@@ -31,14 +33,34 @@ export function selectCompactEntries(input: {
    entries: readonly RuntimeMessageEntry[];
    minimumGroupsToPreserve?: number;
    trigger: CompactTrigger;
@@ -16425,7 +16553,9 @@ index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516e
 -  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
 -  const baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
 +  const policy = resolveCompactionPolicy(input.policy);
-+  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger, policy);
++  const split = splitRuntimeEntriesForCompactSelection(
++    input.entries, input.trigger, policy, input.useMidConversationSystem,
++  );
 +  let baseGroupsToPreserve = split.shouldPreserveRecent && split.groups.length > 1 ? 1 : 0;
 +  if (policy.profile === "compact") {
 +    baseGroupsToPreserve = 0;
@@ -16451,18 +16581,20 @@ index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516e
    const groupsToPreserve = split.shouldPreserveRecent
      ? Math.min(requestedGroupsToPreserve, maxGroupsToPreserve)
      : 0;
-@@ -62,8 +81,9 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
+@@ -62,8 +84,11 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
    trigger: CompactTrigger;
    useMidConversationSystem?: boolean;
    currentGroupsPreserved: number;
 +  policy?: CompactionRuntimePolicy;
  }): CompactEntrySelection | null {
 -  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
-+  const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger, input.policy);
++  const split = splitRuntimeEntriesForCompactSelection(
++    input.entries, input.trigger, input.policy, input.useMidConversationSystem,
++  );
    if (!split.shouldPreserveRecent || split.groups.length < 2) {
      return null;
    }
-@@ -96,6 +116,8 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
+@@ -96,6 +121,8 @@ export function selectCompactEntriesAfterPromptTooLong(input: {
      entries: input.entries,
      minimumGroupsToPreserve: nextGroupsPreserved,
      trigger: input.trigger,
@@ -16471,7 +16603,7 @@ index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516e
    });
    return hasEnoughRuntimeEntriesToCompact(nextSelection.entriesForSummary) ? nextSelection : null;
  }
-@@ -105,7 +127,15 @@ export function selectCompactEntriesForInitialPromptTooLong(input: {
+@@ -105,7 +132,15 @@ export function selectCompactEntriesForInitialPromptTooLong(input: {
    promptTooLongCause: unknown;
    trigger: CompactTrigger;
    useMidConversationSystem?: boolean;
@@ -16487,22 +16619,26 @@ index c2511a7d2c0d43263b5da399b7478e8f4f8a2141..c11da8c000f22497bdcd808b9fdb516e
    const split = splitRuntimeEntriesForCompactSelection(input.entries, input.trigger);
    if (!split.shouldPreserveRecent || split.groups.length <= 3) {
      return null;
-@@ -209,6 +239,7 @@ export function truncateCompactSummaryRequestEntriesAfterPromptTooLong(options:
+@@ -209,6 +244,8 @@ export function truncateCompactSummaryRequestEntriesAfterPromptTooLong(options:
  function splitRuntimeEntriesForCompactSelection(
    inputEntries: readonly RuntimeMessageEntry[],
    trigger: CompactTrigger,
 +  policy?: CompactionRuntimePolicy,
++  useMidConversationSystem?: boolean,
  ): {
    groups: RuntimeMessageEntry[][];
    prefixEntries: RuntimeMessageEntry[];
-@@ -220,9 +251,15 @@ function splitRuntimeEntriesForCompactSelection(
+@@ -220,9 +257,18 @@ function splitRuntimeEntriesForCompactSelection(
    const bodyEntries = entries.slice(prefixCount);
  
    return {
 -    groups: groupRuntimeEntriesByCompactRound(bodyEntries),
 +    groups:
 +      policy?.profile === "compact"
-+        ? groupByUserStartedRounds(bodyEntries)
++        ? groupCompactTailRounds(bodyEntries, {
++            tailBudgetTokens: resolveCompactionPolicy(policy).tailBudgetTokens,
++            estimateTokens: (round) => estimateRuntimeEntryTokens(round, { useMidConversationSystem }),
++          })
 +        : groupRuntimeEntriesByCompactRound(bodyEntries),
      prefixEntries,
 -    shouldPreserveRecent: trigger === CompactTrigger.Auto || trigger === CompactTrigger.Reactive,
@@ -22071,6 +22207,204 @@ index c100929432cae63b089ba6abff87f18980df2780..4a78e07bdc95cf924a17d7467e356fb9
  
      // 关键断言：模型侧入口也把 runId 直送到了端口的 cancel。
      expect(cancelled).toEqual(["dwfrun-taskstop"]);
+diff --git a/apps/zcode-cli/packages/core/tests/compact-long-tool-turn-runtime.test.ts b/apps/zcode-cli/packages/core/tests/compact-long-tool-turn-runtime.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d98124f57919b3f89c983521a53817d009c6a60
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/compact-long-tool-turn-runtime.test.ts
+@@ -0,0 +1,99 @@
++import { describe, expect, it } from "vitest";
++import { SessionEventType, createSessionId, type ModelRequest } from "@zcode/contracts";
++import { createTestAgentRuntime } from "./test-agent-runtime.js";
++import { createTestModelFactory } from "./test-runtime-model.js";
++import { createTestSessionEventStore } from "./test-event-store.js";
++import { createToolRegistry } from "../src/tool/registry.js";
++import {
++  createRecordingMessageStore,
++  registerReadOnlyTool,
++  requestText,
++  stopResult,
++} from "./runtime-output-token-continuation-test-helpers.js";
++
++describe("long tool turn automatic compaction", () => {
++  it.each([true, false])("compacts mid-turn and resumes the same tail with MCS=%s", async (mcs) => {
++    const sessionId = createSessionId(`long-tool-turn-${mcs}`);
++    const store = createRecordingMessageStore();
++    await store.createSession({ id: sessionId, directory: "/workspace", path: "/workspace" });
++    const eventStore = createTestSessionEventStore();
++    const requests: ModelRequest[] = [];
++    let steps = 0;
++    let summaries = 0;
++    const config = {
++      systemPrompt: "Long tool turn compaction test",
++      modelStreaming: "off" as const,
++      titleGeneration: { enabled: false as const },
++      mode: "yolo" as const,
++      compact: {
++        profile: "compact" as const,
++        contextWindow: 20_000,
++        bufferTokens: 1_000,
++        tailBudgetTokens: 1_000,
++        microcompact: { enabled: false },
++      },
++    };
++    const factory = createTestModelFactory({
++      maxOutputTokens: 1_000,
++      properties: { supportsMidConversationSystem: mcs, contextWindow: 20_000 },
++      generateText: async (request) => {
++        const prompt = requestText(request.messages.slice(-1));
++        if (prompt.includes("Summarize the conversation into one structured checkpoint")) {
++          summaries++;
++          return stopResult("## Objective\n- loop-checkpoint: finish the original task safely", 50);
++        }
++        requests.push(request);
++        steps++;
++        if (steps <= 5) {
++          return {
++            finishReason: "tool-calls",
++            text: "",
++            toolCalls: [{ id: `loop-${steps}`, name: "LargeRead", input: {} }],
++            usage: { inputTokens: steps === 3 ? 19_000 : 10, outputTokens: 1, totalTokens: steps === 3 ? 19_001 : 11 },
++          };
++        }
++        return stopResult("completed", 10);
++      },
++    });
++    const makeRuntime = (sessionStore = store) => {
++      const registry = createToolRegistry();
++      registerReadOnlyTool(registry, "LargeRead", `loop-tool-payload ${"x".repeat(2_400)}`);
++      return createTestAgentRuntime(sessionId, config, {
++        sessionStore: { ...sessionStore, getProjectPermission: async () => null } as never,
++        eventStore,
++        modelFactory: factory,
++        toolRegistry: registry,
++      });
++    };
++    const runtime = makeRuntime();
++    const result = await runtime.executeTurn("original task with many tool steps");
++    const events = await eventStore.getEvents(sessionId);
++    expect(result.response).toBe("completed");
++    expect(summaries).toBe(1);
++    expect(events.filter((event) => event.type === SessionEventType.CompactBoundary)).toHaveLength(1);
++    expect(events.filter((event) => event.type === SessionEventType.CompactCompleted).map((event) => (event.payload as { status: string }).status)).toEqual(["completed"]);
++    const firstAfterCompact = requests.find((request) => requestText(request.messages).includes("loop-checkpoint"))!;
++    expect(firstAfterCompact).toBeDefined();
++    expect(firstAfterCompact.messages.filter((message) => message.role === "tool").map((message) => message.toolCallId)).toEqual(["loop-3"]);
++    expect(requestText(firstAfterCompact.messages)).not.toContain("original task with many tool steps");
++    const persisted = await store.messages();
++    const boundary = persisted.flatMap((message) => message.parts).find((part) => part.type === "compaction" && part.compactBoundary)?.compactBoundary;
++    expect(boundary.preservedSegment).toBeDefined();
++    const coldStore = createRecordingMessageStore();
++    await coldStore.createSession(structuredClone(await store.getSession(sessionId)));
++    coldStore.savedMessages.push(...structuredClone(store.savedMessages));
++    coldStore.savedParts.push(...structuredClone(store.savedParts));
++    await runtime.executeTurn("compare retained tail");
++    const liveRequest = requests.at(-1)!;
++    const cold = makeRuntime(coldStore);
++    await cold.resumeFromStore();
++    await cold.executeTurn("compare retained tail");
++    const coldRequest = requests.at(-1)!;
++    const relevant = (request: ModelRequest) => request.messages.filter((message) => message.role === "tool" || message.toolCalls?.length || requestText([message]).includes("loop-checkpoint"));
++    expect(relevant(coldRequest)).toEqual(relevant(liveRequest));
++    for (const request of [liveRequest, coldRequest]) {
++      expect(request.messages.filter((message) => message.role === "tool").map((message) => message.toolCallId)).toEqual(["loop-3", "loop-4", "loop-5"]);
++      expect(requestText(request.messages)).not.toContain("original task with many tool steps");
++    }
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/compact-long-tool-turn.test.ts b/apps/zcode-cli/packages/core/tests/compact-long-tool-turn.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..da83aaae29c2d80d29ec704d9abe9666c9bc5ae0
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/compact-long-tool-turn.test.ts
+@@ -0,0 +1,87 @@
++import { describe, expect, it } from "vitest";
++import { CompactTrigger } from "@zcode/contracts";
++import { realUserRuntimeMetadata, type RuntimeMessageEntry } from "../src/agent/message-history.js";
++import { selectCompactEntries, hasEnoughRuntimeEntriesToCompact } from "../src/runtime/helpers/compact-selection.js";
++
++function longTurn(): RuntimeMessageEntry[] {
++  return [
++    { message: { role: "system", content: "system" } },
++    { message: { role: "user", content: "complete this long task" }, metadata: realUserRuntimeMetadata() },
++    ...Array.from({ length: 8 }, (_, index): RuntimeMessageEntry[] => [
++      { message: { role: "assistant", content: `step ${index}`, toolCalls: [{ id: `call-${index}`, name: "Read", input: {} }] } },
++      { message: { role: "tool", toolCallId: `call-${index}`, toolName: "Read", content: `result-${index} ${"x".repeat(2_400)}` } },
++    ]).flat(),
++  ];
++}
++
++function assertToolPairs(entries: readonly RuntimeMessageEntry[]) {
++  const calls = new Set<string>();
++  for (const entry of entries) {
++    if (!("message" in entry)) continue;
++    for (const call of entry.message.toolCalls ?? []) calls.add(call.id);
++    if (entry.message.role === "tool") {
++      expect(calls.has(entry.message.toolCallId!)).toBe(true);
++      calls.delete(entry.message.toolCallId!);
++    }
++  }
++  expect(calls.size).toBe(0);
++}
++
++describe("compact oversized tool turn tail", () => {
++  it.each([CompactTrigger.Auto, CompactTrigger.Reactive, CompactTrigger.Manual])(
++    "summarizes old tool steps within a single user turn for %s",
++    (trigger) => {
++      const entries = longTurn();
++      const selected = selectCompactEntries({ entries, trigger, policy: { profile: "compact", tailBudgetTokens: 1_000 } });
++      expect(hasEnoughRuntimeEntriesToCompact(selected.entriesForSummary)).toBe(true);
++      expect(selected.preservedEntries).toEqual(entries.slice(-2));
++      expect(selected.entriesForSummary).toEqual(entries.slice(0, -2));
++      assertToolPairs(selected.entriesForSummary);
++      assertToolPairs(selected.preservedEntries);
++    },
++  );
++
++  it("keeps an affordable user turn intact", () => {
++    const entries = longTurn();
++    const selected = selectCompactEntries({ entries, trigger: CompactTrigger.Auto, policy: { profile: "compact", tailBudgetTokens: 15_000 } });
++    expect(selected.preservedEntries).toEqual(entries.slice(1));
++    expect(selected.entriesForSummary).toEqual(entries.slice(0, 1));
++  });
++
++  it("never splits parallel calls across an intervening assistant or user", () => {
++    const entries: RuntimeMessageEntry[] = [
++      ...longTurn(),
++      { message: { role: "assistant", content: "parallel", toolCalls: [{ id: "a", name: "Read", input: {} }, { id: "b", name: "Read", input: {} }] } },
++      { message: { role: "tool", toolCallId: "a", toolName: "Read", content: "a" } },
++      { message: { role: "user", content: "intervening" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "still waiting" } },
++      { message: { role: "tool", toolCallId: "b", toolName: "Read", content: "b".repeat(5_000) } },
++    ];
++    const selected = selectCompactEntries({ entries, trigger: CompactTrigger.Auto, policy: { profile: "compact", tailBudgetTokens: 1_000 } });
++    expect(selected.preservedEntries).toEqual(entries.slice(-5));
++    assertToolPairs(selected.entriesForSummary);
++    assertToolPairs(selected.preservedEntries);
++  });
++
++  it("does not treat an unmatched tool call as a safe assistant boundary", () => {
++    const entries: RuntimeMessageEntry[] = [
++      ...longTurn(),
++      { message: { role: "assistant", content: "", toolCalls: [{ id: "pending", name: "Read", input: {} }] } },
++      { message: { role: "assistant", content: "still waiting" } },
++    ];
++    const selected = selectCompactEntries({ entries, trigger: CompactTrigger.Auto, policy: { profile: "compact", tailBudgetTokens: 1_000 } });
++    expect(selected.preservedEntries.slice(-2)).toEqual(entries.slice(-2));
++    expect(selected.entriesForSummary.some((entry) => "message" in entry && entry.message.toolCalls?.some((call) => call.id === "pending"))).toBe(false);
++  });
++
++  it("preserves an indivisible oversized last tool segment", () => {
++    const entries: RuntimeMessageEntry[] = [
++      { message: { role: "user", content: "one tool" }, metadata: realUserRuntimeMetadata() },
++      { message: { role: "assistant", content: "", toolCalls: [{ id: "one", name: "Read", input: {} }] } },
++      { message: { role: "tool", toolCallId: "one", toolName: "Read", content: "x".repeat(10_000) } },
++    ];
++    const selected = selectCompactEntries({ entries, trigger: CompactTrigger.Auto, policy: { profile: "compact", tailBudgetTokens: 1_000 } });
++    expect(selected.preservedEntries).toEqual(entries);
++    expect(selected.entriesForSummary).toEqual([]);
++  });
++});
 diff --git a/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts b/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts
 index 38261bc63900e92a3d6a2b220f88ebd60d3bcd40..bef6aa9a0d0093e9b602c5b7400afc040a7f6b90 100644
 --- a/apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts

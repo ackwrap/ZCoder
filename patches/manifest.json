@@ -5,14 +5,14 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "79a8384e3bcfb6d0af63e72d27719b415306b961",
-  "tree": "8aea2ee1fa08af6eac1f4d9b4f7eacb33d7a6d78",
+  "sourceHead": "1430e668ed29271fbcbc327143f137d5352e64b2",
+  "tree": "ef9fe24a86e62db03a67430ccdad8af65f7a0632",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "46e26bf043a0ab7cfee563bf7bb85cdaade7a47878fd7188715e4323e3c544b7",
+      "sha256": "6485053453214bac650013112bfc47a28188a2288d7317a3d1e15b47c4ed01ad",
       "paths": [
         ".oxlintrc.json",
         "architecture-policy.yaml",
@@ -23,8 +23,9 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "9d6a2d0abc81c8845e89bff35d984dfd97afdc655e6e81748b8279701c318857",
+      "sha256": "0335ad3c3c7f68517283eb458651ecf87f3044533dac457ccc811efec50d742b",
       "paths": [
+        "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
         "apps/zcode-cli/docs/design/v2/loop/dynamic-context-sources.md",
         "apps/zcode-cli/docs/design/v2/loop/instruction-file-updates.md",
@@ -153,6 +154,12 @@
         "apps/zcode-cli/packages/core/src/compact/session-limit/module.ts",
         "apps/zcode-cli/packages/core/src/compact/session-limit/runtime.test.ts",
         "apps/zcode-cli/packages/core/src/compact/session-limit/runtime.ts",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/CONTRACT.md",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/contract.example.ts",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/contract.test.ts",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/contract.ts",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/module.ts",
+        "apps/zcode-cli/packages/core/src/compact/turn-tail/runtime.ts",
         "apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md",
         "apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.example.ts",
         "apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.ts",
@@ -220,6 +227,8 @@
         "apps/zcode-cli/packages/core/src/tool/handlers/websearch.ts",
         "apps/zcode-cli/packages/core/tests/agent-listing.test.ts",
         "apps/zcode-cli/packages/core/tests/background-task-control.test.ts",
+        "apps/zcode-cli/packages/core/tests/compact-long-tool-turn-runtime.test.ts",
+        "apps/zcode-cli/packages/core/tests/compact-long-tool-turn.test.ts",
         "apps/zcode-cli/packages/core/tests/compact-preserved-inputs.test.ts",
         "apps/zcode-cli/packages/core/tests/context-builder.test.ts",
         "apps/zcode-cli/packages/core/tests/context-source-runtime/contract.test.ts",
