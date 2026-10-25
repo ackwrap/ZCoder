@@ -8385,7 +8385,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757ad8168f8 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220324689cf 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -8590,11 +8590,22 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3891,6 +3917,16 @@ export function SessionPane({
+@@ -3891,6 +3917,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
 +  const autoCompactCommand = useAutoCompactCommand({
++    prepareInput: useCallback(() => {
++      if (!sessionId) return;
++      setComposerRestoreRequest({
++        requestId: nextComposerRestoreRequestIdRef.current++,
++        sessionId,
++        workspaceKey,
++        inputKind: "sendText",
++        text: "/autocompact ",
++        attachments: [],
++      });
++    }, [sessionId, workspaceKey]),
 +    enabled: runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId),
 +    cliNames: cliSlashCommandNames,
 +    execute: useCallback(
@@ -8607,7 +8618,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +3934,23 @@ export function SessionPane({
+@@ -3898,6 +3945,23 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -8631,7 +8642,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +3986,14 @@ export function SessionPane({
+@@ -3933,7 +3997,14 @@ export function SessionPane({
          throw error;
        }
      },
@@ -8647,7 +8658,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4764,24 @@ export function SessionPane({
+@@ -4704,6 +4775,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -8672,7 +8683,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5021,8 @@ export function SessionPane({
+@@ -4943,7 +5032,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -8682,7 +8693,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5093,6 @@ export function SessionPane({
+@@ -5014,42 +5104,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -8725,7 +8736,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5525,15 @@ export function SessionPane({
+@@ -5482,11 +5536,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -8743,7 +8754,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5617,6 @@ export function SessionPane({
+@@ -5570,12 +5628,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -8756,7 +8767,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5669,14 @@ export function SessionPane({
+@@ -5628,6 +5680,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -8771,7 +8782,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..8b7cf1f2697287114b501d1c5b9f8757
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5808,39 @@ export function SessionPane({
+@@ -5759,6 +5819,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -9273,10 +9284,10 @@ index 0000000000000000000000000000000000000000..e0b865d07cbeefbacf8e4faef762ec54
 +- Regression evidence: exact MCP collision matrix, current fork target/callback, readonly and desktop gates, rejected close, CLI collisions, copy/export are tested before implementation. Existing browser tool fixture checks unchanged presentation; dedicated compat browser fixture verifies real command clicks, clipboard and download.
 diff --git a/packages/ui/src/v4/slash-commands/autocompact.ts b/packages/ui/src/v4/slash-commands/autocompact.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1b9afebe4985e6153c17ca267a0f1244a1ef26fe
+index 0000000000000000000000000000000000000000..09411dc0b50b020de2dc4f919feaebee2d211ffd
 --- /dev/null
 +++ b/packages/ui/src/v4/slash-commands/autocompact.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,76 @@
 +import { useMemo } from "react";
 +import type { CommandAck, CommandPayloadMap } from "@zcode/shared/zcode-protocol-v4";
 +import type { AppSlashCommand } from "@/slashCommandHelpers.js";
@@ -9308,6 +9319,7 @@ index 0000000000000000000000000000000000000000..1b9afebe4985e6153c17ca267a0f1244
 +  cliNames: ReadonlySet<string>;
 +  execute: (payload: CommandPayloadMap["configureAutoCompact"]) => Promise<CommandAck>;
 +  notify: (message: string) => void;
++  prepareInput: () => void;
 +}
 +
 +export function buildAutoCompactCommand(deps: AutoCompactCommandDeps) {
@@ -9339,9 +9351,7 @@ index 0000000000000000000000000000000000000000..1b9afebe4985e6153c17ca267a0f1244
 +          value: "autocompact",
 +          description: "查看当前会话自动压缩上限；输入 100k、1m、80% 或 reset 设置",
 +          keywords: ["autocompact", "自动压缩", "上限", "threshold"],
-+          run: () => {
-+            void run("/autocompact");
-+          },
++          run: deps.prepareInput,
 +        },
 +      ]
 +    : [];
@@ -9351,7 +9361,7 @@ index 0000000000000000000000000000000000000000..1b9afebe4985e6153c17ca267a0f1244
 +export function useAutoCompactCommand(deps: AutoCompactCommandDeps) {
 +  return useMemo(
 +    () => buildAutoCompactCommand(deps),
-+    [deps.enabled, deps.cliNames, deps.execute, deps.notify],
++    [deps.enabled, deps.cliNames, deps.execute, deps.notify, deps.prepareInput],
 +  );
 +}
 diff --git a/packages/ui/src/v4/slash-commands/commands/context.ts b/packages/ui/src/v4/slash-commands/commands/context.ts
@@ -10481,14 +10491,30 @@ index 142695c04a8a659898aa4a12c58061761f8aaac7..def8d2af6d69a37e04b9e25ca8183e3f
      agent.conversationPlansV4.mockResolvedValue({
 diff --git a/packages/ui/test/autocompact.test.ts b/packages/ui/test/autocompact.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3719a5a449c5309fdf3fca53aa18bd50f0f9612e
+index 0000000000000000000000000000000000000000..9d3606c4b2c241e09dd70996ad0629b59425a6ba
 --- /dev/null
 +++ b/packages/ui/test/autocompact.test.ts
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,91 @@
 +import { describe, expect, it, vi } from "vitest";
 +import { buildAutoCompactCommand, parseAutoCompactInput } from "@/v4/slash-commands/autocompact.js";
 +
 +describe("autocompact command", () => {
++  it("prepares input on menu selection without querying or sending", async () => {
++    const prepareInput = vi.fn();
++    const execute = vi.fn();
++    const notify = vi.fn();
++    const command = buildAutoCompactCommand({
++      enabled: true,
++      cliNames: new Set(),
++      execute,
++      notify,
++      prepareInput,
++    });
++    command.commands[0]!.run();
++    expect(prepareInput).toHaveBeenCalledOnce();
++    expect(execute).not.toHaveBeenCalled();
++    expect(notify).not.toHaveBeenCalled();
++  });
 +  it("dispatches to current session and reports actual safe threshold", async () => {
 +    const execute = vi.fn(async () => ({
 +      commandId: "test",
@@ -10507,6 +10533,7 @@ index 0000000000000000000000000000000000000000..3719a5a449c5309fdf3fca53aa18bd50
 +      cliNames: new Set(),
 +      execute,
 +      notify,
++      prepareInput: vi.fn(),
 +    });
 +    expect(await command.run("/autocompact 1m")).toBe("sent");
 +    expect(execute).toHaveBeenCalledWith({ limit: { unit: "tokens", value: 1000000 } });
@@ -10520,7 +10547,12 @@ index 0000000000000000000000000000000000000000..3719a5a449c5309fdf3fca53aa18bd50
 +      { enabled: false, cliNames: new Set<string>() },
 +      { enabled: true, cliNames: new Set(["autocompact"]) },
 +    ]) {
-+      const command = buildAutoCompactCommand({ ...input, execute, notify: vi.fn() });
++      const command = buildAutoCompactCommand({
++        ...input,
++        execute,
++        notify: vi.fn(),
++        prepareInput: vi.fn(),
++      });
 +      expect(command.commands).toEqual([]);
 +      expect(await command.run("/autocompact 100k")).toBeNull();
 +    }
@@ -10556,10 +10588,10 @@ index 0000000000000000000000000000000000000000..3719a5a449c5309fdf3fca53aa18bd50
 +});
 diff --git a/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx b/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..bfecbb1b535d416e4c0ba3cb4c1c3acbdacfccf3
+index 0000000000000000000000000000000000000000..b1c37be2d3d14f57f12d56cf5834af3277b02599
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +import { useState } from "react";
 +import { createRoot } from "react-dom/client";
 +import { useAutoCompactCommand } from "@/v4/slash-commands/autocompact.js";
@@ -10569,6 +10601,7 @@ index 0000000000000000000000000000000000000000..bfecbb1b535d416e4c0ba3cb4c1c3acb
 +  const [feedback, setFeedback] = useState("");
 +  const [value, setValue] = useState<number | null>(null);
 +  const command = useAutoCompactCommand({
++    prepareInput: () => setText("/autocompact "),
 +    enabled: true,
 +    cliNames: new Set(),
 +    notify: setFeedback,
@@ -10611,10 +10644,10 @@ index 0000000000000000000000000000000000000000..bfecbb1b535d416e4c0ba3cb4c1c3acb
 +createRoot(document.getElementById("root")!).render(<Fixture />);
 diff --git a/packages/ui/test/browser/manual-review/pending/autocompact.test.mjs b/packages/ui/test/browser/manual-review/pending/autocompact.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..4da2703464dc42aa7d44b20452dad1a777e1ff14
+index 0000000000000000000000000000000000000000..f4312bb53d6af32db9949bf1d04245fd4bcbe57f
 --- /dev/null
 +++ b/packages/ui/test/browser/manual-review/pending/autocompact.test.mjs
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,87 @@
 +import assert from "node:assert/strict";
 +import { before, after, test } from "node:test";
 +import { fileURLToPath } from "node:url";
@@ -10687,7 +10720,10 @@ index 0000000000000000000000000000000000000000..4da2703464dc42aa7d44b20452dad1a7
 +      document.querySelector("output").textContent.includes("1000000"),
 +    );
 +    assert.match(await page.locator("output").textContent(), /166,000/);
++    const feedbackBeforeSelection = await page.locator("output").textContent();
 +    await page.getByRole("button", { name: "autocompact", exact: true }).click();
++    assert.equal(await input.inputValue(), "/autocompact ");
++    assert.equal(await page.locator("output").textContent(), feedbackBeforeSelection);
 +    await input.fill("/autocompact reset");
 +    await send.click();
 +    await page.waitForFunction(() => document.querySelector("output").textContent.includes("默认"));

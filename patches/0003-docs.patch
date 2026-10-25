@@ -716,7 +716,7 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +SOFTWARE.
 diff --git a/docs/ui/autocompact-command.md b/docs/ui/autocompact-command.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a1c8449ce5ee7a0cc4871a820b76bdbaa2bdfcb3
+index 0000000000000000000000000000000000000000..a319624b68f7c048cc742da438f9d33cca21b026
 --- /dev/null
 +++ b/docs/ui/autocompact-command.md
 @@ -0,0 +1,9 @@
@@ -726,7 +726,7 @@ index 0000000000000000000000000000000000000000..a1c8449ce5ee7a0cc4871a820b76bdba
 +
 +设置仅保存在当前 runtime 的 compact 配置，不修改 workspace/global 设置，不继承到其他已存在会话；runtime 重建后恢复默认。设置不打断正在运行的请求，在下一次正常自动压缩检查时使用。默认算法、安全输出预留、缓冲、最少可压缩消息限制、失败熔断保持不变。用户上限只能降低默认安全阈值，超出安全阈值时以安全阈值为准，并在响应中同时报告请求值和实际值。百分比按当前模型窗口计算，切模型后重新计算。
 +
-+UI 在 SessionPane 唯一接入：新增 slash-commands hook 包装现有 onSendText，只有无附件、无引用的精确命令才拦截；CLI 同名命令优先。参数错误或命令失败保留输入，不发给模型。只读、草稿、子会话视图不提供写操作入口。菜单选择查询当前值，设置通过输入带参数命令。协议命令 `configureAutoCompact` 只操作 envelope.sessionId 对应 runtime，查询不修改配置。旧服务端拒绝未知命令，不回退成模型 prompt。
++UI 在 SessionPane 唯一接入：新增 slash-commands hook 包装现有 onSendText，只有无附件、无引用的精确命令才拦截；CLI 同名命令优先。参数错误或命令失败保留输入，不发给模型。只读、草稿、子会话视图不提供写操作入口。菜单选择（回车、Tab 或点击）只把 `/autocompact ` 填入空输入框并保留末尾空格，供继续输入数字，不执行查询或设置。复用 Composer scoped restore 请求，已有非空草稿或切换会话时不覆盖；主动发送裸命令查询当前值，发送带参数命令才设置。协议命令 `configureAutoCompact` 只操作 envelope.sessionId 对应 runtime，查询不修改配置。旧服务端拒绝未知命令，不回退成模型 prompt。
 +
 +验收：纯阈值默认/整数/百分比/安全上限/模型变化；parser非法输入；真实 runtime session隔离；handler与协议校验；UI回调查询/设置/失败/碰撞和附件门禁。
 diff --git a/docs/ui/chat-summary-panel.md b/docs/ui/chat-summary-panel.md

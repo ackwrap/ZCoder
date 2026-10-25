@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "8f5956bacf5c19532886ccab59a00ee88d7ff98b",
-  "tree": "74c898d91823f2228e53a004bfc10e43c47eea00",
+  "sourceHead": "5cf0246d786f286b574c85039cf677a02f0366db",
+  "tree": "eec95b65dd21417115348f49d65c6e1416e8f44a",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -248,7 +248,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "85301c1acc4a8ba624b31e6d7293edfd46b0720b483ea02dfe836afc06d06db6",
+      "sha256": "99b5dd69819ee9237e615048e1f3644878aa13b4d5dd06c43452deab0fd63dff",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -453,7 +453,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "e7fd1ec5bc562989a6a895331da5c7004525ce890eaaa1106ee744ce85b4f461",
+      "sha256": "e365e36816c53dbfe6e0d899ee56f0429009775a7ef52f92da23ae0bfc8e20fc",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
