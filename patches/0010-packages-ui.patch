@@ -967,6 +967,67 @@ index 1e1f61905ac192b0d5d4cf835a73253c988b40d5..eade5ae13921916d27d82c8b54d482cc
        ...(taskStatus !== undefined ? { taskStatus } : {}),
        ...(output !== undefined ? { output } : {}),
        ...(truncated === true ? { truncated: true } : {}),
+diff --git a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx b/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
+index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..0a083216002d5c13be96819366a39fe8f9371088 100644
+--- a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
++++ b/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
+@@ -4,20 +4,16 @@ import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.j
+ import { cn } from "@/components/lib/utils.js";
+ import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
+ import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
+-import { ConversationShareMenu } from "@/ConversationShareMenu.js";
+ import { DesktopWindowControls } from "@/DesktopWindowControls.js";
+ 
+ export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
+ 
+ export function WorkspaceHeaderActionSection({
+   variant = "task",
+-  activeTaskId,
+-  user,
+   readOnlyReason,
+   workspaceAbsPath,
+   workspaceIdentity,
+   remoteTarget,
+-  isWebRemoteControl = false,
+   isDesktop,
+   isTerminalOpen,
+   isSidePaneOpen,
+@@ -48,14 +44,11 @@ export function WorkspaceHeaderActionSection({
+           onSelectedEditorChange={onSelectedEditorChange}
+         />
+       ) : null}
+-      {/* 分享发布接口依赖登录态；未登录时隐藏入口，避免用户打开后只能得到鉴权失败。 */}
+-      {activeTaskId &&
+-      user &&
+-      isDesktop !== false &&
+-      !isWebRemoteControl &&
+-      remoteTarget?.kind !== "server" ? (
+-        <ConversationShareMenu
+-          taskId={activeTaskId}
++      {isSidePaneOpen ? (
++        <WorkspaceSidePaneToggleButton
++          isSidePaneOpen={isSidePaneOpen}
++          onToggleSidePane={onToggleSidePane}
++          shortcutLabel={toggleSidePaneShortcutLabel}
+           useWindowsCaptionSpacing={useWindowsCaptionSpacing}
+         />
+       ) : null}
+@@ -71,15 +64,6 @@ export function WorkspaceHeaderActionSection({
+           />
+         </>
+       ) : null}
+-      {/* 远程控制移动端只保留图标，避免 diff 数字把按钮撑宽导致标题拥挤。 */}
+-      {!isSidePaneOpen ? (
+-        <WorkspaceSidePaneToggleButton
+-          isSidePaneOpen={isSidePaneOpen}
+-          onToggleSidePane={onToggleSidePane}
+-          shortcutLabel={toggleSidePaneShortcutLabel}
+-          useWindowsCaptionSpacing={useWindowsCaptionSpacing}
+-        />
+-      ) : null}
+       {showWindowControls && !isSidePaneOpen ? <DesktopWindowControls /> : null}
+     </div>
+   );
 diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
 index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c613a18fbe1 100644
 --- a/packages/ui/src/WorkspaceSidebarFooter.tsx
@@ -16930,6 +16991,19 @@ index 66ec697ec6f65034a94862d01c8eff1fcfa53445..abc735fa0ed347e8704367e8d92c67ca
  
      act(() => {
        controller.store.setState({ banner: null } as never);
+diff --git a/packages/ui/test/specs/header-side-pane-close.md b/packages/ui/test/specs/header-side-pane-close.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..61d324434fa9269419f2968b82a66e7dc9c3164c
+--- /dev/null
++++ b/packages/ui/test/specs/header-side-pane-close.md
+@@ -0,0 +1,7 @@
++# 右上角关闭侧边栏入口
++
++- 工作区头部不再挂载分享菜单，不因任务、登录或远程环境恢复分享入口。
++- 原分享位置在侧边栏打开时显示关闭图标，复用现有侧边栏切换回调。
++- 侧边栏关闭时，该位置隐藏，不提供打开按钮。
++- 保留编辑器、帮助、终端及窗口控制的既有顺序与行为。
++- Windows 标题栏按钮继续使用既有 caption 间距。
 diff --git a/packages/ui/test/tokensPerSecond.test.ts b/packages/ui/test/tokensPerSecond.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..63d1e4c9820b07b3156179aa0b416a349a0ed6b1
@@ -18800,6 +18874,79 @@ index 0000000000000000000000000000000000000000..36cb9b0a29cb71d67c0bbee7d60c6b3d
 +    expect(ScopedProbe.displayName).toBe("withSidePaneCapsuleScope(Probe)");
 +  });
 +});
+diff --git a/packages/ui/test/workspaceHeaderActionSection.test.ts b/packages/ui/test/workspaceHeaderActionSection.test.ts
+index c9d80308d7ab3fb3a41757f9be7399289891e2a2..5c93963a64a153d8cc6b920552b1060f25b8b5eb 100644
+--- a/packages/ui/test/workspaceHeaderActionSection.test.ts
++++ b/packages/ui/test/workspaceHeaderActionSection.test.ts
+@@ -110,7 +110,7 @@ describe("WorkspaceHeaderActionSection", () => {
+   }
+ 
+   // staging 新增用例：同样需要 Provider 包装（组件在快捷键特性后读设置）
+-  it("leaves the collapse action to the open side pane header", async () => {
++  it("shows the collapse action when the side pane is open", async () => {
+     const { WorkspaceHeaderActionSection } =
+       await import("@/WorkspaceHeaderSections/WorkspaceHeaderActionSection.js");
+     const html = renderToStaticMarkup(
+@@ -122,7 +122,7 @@ describe("WorkspaceHeaderActionSection", () => {
+         onToggleSidePane: vi.fn(),
+       }),
+     );
+-    expect(html).not.toContain("sidePane.collapse");
++    expect(html).toContain("sidePane.collapse");
+     expect(html).not.toContain("sidePane.expand");
+   });
+ 
+@@ -146,10 +146,10 @@ describe("WorkspaceHeaderActionSection", () => {
+     expect(html).not.toContain('data-testid="workspace-editor-buttons"');
+     expect(html).toContain("workspaceHeader.help.menu");
+     expect(html).toContain("terminal.toggle");
+-    expect(html).toContain("sidePane.expand");
++    expect(html).not.toContain("sidePane.expand");
+   });
+ 
+-  it("只在 Desktop local/SSH/WSL/Docker 已有任务显示分享入口", async () => {
++  it("所有环境都不再显示分享入口", async () => {
+     const { WorkspaceHeaderActionSection } =
+       await import("@/WorkspaceHeaderSections/WorkspaceHeaderActionSection.js");
+     const renderSection = (extra: Record<string, unknown>) =>
+@@ -167,8 +167,8 @@ describe("WorkspaceHeaderActionSection", () => {
+         }),
+       );
+ 
+-    expect(renderSection({})).toContain("conversationShare.trigger");
+-    expect(renderSection({ remoteTarget: { kind: "ssh" } })).toContain("conversationShare.trigger");
++    expect(renderSection({})).not.toContain("conversationShare.trigger");
++    expect(renderSection({ remoteTarget: { kind: "ssh" } })).not.toContain("conversationShare.trigger");
+     expect(renderSection({ isWebRemoteControl: true })).not.toContain("conversationShare.trigger");
+     expect(renderSection({ isDesktop: false })).not.toContain("conversationShare.trigger");
+     expect(renderSection({ remoteTarget: { kind: "server" } })).not.toContain(
+@@ -218,7 +218,7 @@ describe("WorkspaceHeaderActionSection", () => {
+     expect(html).toContain("workspaceHeader.help.docs");
+     expect(html).not.toContain("titleBar.menu.help.exportLogs");
+     expect(html).toContain("terminal.toggle");
+-    expect(html).toContain("sidePane.expand");
++    expect(html).not.toContain("sidePane.expand");
+     expect(html.indexOf("workspaceHeader.help.menu")).toBeLessThan(html.indexOf("terminal.toggle"));
+   });
+ 
+@@ -240,7 +240,7 @@ describe("WorkspaceHeaderActionSection", () => {
+     expect(html).not.toContain("workspaceHeader.help.menu");
+     expect(html).not.toContain("workspaceHeader.help.issueReport");
+     expect(html).not.toContain("terminal.toggle");
+-    expect(html).toContain("sidePane.expand");
++    expect(html).not.toContain("sidePane.expand");
+   });
+ 
+   it("hides only the help menu when Windows caption menu owns help actions", async () => {
+@@ -261,7 +261,7 @@ describe("WorkspaceHeaderActionSection", () => {
+     expect(html).not.toContain("workspaceHeader.help.menu");
+     expect(html).not.toContain("workspaceHeader.help.issueReport");
+     expect(html).toContain("terminal.toggle");
+-    expect(html).toContain("sidePane.expand");
++    expect(html).not.toContain("sidePane.expand");
+   });
+ 
+   it("routes help menu items to feedback, community, and docs entries", async () => {
 diff --git a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
 index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e9ef47f0e 100644
 --- a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts

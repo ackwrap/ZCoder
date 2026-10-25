@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "5cf0246d786f286b574c85039cf677a02f0366db",
-  "tree": "eec95b65dd21417115348f49d65c6e1416e8f44a",
+  "sourceHead": "1601a053ee0be52f6773727bf6e68d60984dcd05",
+  "tree": "374786daff4400d0a47309fb1ed0a5b9011e4c7e",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -453,7 +453,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "e365e36816c53dbfe6e0d899ee56f0429009775a7ef52f92da23ae0bfc8e20fc",
+      "sha256": "69fac13ec649121226510d978958ae8cb63436879fe10f35699fbeaa08fd0b63",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -467,6 +467,7 @@
         "packages/ui/src/ToolCallBlocks/renderers/explore.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/task-output.tsx",
         "packages/ui/src/ToolCallBlocks/toolResultDisplay.ts",
+        "packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx",
         "packages/ui/src/WorkspaceSidebarFooter.tsx",
         "packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx",
         "packages/ui/src/app-shell/SelectionSideChatPane.tsx",
@@ -662,6 +663,7 @@
         "packages/ui/test/settingsPageConfig.test.ts",
         "packages/ui/test/settingsPageIntegratedTerminalShell.test.ts",
         "packages/ui/test/sidebarBottomActivity.test.ts",
+        "packages/ui/test/specs/header-side-pane-close.md",
         "packages/ui/test/tokensPerSecond.test.ts",
         "packages/ui/test/toolLiveExpand.test.ts",
         "packages/ui/test/toolLiveExpansionTransitions.test.ts",
@@ -677,6 +679,7 @@
         "packages/ui/test/v4ExploreRunSummary.test.ts",
         "packages/ui/test/v4SessionPaneLayoutParity.test.ts",
         "packages/ui/test/v4StatusCapsuleSidePane.test.ts",
+        "packages/ui/test/workspaceHeaderActionSection.test.ts",
         "packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts"
       ]
     },
