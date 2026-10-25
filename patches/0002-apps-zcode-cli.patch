@@ -148,6 +148,27 @@ index 0000000000000000000000000000000000000000..5b2fa779a9e065bce8931f0639f087ce
 +## 定向证据
 +
 +adapter 覆盖缺失后新增、修改、删除、原子保存、文件名过滤、防抖、同内容去重、共享租约清理、watch 失败 fallback。runtime fake provider 覆盖实际请求的多步骤注入、in-flight 下一步生效、无变化去重、resume/fork/revert 基线重建、compact 后基线推进、microcompact 工具配对及 child 注入开关/父子一致性。纯 backend，无 GUI 行为变化。
+diff --git a/apps/zcode-cli/docs/design/v2/loop/minimal-runtime-integration.md b/apps/zcode-cli/docs/design/v2/loop/minimal-runtime-integration.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4bb5ec3c7d1d9f6ce214b9a9501b9c163203cd8f
+--- /dev/null
++++ b/apps/zcode-cli/docs/design/v2/loop/minimal-runtime-integration.md
+@@ -0,0 +1,15 @@
++# CLI 运行时最小接入与隔离
++
++## Workspace 压缩策略
++
++协议 server context 是偏好唯一所有者，以 workspaceKey 保存压缩策略；未同步的 workspace 使用 detailed/15000/8000。更新仅影响匹配的活跃 session。create/resume 共用 createRecord，在初始化前及异步初始化完成发布前读取同一 workspace 的最新策略；其他 workspace 的更新不能污染候选或补同步。不触发压缩、取消请求或改写历史。
++
++新增 compaction-policy 模块复用 dispatcher 和 createRecord 稳定边界；model-io-preferences 保留兼容导出，不创建第二份缓存。回归覆盖 A/B 新建、冷恢复、交错更新和异步初始化。
++
++## 会话资源方法
++
++资源枚举与命令放在 session-resource-methods，通过既有 installAgentRuntimeMethods 注册。SessionResourceController 仍独占 deny 策略；不修改保存后发布、恢复失败关闭、稳定身份验证、权限后重查或在途调用语义。
++
++## 安全提示
++
++交互式与 workflow actor 共用的 Harness 构造插入合规防御提示。仅允许明确授权的防御、审计、修复及合规验证；不支持 CTF/靶场破解、越狱、提示词注入或绕过审批/沙箱/鉴权等围栏。提示不替代执行层门禁，也不恢复旧宽泛授权文字。
 diff --git a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md b/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
 index 678710b8f24441ea4c47f0cfde0272ae1ede5a29..191d9fe1492571f987530ee62f1cdc94fed6cbad 100644
 --- a/apps/zcode-cli/docs/design/v2/loop/system-prompt-contract.md
@@ -548,85 +569,218 @@ index 6d4a95582e034d5fcd9f167755f526636139c8af..e141d862bbf69e847276a61232c620a1
      "jimp": "^1.6.1",
      "koffi": "2.15.6",
 diff --git a/apps/zcode-cli/packages/adapters/src/context/index.ts b/apps/zcode-cli/packages/adapters/src/context/index.ts
-index 6f7ef45db4d7039249f3a290e69e606236fd5a27..3010ebc319e0b5d95bec2ff02f359148fdc41818 100644
+index 6f7ef45db4d7039249f3a290e69e606236fd5a27..458c5ff4d788b8a48eb57197a96c6af97d539588 100644
 --- a/apps/zcode-cli/packages/adapters/src/context/index.ts
 +++ b/apps/zcode-cli/packages/adapters/src/context/index.ts
-@@ -2,9 +2,11 @@
- // Node Context Source Adapter
- // ============================================================
- 
--import { readFile, stat } from "node:fs/promises";
-+import { createHash } from "node:crypto";
-+import { watch, type FSWatcher } from "node:fs";
-+import { lstat, readFile, realpath, stat } from "node:fs/promises";
- import { arch, homedir, release } from "node:os";
--import { basename, dirname, join, resolve } from "node:path";
-+import { basename, dirname, join, relative, resolve, sep } from "node:path";
- import { formatLocalIsoDate } from "@zcode/contracts";
- import type {
-   ContextSourceDiagnostic,
-@@ -18,6 +20,7 @@ import type {
+@@ -18,7 +18,9 @@ import type {
    ResolvedUserInstructionSource,
    ResolvedUserInstructions,
    UserInstructionsOptions,
 +  UserInstructionObservation,
  } from "@zcode/contracts";
++import { createInstructionObservationRegistry } from "./instruction-observation/module.js";
  import { resolveGitSnapshot } from "./git-snapshot.js";
  
-@@ -30,6 +33,34 @@ export interface NodeContextSourceAdapterOptions {
+ const DEFAULT_PRIORITY_FILES = ["AGENTS.md"];
+@@ -30,6 +32,16 @@ export interface NodeContextSourceAdapterOptions {
  
  export class NodeContextSourceAdapter implements ContextSourcePort {
    private readonly env: NodeJS.ProcessEnv;
-+  private readonly observations = new Map<
-+    string,
-+    Promise<{
-+      acquire(): UserInstructionObservation;
-+    }>
-+  >();
++  private readonly observations = createInstructionObservationRegistry({
++    resolveInstructions: (options, env) => resolveUserInstructions(options, [], env),
++    findProjectRoot,
++    resolveUserHome: resolveUserHomeDir,
++    defaultPriorityFiles: DEFAULT_PRIORITY_FILES,
++  });
 +
-+  async observeUserInstructions(
++  observeUserInstructions(options: UserInstructionsOptions): Promise<UserInstructionObservation> {
++    return this.observations.observe(options, this.env);
++  }
+ 
+   constructor(options: NodeContextSourceAdapterOptions = {}) {
+     this.env = options.env ?? process.env;
+diff --git a/apps/zcode-cli/packages/adapters/src/context/instruction-observation/CONTRACT.md b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8c9b5e860d5245d408cdd63942ca66058a52f30
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/CONTRACT.md
+@@ -0,0 +1,7 @@
++# Instruction observation
++
++Adapter-layer owner of shared instruction file observers and reference-counted leases. The registry normalizes selection and environment identity. The existing context resolver, project-root discovery and user-home selection are injected; this module does not duplicate instruction selection or parsing.
++
++Initialization binds watchers before resolving the initial snapshot. Failure closes all bound handles and removes the pending registry entry. Refreshes serialize; only live observers publish results. Snapshot identity includes all returned metadata (including original size behind a truncated prefix). Every asynchronous snapshot read rechecks its lease after awaits; disposed leases return undefined, even when another lease keeps the observer alive. Last release closes handles and debounce timer, evicts the registry entry, and prevents late publication. Dispose is idempotent.
++
++Native events debounce for 100 ms; missing candidates anchor to an existing ancestor. Watch failures and symlink indirection use request-boundary fingerprint fallback. No persistence, replay, network or UI delivery is introduced.
+diff --git a/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.example.ts b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e51a05a6566345352eddd34a226697e2aab11489
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.example.ts
+@@ -0,0 +1,15 @@
++import { createInstructionObservationRegistry } from "./module.js";
++import type { InstructionObservationDependencies } from "./contract.js";
++
++export async function readInstructionSnapshot(
++  dependencies: InstructionObservationDependencies,
++  workingDirectory: string,
++) {
++  const registry = createInstructionObservationRegistry(dependencies);
++  const lease = await registry.observe({ workingDirectory }, {});
++  try {
++    return await lease.readSnapshot();
++  } finally {
++    lease.dispose();
++  }
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.test.ts b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..313df2e19f630c8b0f287cd6faf0929419056222
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.test.ts
+@@ -0,0 +1,41 @@
++import { EventEmitter } from "node:events";
++import { watch, type FSWatcher } from "node:fs";
++import { tmpdir } from "node:os";
++import { afterEach, expect, it, vi } from "vitest";
++import { createInstructionObservationRegistry } from "./module.js";
++
++vi.mock("node:fs", async (original) => ({
++  ...(await original<typeof import("node:fs")>()),
++  watch: vi.fn(),
++}));
++afterEach(() => vi.resetAllMocks());
++
++it("closes bound watchers on initialization failure and permits a fresh acquisition", async () => {
++  const close = vi.fn();
++  vi.mocked(watch).mockImplementation(() => {
++    const watcher = new EventEmitter() as FSWatcher;
++    watcher.close = close;
++    return watcher;
++  });
++  const resolveInstructions = vi
++    .fn()
++    .mockRejectedValueOnce(new Error("initial refresh failed"))
++    .mockResolvedValue(undefined);
++  const registry = createInstructionObservationRegistry({
++    resolveInstructions,
++    findProjectRoot: async () => tmpdir(),
++    resolveUserHome: () => tmpdir(),
++    defaultPriorityFiles: ["RULES.txt"],
++  });
++  const options = { workingDirectory: tmpdir(), projectRoot: tmpdir() };
++  await expect(registry.observe(options, {})).rejects.toThrow("initial refresh failed");
++  expect(watch).toHaveBeenCalled();
++  expect(close).toHaveBeenCalledTimes(vi.mocked(watch).mock.calls.length);
++  const first = await registry.observe(options, {});
++  const second = await registry.observe(options, {});
++  expect(resolveInstructions).toHaveBeenCalledTimes(2);
++  first.dispose();
++  expect(await second.readSnapshot()).toBeUndefined();
++  second.dispose();
++  expect(close).toHaveBeenCalledTimes(vi.mocked(watch).mock.calls.length);
++});
+diff --git a/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.ts b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..329f9eae4d0ae8168dd1366d5e2d3dcc2765d399
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.ts
+@@ -0,0 +1,22 @@
++import type {
++  ResolvedUserInstructions,
++  UserInstructionObservation,
++  UserInstructionsOptions,
++} from "@zcode/contracts";
++
++export interface InstructionObservationDependencies {
++  readonly resolveInstructions: (
 +    options: UserInstructionsOptions,
++    env: NodeJS.ProcessEnv,
++  ) => Promise<ResolvedUserInstructions | undefined>;
++  readonly findProjectRoot: (directory: string) => Promise<string | null>;
++  readonly resolveUserHome: (env: NodeJS.ProcessEnv) => string;
++  readonly defaultPriorityFiles: readonly string[];
++}
++
++export interface InstructionObservationRegistry {
++  observe(
++    options: UserInstructionsOptions,
++    env: NodeJS.ProcessEnv,
++  ): Promise<UserInstructionObservation>;
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/context/instruction-observation/module.ts b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b328c4ea9c5e36966e7838f065067756b2fa198
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/context/instruction-observation/module.ts
+@@ -0,0 +1,241 @@
++import { createHash } from "node:crypto";
++import { watch, type FSWatcher } from "node:fs";
++import { lstat, realpath, stat } from "node:fs/promises";
++import { basename, dirname, join, relative, resolve, sep } from "node:path";
++import type {
++  ResolvedUserInstructions,
++  UserInstructionObservation,
++  UserInstructionsOptions,
++} from "@zcode/contracts";
++import type {
++  InstructionObservationDependencies,
++  InstructionObservationRegistry,
++} from "./contract.js";
++
++export function createInstructionObservationRegistry(
++  dependencies: InstructionObservationDependencies,
++): InstructionObservationRegistry {
++  const observations = new Map<string, Promise<{ acquire(): UserInstructionObservation }>>();
++  async function observe(
++    options: UserInstructionsOptions,
++    sourceEnv: NodeJS.ProcessEnv,
 +  ): Promise<UserInstructionObservation> {
 +    const normalized = {
 +      ...options,
 +      workingDirectory: resolve(options.workingDirectory),
 +      projectRoot: options.projectRoot ? resolve(options.projectRoot) : undefined,
-+      priorityFiles: [...(options.priorityFiles ?? DEFAULT_PRIORITY_FILES)],
++      priorityFiles: [...(options.priorityFiles ?? dependencies.defaultPriorityFiles)],
 +    };
-+    const env = { ...this.env };
-+    const key = JSON.stringify({ ...normalized, userHome: resolveUserHomeDir(env) });
-+    let pending = this.observations.get(key);
++    const env = { ...sourceEnv };
++    const key = JSON.stringify({ ...normalized, userHome: dependencies.resolveUserHome(env) });
++    let pending = observations.get(key);
 +    if (!pending) {
-+      pending = createInstructionObservation(normalized, env, () => this.observations.delete(key));
-+      this.observations.set(key, pending);
-+      void pending.catch(() => this.observations.delete(key));
++      pending = createInstructionObservation(
++        normalized,
++        env,
++        () => observations.delete(key),
++        dependencies,
++      );
++      observations.set(key, pending);
++      void pending.catch(() => {
++        if (observations.get(key) === pending) observations.delete(key);
++      });
 +    }
 +    const observation = await pending;
-+    if (this.observations.get(key) !== pending) return this.observeUserInstructions(options);
++    if (observations.get(key) !== pending) return observe(options, sourceEnv);
 +    return observation.acquire();
 +  }
- 
-   constructor(options: NodeContextSourceAdapterOptions = {}) {
-     this.env = options.env ?? process.env;
-@@ -128,6 +159,179 @@ async function resolveUserInstructions(
-   return mergeInstructionSources(sources);
- }
- 
++  return { observe };
++}
++
 +async function createInstructionObservation(
 +  options: UserInstructionsOptions,
 +  env: NodeJS.ProcessEnv,
 +  onClosed: () => void,
++  dependencies: InstructionObservationDependencies,
 +): Promise<{ acquire(): UserInstructionObservation }> {
-+  const projectRoot = options.projectRoot ?? (await findProjectRoot(options.workingDirectory));
++  const projectRoot =
++    options.projectRoot ?? (await dependencies.findProjectRoot(options.workingDirectory));
 +  options = { ...options, projectRoot: projectRoot ?? undefined };
 +  const candidates: string[] = [];
 +  for (let dir = resolve(options.workingDirectory); ; dir = dirname(dir)) {
-+    for (const name of options.priorityFiles ?? DEFAULT_PRIORITY_FILES)
++    for (const name of options.priorityFiles ?? dependencies.defaultPriorityFiles)
 +      candidates.push(join(dir, name));
 +    if (dir === projectRoot || dir === dirname(dir)) break;
 +  }
-+  if ((options.priorityFiles ?? DEFAULT_PRIORITY_FILES).includes("AGENTS.md")) {
-+    candidates.push(join(resolveUserHomeDir(env), ".zcode", "AGENTS.md"));
++  if ((options.priorityFiles ?? dependencies.defaultPriorityFiles).includes("AGENTS.md")) {
++    candidates.push(join(dependencies.resolveUserHome(env), ".zcode", "AGENTS.md"));
 +  }
 +  const watchers = new Map<string, { watcher: FSWatcher; names: Set<string>; identity: string }>();
 +  let closed = false,
@@ -741,13 +895,9 @@ index 6f7ef45db4d7039249f3a290e69e606236fd5a27..3010ebc319e0b5d95bec2ff02f359148
 +        if (closed) return;
 +        await bindWatchers();
 +        const nextRevision = await fingerprint();
-+        const next = await resolveUserInstructions(options, [], env);
++        const next = await dependencies.resolveInstructions(options, env);
 +        const nextHash = createHash("sha256")
-+          .update(
-+            JSON.stringify(
-+              next?.sources?.map((s) => [s.scope, s.filePath, s.content, s.truncated]) ?? null,
-+            ),
-+          )
++          .update(JSON.stringify(next ?? null))
 +          .digest("hex");
 +        if (closed) return;
 +        if (nextHash !== hash) {
@@ -758,7 +908,20 @@ index 6f7ef45db4d7039249f3a290e69e606236fd5a27..3010ebc319e0b5d95bec2ff02f359148
 +      });
 +    return queue;
 +  }
-+  await refresh();
++  function close() {
++    if (closed) return;
++    closed = true;
++    if (timer) clearTimeout(timer);
++    for (const { watcher } of watchers.values()) watcher.close();
++    watchers.clear();
++    onClosed();
++  }
++  try {
++    await refresh();
++  } catch (error) {
++    close();
++    throw error;
++  }
 +  return {
 +    acquire() {
 +      leases++;
@@ -767,27 +930,31 @@ index 6f7ef45db4d7039249f3a290e69e606236fd5a27..3010ebc319e0b5d95bec2ff02f359148
 +        async readSnapshot() {
 +          if (released) return undefined;
 +          await queue;
-+          if (fallback && (await fingerprint()) !== revision) await refresh();
++          if (released) return undefined;
++          if (fallback && (await fingerprint()) !== revision) {
++            if (released) return undefined;
++            await refresh();
++          }
++          if (released) return undefined;
 +          return snapshot ? structuredClone(snapshot) : undefined;
 +        },
 +        dispose() {
 +          if (released) return;
 +          released = true;
 +          if (--leases > 0) return;
-+          closed = true;
-+          if (timer) clearTimeout(timer);
-+          for (const { watcher } of watchers.values()) watcher.close();
-+          watchers.clear();
-+          onClosed();
++          close();
 +        },
 +      };
 +    },
 +  };
 +}
 +
- async function readFirstTextBytes(path: string, maxBytes: number): Promise<string> {
-   const content = await readFile(path);
-   return content.subarray(0, maxBytes).toString("utf8");
++export const instructionObservationModule = {
++  id: "cli-instruction-observation",
++  requires: ["zcode-cli"],
++  provides: ["instruction-observation-registry"],
++  publicEntrypoints: ["contract.ts", "module.ts"],
++} as const;
 diff --git a/apps/zcode-cli/packages/adapters/src/fs/index.ts b/apps/zcode-cli/packages/adapters/src/fs/index.ts
 index 9c7d7aa6c5748cabcde37c065bfdcbe4dcb91f5b..76062e6578090e9712b24f0d37874904c9dd863e 100644
 --- a/apps/zcode-cli/packages/adapters/src/fs/index.ts
@@ -3584,10 +3751,10 @@ index 0000000000000000000000000000000000000000..f2a716952f8b988aed50a310e85fed7f
 +}
 diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md b/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..29503542e83688ee6080eb6cc3dd43ede334c53d
+index 0000000000000000000000000000000000000000..a111ac05819e6a580b3209e5138e2608c4c48494
 --- /dev/null
 +++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/CONTRACT.md
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,18 @@
 +# Codex opencode transport
 +
 +仅属于 CLI model adapter。公开入口为 `module.ts` 的 `createCodexResponsesModel` 和 `contract.ts` 的配置/运行时类型。
@@ -3599,6 +3766,11 @@ index 0000000000000000000000000000000000000000..29503542e83688ee6080eb6cc3dd43ed
 +- 每次调用持有一个 opencode runtime，消费完毕、失败、取消和提前关闭时释放；缺失终止事件不能视为成功。上游失败映射为原运行时可识别的错误，不自行重试。
 +- 模型 options 以 opencode 支持的 overlay/选项传递，禁止覆盖 model/input/stream/continuation；Codex output limit 按上游 hook 省略。
 +- 上游 wire JSON 经其 schema 校验。无法映射的输入显式拒绝；工具、加密 reasoning、usage 元数据不可静默丢失。
++
++- 模块显式依赖 `provider` 与 `zcode-cli`：前者仅提供 resolved-provider/model 配置类型，后者提供 contracts 与既有 adapter 错误类型；不增加 deep-import 豁免。
++- `provider-policy.ts` 是无 IO、无持久状态的纯策略，单独拥有可信 Codex resolved-provider 身份判断与 runtime-only 能力投影，不接受 modelId 或持久化伪造标记。
++- native search 校验复用既有 `AiSdkModelAdapterError` / `InvalidModelRequest` 错误边界；错误只向调用方传播，由原 runner 处理，不在本模块新增恢复、鉴权或重试路径。transport 的 fetch 仍由原装配层注入，纯策略与参数校验不发起网络请求。
++- `native-web-search.ts` 拥有已核实 native search 构造和 wire 参数校验。`filters` 若存在必须是对象；`allowed_domains` 若存在必须是非空、全为非空白字符串的数组；不丢弃非法成员或将限制降级为无限制。合法字符串原样保留，缺省 filters 或空对象仍允许无限制搜索。
 +
 +规格与验收：`apps/zcode-cli/docs/design/v2/llm/codex-provider.md`。网络测试不代表真实账号登录或调用成功。
 diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.example.ts
@@ -3890,11 +4062,12 @@ index 0000000000000000000000000000000000000000..77ade0985b410f92132836c16773b195
 +}
 diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..44df79b322809e0968ce7f4e51c73d1eec85c4d8
+index 0000000000000000000000000000000000000000..b635c9d46af2e969b2de30a997a236a28fb856c6
 --- /dev/null
 +++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/messages.ts
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,124 @@
 +import { Media, Message, type ContentPart, type ToolResultValue } from "@opencode/ai";
++import { codexProviderTool } from "./native-web-search.js";
 +import type { CodexCallOptions } from "./contract.js";
 +
 +type RuntimeMessage = CodexCallOptions["prompt"][number];
@@ -4017,66 +4190,21 @@ index 0000000000000000000000000000000000000000..44df79b322809e0968ce7f4e51c73d1e
 +    return { name: tool.name, description: tool.description ?? "", inputSchema: tool.inputSchema };
 +  });
 +}
-+
-+/** Codex 只接受官方核实的 live web_search 形状；其他 provider tool/参数显式失败。 */
-+function codexProviderTool(tool: {
-+  readonly id: string;
-+  readonly name: string;
-+  readonly args: Record<string, unknown>;
-+}) {
-+  if (tool.id !== "openai.web_search" || tool.name !== "web_search") {
-+    throw new Error(`codex-unsupported-provider-tool: ${tool.id}`);
-+  }
-+
-+  const args = tool.args;
-+  if (args.external_web_access !== true) {
-+    throw new Error("codex-unsupported-web-search: external_web_access");
-+  }
-+  const unsupported = Object.keys(args).filter(
-+    (key) => key !== "external_web_access" && key !== "filters",
-+  );
-+  if (unsupported.length > 0) {
-+    throw new Error(`codex-unsupported-web-search: ${unsupported.join(",")}`);
-+  }
-+
-+  const filters = asRecord(args.filters);
-+  if (filters !== undefined) {
-+    const unsupportedFilter = Object.keys(filters).filter((key) => key !== "allowed_domains");
-+    if (unsupportedFilter.length > 0) {
-+      throw new Error(`codex-unsupported-web-search-filter: ${unsupportedFilter.join(",")}`);
-+    }
-+  }
-+  const allowedDomains = Array.isArray(filters?.allowed_domains)
-+    ? filters.allowed_domains.filter((value): value is string => typeof value === "string")
-+    : undefined;
-+
-+  return {
-+    name: tool.name,
-+    description: "Provider-native web search used internally by the WebSearch tool",
-+    inputSchema: { type: "object", properties: {} },
-+    native: {
-+      openai: {
-+        type: "web_search",
-+        external_web_access: true,
-+        ...(allowedDomains && allowedDomains.length > 0
-+          ? { filters: { allowed_domains: allowedDomains } }
-+          : {}),
-+      },
-+    },
-+  };
-+}
-+
-+function asRecord(value: unknown): Record<string, unknown> | undefined {
-+  return value !== null && typeof value === "object" && !Array.isArray(value)
-+    ? (value as Record<string, unknown>)
-+    : undefined;
-+}
 diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5f6b40355a309245648a5b197262a00ec7bb977e
+index 0000000000000000000000000000000000000000..58e0be491c7fe08af20c868d1e9593eed3c417a8
 --- /dev/null
 +++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,217 @@
++export const codexTransportModule = {
++  id: "cli-codex-transport",
++  requires: ["provider", "zcode-cli"],
++  provides: ["codex-responses-model"],
++  publicEntrypoints: ["contract.ts", "module.ts"],
++} as const;
++
++export { isTrustedCodexProviderConfig, resolveRuntimeModelProperties } from "./provider-policy.js";
++export { toCodexNativeWebSearchTool } from "./native-web-search.js";
 +import { promisify } from "node:util";
 +import { zstdDecompress } from "node:zlib";
 +import { APICallError } from "ai";
@@ -4285,22 +4413,126 @@ index 0000000000000000000000000000000000000000..5f6b40355a309245648a5b197262a00e
 +    },
 +  };
 +}
-diff --git a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
-index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..e5a6c46d40d901f2e3a133824f3cc4f3f796c4d3 100644
---- a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
-+++ b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
-@@ -26,6 +26,7 @@ import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
- import { createModelRequestSecurityState } from "./request-security-edition/index.js";
- import type { ModelRequestSecurityState, ModelRequestSecurityPort } from "./request-security.js";
- import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
-+import { createCodexResponsesModel } from "./codex-transport/module.js";
- import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
- import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
- import { createProviderEndpointRoutingFetch } from "./provider-endpoint-routing-fetch.js";
-@@ -40,7 +41,28 @@ export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
- 
- export type EnvRecord = Record<string, string | undefined>;
- 
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/native-web-search.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/native-web-search.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2cf0db3e58ed4a3cdb7cdc24bef4c735bb4c25d
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/native-web-search.ts
+@@ -0,0 +1,105 @@
++import type { ToolSet } from "ai";
++import { ModelErrorCode } from "@zcode/contracts";
++import { AiSdkModelAdapterError } from "../errors.js";
++
++/**
++ * Codex 官方 wire 只核实在线搜索 `external_web_access: true` 与
++ * `filters.allowed_domains`。blocked_domains/maxUses 没有可信 wire 证据，Codex 会拒绝
++ * 不支持参数，因此这里显式失败而不是静默丢弃或本地后置过滤。
++ */
++export function toCodexNativeWebSearchTool(args: Record<string, unknown>): ToolSet[string] {
++  if (args.blockedDomains !== undefined) {
++    throw new AiSdkModelAdapterError(
++      ModelErrorCode.InvalidModelRequest,
++      "Codex native WebSearch does not support blocked_domains",
++    );
++  }
++  if (args.maxUses !== undefined) {
++    throw new AiSdkModelAdapterError(
++      ModelErrorCode.InvalidModelRequest,
++      "Codex native WebSearch does not support maxUses",
++    );
++  }
++
++  const allowedDomains = validateAllowedDomains(args.allowedDomains);
++  return {
++    type: "provider",
++    id: "openai.web_search",
++    name: "web_search",
++    args: {
++      external_web_access: true,
++      ...(allowedDomains ? { filters: { allowed_domains: allowedDomains } } : {}),
++    },
++    inputSchema: { type: "object", properties: {} },
++  } as unknown as ToolSet[string];
++}
++
++/** Codex 只接受官方核实的 live web_search 形状；其他 provider tool/参数显式失败。 */
++export function codexProviderTool(tool: {
++  readonly id: string;
++  readonly name: string;
++  readonly args: Record<string, unknown>;
++}) {
++  if (tool.id !== "openai.web_search" || tool.name !== "web_search") {
++    throw new Error(`codex-unsupported-provider-tool: ${tool.id}`);
++  }
++
++  const args = tool.args;
++  if (args.external_web_access !== true) {
++    throw new Error("codex-unsupported-web-search: external_web_access");
++  }
++  const unsupported = Object.keys(args).filter(
++    (key) => key !== "external_web_access" && key !== "filters",
++  );
++  if (unsupported.length > 0) {
++    throw new Error(`codex-unsupported-web-search: ${unsupported.join(",")}`);
++  }
++
++  const filters = asRecord(args.filters);
++  if (args.filters !== undefined && !filters) {
++    throw new Error("codex-unsupported-web-search: filters");
++  }
++  if (filters !== undefined) {
++    const unsupportedFilter = Object.keys(filters).filter((key) => key !== "allowed_domains");
++    if (unsupportedFilter.length > 0) {
++      throw new Error(`codex-unsupported-web-search-filter: ${unsupportedFilter.join(",")}`);
++    }
++  }
++  const allowedDomains = validateAllowedDomains(filters?.allowed_domains);
++
++  return {
++    name: tool.name,
++    description: "Provider-native web search used internally by the WebSearch tool",
++    inputSchema: { type: "object", properties: {} },
++    native: {
++      openai: {
++        type: "web_search",
++        external_web_access: true,
++        ...(allowedDomains && allowedDomains.length > 0
++          ? { filters: { allowed_domains: allowedDomains } }
++          : {}),
++      },
++    },
++  };
++}
++
++function asRecord(value: unknown): Record<string, unknown> | undefined {
++  return value !== null && typeof value === "object" && !Array.isArray(value)
++    ? (value as Record<string, unknown>)
++    : undefined;
++}
++
++function validateAllowedDomains(value: unknown): string[] | undefined {
++  if (value === undefined) return undefined;
++  if (
++    !Array.isArray(value) ||
++    value.length === 0 ||
++    value.some((domain) => typeof domain !== "string" || domain.trim().length === 0)
++  ) {
++    throw new AiSdkModelAdapterError(
++      ModelErrorCode.InvalidModelRequest,
++      "codex-unsupported-web-search: allowed_domains",
++    );
++  }
++  return [...value] as string[];
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/model/codex-transport/provider-policy.ts b/apps/zcode-cli/packages/adapters/src/model/codex-transport/provider-policy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7864eacc88340e2c93ebefcf543df7389f530fb
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/src/model/codex-transport/provider-policy.ts
+@@ -0,0 +1,40 @@
++import type { ModelProperties } from "@zcode/contracts";
++import type { RegistryModelConfig, RegistryProviderConfig } from "@zcode/provider";
++
 +const TRUSTED_CODEX_BASE_URL = "https://api.openai.com/v1";
 +
 +/**
@@ -4321,12 +4553,45 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..e5a6c46d40d901f2e3a133824f3cc4f3
 +  );
 +}
 +
++export function resolveRuntimeModelProperties(input: {
++  readonly modelConfig: Pick<RegistryModelConfig, "properties">;
++  readonly providerConfig: RegistryProviderConfig;
++}): ModelProperties {
++  // runtime-only 标记只能由可信 resolved provider 身份产生；先无条件删除调用方/持久化
++  // 数据里的同名值，避免非 Codex provider 借伪造属性拿到能力。
++  const { nativeWebSearchProvider: _ignored, ...properties } = input.modelConfig
++    .properties as ModelProperties;
++  if (!isTrustedCodexProviderConfig(input.providerConfig)) {
++    return properties as ModelProperties;
++  }
++  return {
++    ...properties,
++    nativeWebSearchProvider: "codex",
++    supportsNativeWebSearch: true,
++  };
++}
+diff --git a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
+index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..8495afaa6c29516670001dcfbe2d59734c1a5ea2 100644
+--- a/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
++++ b/apps/zcode-cli/packages/adapters/src/model/model-execution.ts
+@@ -26,6 +26,8 @@ import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
+ import { createModelRequestSecurityState } from "./request-security-edition/index.js";
+ import type { ModelRequestSecurityState, ModelRequestSecurityPort } from "./request-security.js";
+ import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
++import { createCodexResponsesModel, isTrustedCodexProviderConfig } from "./codex-transport/module.js";
++export { isTrustedCodexProviderConfig } from "./codex-transport/module.js";
+ import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
+ import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
+ import { createProviderEndpointRoutingFetch } from "./provider-endpoint-routing-fetch.js";
+@@ -41,6 +43,7 @@ export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
+ export type EnvRecord = Record<string, string | undefined>;
+ 
  interface AiSdkProviderConfig {
 +  codexMode?: "device";
    access: RegistryProviderConfig["access"];
    kind: AiSdkProviderKind;
    apiKey?: string;
-@@ -285,6 +307,30 @@ export class AiSdkModelExecution {
+@@ -285,6 +288,30 @@ export class AiSdkModelExecution {
      // SDK 会合并 factory 默认 header；必须在这里去掉静态来源，才能保证缺失时真正省略。
      const headers = withoutModelQuerySourceHeader(providerConfig.headers);
      const networkTransport = this.resolveProviderTransport(providerId);
@@ -4357,7 +4622,7 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..e5a6c46d40d901f2e3a133824f3cc4f3
      // ID 属于当前 attempt，不能放入按 Provider 缓存的 transport，避免切换账号后串用。
      const providerTransport = this.endpointRoutingPort
        ? createProviderEndpointRoutingFetch({
-@@ -385,7 +431,8 @@ function toAiSdkProviderConfig(
+@@ -385,7 +412,8 @@ function toAiSdkProviderConfig(
    config: RegistryProviderConfig,
  ): AiSdkProviderConfig {
    const common = {
@@ -4367,7 +4632,7 @@ index f9aad08d9368cd639e2e97bf0cb085c8f9e95cba..e5a6c46d40d901f2e3a133824f3cc4f3
        ? { apiKey: config.access.apiKey }
        : {}),
      baseURL: config.api.baseUrl,
-@@ -409,14 +456,17 @@ function applyModelRequestAuth(
+@@ -409,14 +437,17 @@ function applyModelRequestAuth(
    requestAuth: ModelRequestAuth | undefined,
  ): AiSdkProviderConfig {
    if (!requestAuth) return providerConfig;
@@ -6722,26 +6987,18 @@ index 65f206e150e7565596b0e2aac25c7e1f01d3e051..f5e5269546ff70257e385e0b15dcbf5d
    }
  }
 diff --git a/apps/zcode-cli/packages/adapters/src/model/runner.ts b/apps/zcode-cli/packages/adapters/src/model/runner.ts
-index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a1c4e99d8 100644
+index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..d6644fd10fa966db9eaaee3c9972abe416aac289 100644
 --- a/apps/zcode-cli/packages/adapters/src/model/runner.ts
 +++ b/apps/zcode-cli/packages/adapters/src/model/runner.ts
-@@ -12,6 +12,7 @@ import type {
-   Logger,
-   Model,
-   ModelOptions,
-+  ModelProperties,
-   ModelRequestAuth,
-   ModelRequestDependencies,
-   ModelRequestAuthSourceInput,
-@@ -22,6 +23,7 @@ import type {
- import type { RegistryModelConfig, RegistryProviderConfig } from "@zcode/provider";
- import {
-   AiSdkModelExecution,
-+  isTrustedCodexProviderConfig,
-   type AiSdkResolvedModel,
-   type AiSdkNetworkConfig,
-   type AiSdkModelExecutionConfig,
-@@ -155,7 +157,7 @@ export class AiSdkModelAdapter {
+@@ -43,6 +43,7 @@ import {
+   type AiSdkModelTextRequest,
+   type ResolvedAiSdkModel,
+ } from "./runner-runtime.js";
++import { isTrustedCodexProviderConfig, resolveRuntimeModelProperties } from "./codex-transport/module.js";
+ import { resolveToolSearchCapability } from "./tool-search.js";
+ import { createModel, type ModelExecutionRequest } from "./model.js";
+ import { refreshOffPeakRequestAuth } from "./off-peak-request-auth.js";
+@@ -155,7 +156,7 @@ export class AiSdkModelAdapter {
        supportsJsonSchemaOutput: options.modelConfig.properties.supportsJsonSchemaOutput,
        optionSpecs: options.modelConfig.optionSpecs,
      });
@@ -6750,7 +7007,7 @@ index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a
      const resolved = {
        ...boundResolution.resolved,
        properties,
-@@ -206,7 +208,8 @@ export class AiSdkModelAdapter {
+@@ -206,7 +207,8 @@ export class AiSdkModelAdapter {
                  : requestAuth;
              return { headersApplied: true, requestAuth: refreshedAuth };
            }
@@ -6760,7 +7017,7 @@ index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a
            ? (contextRefreshRuntimeHeadersBeforeAttempt ??
              (async () => {
                throw new ModelProtocolError(
-@@ -215,6 +218,9 @@ export class AiSdkModelAdapter {
+@@ -215,6 +217,9 @@ export class AiSdkModelAdapter {
                );
              }))
            : undefined;
@@ -6770,7 +7027,7 @@ index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a
        return {
          toolSearchEnabled: request.toolSearchEnabled,
          messages: request.messages,
-@@ -222,6 +228,13 @@ export class AiSdkModelAdapter {
+@@ -222,6 +227,13 @@ export class AiSdkModelAdapter {
          responseJsonSchema: request.responseJsonSchema,
          abortSignal: request.abortSignal,
          maxOutputTokens: request.options.maxOutputTokens,
@@ -6784,7 +7041,7 @@ index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a
          ...invocationContext,
          ...(shouldAttachReasoningTelemetry
            ? {
-@@ -241,6 +254,9 @@ export class AiSdkModelAdapter {
+@@ -241,6 +253,9 @@ export class AiSdkModelAdapter {
                refreshRuntimeHeadersBeforeAttempt: (input) =>
                  refreshRuntimeHeadersBeforeAttempt({
                    ...input,
@@ -6794,36 +7051,19 @@ index 551a0ccd87e8d4e55a19617abb1b6f6a73569dba..67bb52863217a391080a585a397f1f3a
                    ...(options.providerConfig.access.type === "zhipu-account"
                      ? { accountAccess: options.providerConfig.access }
                      : {}),
-@@ -364,6 +380,24 @@ export class AiSdkModelAdapter {
-   }
- }
- 
-+function resolveRuntimeModelProperties(input: {
-+  readonly modelConfig: Pick<RegistryModelConfig, "properties">;
-+  readonly providerConfig: RegistryProviderConfig;
-+}): ModelProperties {
-+  // runtime-only 标记只能由可信 resolved provider 身份产生；先无条件删除调用方/持久化
-+  // 数据里的同名值，避免非 Codex provider 借伪造属性拿到能力。
-+  const { nativeWebSearchProvider: _ignored, ...properties } = input.modelConfig
-+    .properties as ModelProperties;
-+  if (!isTrustedCodexProviderConfig(input.providerConfig)) {
-+    return properties as ModelProperties;
-+  }
-+  return {
-+    ...properties,
-+    nativeWebSearchProvider: "codex",
-+    supportsNativeWebSearch: true,
-+  };
-+}
-+
- function requireMaxOutputTokens(options: ModelOptions): number {
-   if (options.maxOutputTokens === undefined) {
-     throw new ModelProtocolError(
 diff --git a/apps/zcode-cli/packages/adapters/src/model/tool-transform.ts b/apps/zcode-cli/packages/adapters/src/model/tool-transform.ts
-index a440bacca1ced5edf265e6bd7ce29c2ae0ff519c..a29867c63f61655535cf836d36ebae7d296a15a1 100644
+index a440bacca1ced5edf265e6bd7ce29c2ae0ff519c..229046c9981fa85f9f0ab325ac239889d96be69e 100644
 --- a/apps/zcode-cli/packages/adapters/src/model/tool-transform.ts
 +++ b/apps/zcode-cli/packages/adapters/src/model/tool-transform.ts
-@@ -13,6 +13,8 @@ export interface AiSdkToolTransformOptions {
+@@ -5,6 +5,7 @@
+ import { anthropic } from "@ai-sdk/anthropic";
+ import { jsonSchema, tool, type ToolSet } from "ai";
+ import { ModelErrorCode, type JsonSchema, type ModelToolContract } from "@zcode/contracts";
++import { toCodexNativeWebSearchTool } from "./codex-transport/module.js";
+ import { AiSdkModelAdapterError } from "./errors.js";
+ import { isAnthropicFirstPartyModelId, toStrictToolSchema } from "./strict-tool-schema.js";
+ 
+@@ -13,6 +14,8 @@ export interface AiSdkToolTransformOptions {
    requiresMfjsToolSchema?: boolean;
    supportsNativeWebSearch?: boolean;
    providerKind?: "openai" | "anthropic" | "openai-compatible" | "gateway" | "custom";
@@ -6832,7 +7072,7 @@ index a440bacca1ced5edf265e6bd7ce29c2ae0ff519c..a29867c63f61655535cf836d36ebae7d
  
    /** 本次请求的模型 id，仅用于首方 strict 资格判定；缺席即不启用 strict。 */
    modelId?: string;
-@@ -255,24 +257,35 @@ function toAiSdkProviderNativeTool(
+@@ -255,24 +258,35 @@ function toAiSdkProviderNativeTool(
      return undefined;
    }
  
@@ -6878,45 +7118,6 @@ index a440bacca1ced5edf265e6bd7ce29c2ae0ff519c..a29867c63f61655535cf836d36ebae7d
  
      default:
        throw new AiSdkModelAdapterError(
-@@ -282,6 +295,38 @@ function toAiSdkProviderNativeTool(
-   }
- }
- 
-+/**
-+ * Codex 官方 wire 只核实在线搜索 `external_web_access: true` 与
-+ * `filters.allowed_domains`。blocked_domains/maxUses 没有可信 wire 证据，Codex 会拒绝
-+ * 不支持参数，因此这里显式失败而不是静默丢弃或本地后置过滤。
-+ */
-+function toCodexNativeWebSearchTool(args: Record<string, unknown>): ToolSet[string] {
-+  if (args.blockedDomains !== undefined) {
-+    throw new AiSdkModelAdapterError(
-+      ModelErrorCode.InvalidModelRequest,
-+      "Codex native WebSearch does not support blocked_domains",
-+    );
-+  }
-+  if (args.maxUses !== undefined) {
-+    throw new AiSdkModelAdapterError(
-+      ModelErrorCode.InvalidModelRequest,
-+      "Codex native WebSearch does not support maxUses",
-+    );
-+  }
-+
-+  const allowedDomains = stringArrayArg(args.allowedDomains);
-+  return {
-+    type: "provider",
-+    id: "openai.web_search",
-+    name: "web_search",
-+    args: {
-+      external_web_access: true,
-+      ...(allowedDomains ? { filters: { allowed_domains: allowedDomains } } : {}),
-+    },
-+    inputSchema: { type: "object", properties: {} },
-+  } as unknown as ToolSet[string];
-+}
-+
- function numberArg(value: unknown): number | undefined {
-   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
- }
 diff --git a/apps/zcode-cli/packages/adapters/src/plugins/hook-sources.ts b/apps/zcode-cli/packages/adapters/src/plugins/hook-sources.ts
 index 70b877ac87d5249767cb139c037fae5b57f31afc..3935daa99453dc91b7407118b1330755e1556c25 100644
 --- a/apps/zcode-cli/packages/adapters/src/plugins/hook-sources.ts
@@ -7388,88 +7589,15 @@ index 0a9b5710ee53f540c6e7a189e2afc6c69012e70d..d420fb69e7edc923b4ecf1c9a6af743d
  function countSkillFiles(skillRoots: SkillRoot[]): number {
    // 技能识别规则收敛到共享 scan helper（根自身含
    // SKILL.md 时根自身是一个技能）；同时声明根与
-diff --git a/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts b/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts
-index 8dbc3a280659bb49fb793f5ba2535649bddeaea2..f8d2d19ed700ea66b178bf9ec0d9ea2bb345c6c3 100644
---- a/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts
-+++ b/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts
-@@ -1,5 +1,6 @@
- import type { DatabaseSync, SQLInputValue } from "node:sqlite";
- import type {
-+  MessageId,
-   AppUsageDayModelRow,
-   AppUsageDayRow,
-   AppUsageModelRow,
-@@ -673,6 +674,16 @@ export async function queryTaskUsage(
-   };
- }
- 
-+/**
-+ * 冷恢复用：读取一个 session 的主轮逐 user message output token 统计（tok/s 分子）。
-+ *
-+ * 只统计 `main_turn`：compact / 标题 / 目标校验 / subagent / workflow child 有自己的
-+ * query_source，不能混进轮末速率。聚合键是持久 `parent_user_message_id`，不按标题或时间猜测。
-+ * 只累计 completed 请求，与 live 只从 ModelComplete 累计同口径。
-+ *
-+ * 这里刻意不返回 `duration_ms`：它是逻辑请求全程耗时（含重试退避与本地后处理），
-+ * 与 live 的 attempt 模型耗时不相等。分母来自 `runtime/turn_model_timing` entry。
-+ */
- function inputSideTokensFromNormalizedUsage(
-   inputTokens: number | null | undefined,
-   cacheCreationTokens: number | null | undefined,
-diff --git a/apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts b/apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts
-index 0f21b3708f5e2340bf263bc8dc6a1e109824c6ec..573979ea905a9253677410f0c25b353d7bfe267a 100644
---- a/apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts
-+++ b/apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts
-@@ -222,7 +222,6 @@ function assertForkBundleChildLocal(bundle: ForkCommitBundle): void {
-   }
- }
- 
--
- export class SqliteSessionStore
-   implements
-     SessionStorePort,
-@@ -247,7 +246,10 @@ export class SqliteSessionStore
-     this.forkCommitFaultAt = options.forkCommitFaultAt;
-   }
- 
--  static async open(options: SqliteSessionStoreOptions = {}, migrationOptions?: AsyncSqliteMigrationOptions): Promise<SqliteSessionStore> {
-+  static async open(
-+    options: SqliteSessionStoreOptions = {},
-+    migrationOptions?: AsyncSqliteMigrationOptions,
-+  ): Promise<SqliteSessionStore> {
-     const dbPath = options.dbPath ?? getDefaultSessionDbPath();
-     const startupLockTimeoutMs =
-       options.startupLockTimeoutMs ?? DEFAULT_SQLITE_STARTUP_LOCK_TIMEOUT_MS;
-@@ -267,15 +269,26 @@ export class SqliteSessionStore
-       });
-     }
-     try {
--      const migration = await runSqliteSessionMigrationsAsync(db, dbPath, migrationOptions ?? { lockWaitTimeoutMs: startupLockTimeoutMs });
-+      const migration = await runSqliteSessionMigrationsAsync(
-+        db,
-+        dbPath,
-+        migrationOptions ?? { lockWaitTimeoutMs: startupLockTimeoutMs },
-+      );
-       return new SqliteSessionStore(db, dbPath, options, migration);
-     } catch (error) {
--      try { db.close(); } catch { /* 关闭失败不能覆盖迁移错误。 */ }
-+      try {
-+        db.close();
-+      } catch {
-+        /* 关闭失败不能覆盖迁移错误。 */
-+      }
-       throw error;
-     }
-   }
- 
--  static async openStartup(options: SqliteSessionStoreOptions = {}, migrationOptions: AsyncSqliteMigrationOptions = {}) {
-+  static async openStartup(
-+    options: SqliteSessionStoreOptions = {},
-+    migrationOptions: AsyncSqliteMigrationOptions = {},
-+  ) {
-     return SqliteSessionStore.open(options, migrationOptions);
-   }
- 
+diff --git a/apps/zcode-cli/packages/adapters/tests/adapter-extraction-contracts.test.ts b/apps/zcode-cli/packages/adapters/tests/adapter-extraction-contracts.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bdec6dd231fcdae3a6dbe8d8b5826e2b36a286d4
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/tests/adapter-extraction-contracts.test.ts
+@@ -0,0 +1,3 @@
++// CLI Vitest only discovers tests/; keep module-local contracts executable here.
++import "../src/context/instruction-observation/contract.test.js";
++import "../src/model/codex-transport/contract.test.js";
 diff --git a/apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts b/apps/zcode-cli/packages/adapters/tests/codex-opencode.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..256228202b710ee0d18fa0aebf0f1f25d9669b0a
@@ -8183,6 +8311,54 @@ index 0000000000000000000000000000000000000000..256228202b710ee0d18fa0aebf0f1f25
 +    expect(f.transport).not.toHaveBeenCalled();
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/adapters/tests/codex-web-search-validation.test.ts b/apps/zcode-cli/packages/adapters/tests/codex-web-search-validation.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2ae7039fd33ec7028ead661b7c57fc29db051ee
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/tests/codex-web-search-validation.test.ts
+@@ -0,0 +1,42 @@
++import { expect, it } from "vitest";
++import type { CodexCallOptions } from "../src/model/codex-transport/contract.js";
++import { codexTools } from "../src/model/codex-transport/messages.js";
++
++function tools(filters?: unknown) {
++  return codexTools({
++    tools: [
++      {
++        type: "provider",
++        id: "openai.web_search",
++        name: "web_search",
++        args: { external_web_access: true, ...(filters !== undefined ? { filters } : {}) },
++      },
++    ],
++  } as CodexCallOptions);
++}
++
++it.each(
++  [
++    null,
++    false,
++    "example.com",
++    [],
++    { allowed_domains: "example.com" },
++    { allowed_domains: [] },
++    { allowed_domains: ["example.com", 1] },
++    { allowed_domains: [""] },
++    { allowed_domains: [" "] },
++  ].map((value) => [value]),
++)("rejects malformed search restrictions rather than broadening search: %j", (filters) => {
++  expect(() => tools(filters)).toThrow(/codex-unsupported-web-search/);
++});
++
++it("preserves supported domain restrictions and unrestricted search", () => {
++  expect(tools({ allowed_domains: ["example.com", "docs.example.com"] })?.[0]).toMatchObject({
++    native: { openai: { filters: { allowed_domains: ["example.com", "docs.example.com"] } } },
++  });
++  expect(tools()?.[0]).toMatchObject({
++    native: { openai: { type: "web_search", external_web_access: true } },
++  });
++  expect(tools({})?.[0]).toMatchObject({ native: { openai: { type: "web_search" } } });
++});
 diff --git a/apps/zcode-cli/packages/adapters/tests/fs-context.test.ts b/apps/zcode-cli/packages/adapters/tests/fs-context.test.ts
 index 6aeaa7bec0d071180ba09f6a2fdb4e91cd1696f9..128c739c5ae7baad058f850c6a5d76cf83ffff6e 100644
 --- a/apps/zcode-cli/packages/adapters/tests/fs-context.test.ts
@@ -8524,6 +8700,75 @@ index 0000000000000000000000000000000000000000..6fd2c4152079f1ce0340ac2c0b07d808
 +      await rm(f.root, { recursive: true, force: true });
 +    }
 +  });
++});
+diff --git a/apps/zcode-cli/packages/adapters/tests/instruction-observation-regression.test.ts b/apps/zcode-cli/packages/adapters/tests/instruction-observation-regression.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..32a9672b28237e0969ededa4cffa9a1f0b27fba8
+--- /dev/null
++++ b/apps/zcode-cli/packages/adapters/tests/instruction-observation-regression.test.ts
+@@ -0,0 +1,63 @@
++import { EventEmitter } from "node:events";
++import { watch, type FSWatcher } from "node:fs";
++import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, expect, it, vi } from "vitest";
++import { createNodeContextSourceAdapter } from "../src/context/index.js";
++
++vi.mock("node:fs", async (original) => ({
++  ...(await original<typeof import("node:fs")>()),
++  watch: vi.fn(),
++}));
++afterEach(() => vi.resetAllMocks());
++
++async function fixture() {
++  const root = await mkdtemp(join(tmpdir(), "instruction-regression-"));
++  await mkdir(join(root, ".git"));
++  let changed: (() => void) | undefined;
++  vi.mocked(watch).mockImplementation(((
++    _path: unknown,
++    _options: unknown,
++    listener: (event: string, name: string) => void,
++  ) => {
++    changed = () => listener("change", "AGENTS.md");
++    const handle = new EventEmitter() as FSWatcher;
++    handle.close = vi.fn();
++    return handle;
++  }) as typeof watch);
++  const adapter = createNodeContextSourceAdapter({ env: { HOME: root } });
++  await writeFile(join(root, "AGENTS.md"), "ABCDE");
++  const lease = await adapter.observeUserInstructions({
++    workingDirectory: root,
++    projectRoot: root,
++    priorityFiles: ["AGENTS.md"],
++    maxBytes: 2,
++  });
++  return { root, lease, changed: () => changed!() };
++}
++
++it("does not return an in-flight snapshot after its lease is disposed", async () => {
++  const f = await fixture();
++  try {
++    const pending = f.lease.readSnapshot();
++    f.lease.dispose();
++    expect(await pending).toBeUndefined();
++  } finally {
++    f.lease.dispose();
++    await rm(f.root, { recursive: true, force: true });
++  }
++});
++
++it("refreshes size metadata when the truncated content prefix is unchanged", async () => {
++  const f = await fixture();
++  try {
++    await writeFile(join(f.root, "AGENTS.md"), "ABCDEFGHI");
++    f.changed();
++    await expect.poll(async () => (await f.lease.readSnapshot())?.sizeBytes).toBe(9);
++    expect((await f.lease.readSnapshot())?.content).toBe("AB");
++  } finally {
++    f.lease.dispose();
++    await rm(f.root, { recursive: true, force: true });
++  }
 +});
 diff --git a/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts b/apps/zcode-cli/packages/adapters/tests/model-execution.test.ts
 index 7be29f3261f7b1e76f99a5d0b16a6e9457c0ab91..3bbec888e2b7fd1eec55333c40f586f768fd5dde 100644
@@ -9268,18 +9513,6 @@ index 5892cc8cddfddd6e3b7e45bbf9b43e77990fb34f..8d680e854f12450478f4cd7a40fd4cfd
    it("refreshes runtime headers before each streamed retry attempt with native WebSearch", async () => {
      const calls: Array<{ runtimeHeader: string | undefined; hasNativeWebSearch: boolean }> = [];
      const refreshes: number[] = [];
-diff --git a/apps/zcode-cli/packages/adapters/tests/usage-query.test.ts b/apps/zcode-cli/packages/adapters/tests/usage-query.test.ts
-index a187997cb65e7fd38e837d9229e13de18309675f..41f80b1129043f02c453e93084508e29d2ae45a3 100644
---- a/apps/zcode-cli/packages/adapters/tests/usage-query.test.ts
-+++ b/apps/zcode-cli/packages/adapters/tests/usage-query.test.ts
-@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
- import { join } from "node:path";
- import { describe, expect, it } from "vitest";
- import {
-+  createMessageId,
-   createProjectId,
-   createSessionId,
-   createToolCallId,
 diff --git a/apps/zcode-cli/packages/adapters/tests/websearch.test.ts b/apps/zcode-cli/packages/adapters/tests/websearch.test.ts
 index 5a889836f70ff32c1948b24bb10a5eed9c1f16de..b7a68d008fa67e3300a626f4b0165e317930ab63 100644
 --- a/apps/zcode-cli/packages/adapters/tests/websearch.test.ts
@@ -9655,6 +9888,41 @@ index 0456d5d02e8a4e918f9fe96af0b955039cb63bbc..1da6ae3a0646ef8289c57b375f665b20
        if (boundary.key && boundaryKeys[boundary.kind].has(boundary.key)) {
          recordDiagnostic(diagnostics, "cold_merge.durable_event_suppressed", event);
          return;
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b2a5a6a5add3323c7b4dbed57200c2e4c4615e9
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts
+@@ -0,0 +1,14 @@
++import type { CommandEnvelope, CommandPayloadMap, CommandResult } from "@zcode/shared/zcode-protocol-v4";
++import { requireRecord } from "../record-access.js";
++import type { V4CommandCoreHost } from "../types.js";
++
++export async function configureAutoCompact(host: V4CommandCoreHost, envelope: CommandEnvelope): Promise<CommandResult> {
++  const record = requireRecord(host, envelope.sessionId);
++  const payload = envelope.payload as CommandPayloadMap["configureAutoCompact"];
++  const result = record.app.runtime.configureAutoCompact(
++    payload.limit === undefined ? undefined : { limit: payload.limit },
++  );
++  return { type: "configureAutoCompact", ...result };
++}
++
++export const autoCompactHandlers = { configureAutoCompact };
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts
+index 6ab19fb0a13557bf463423714cd336ba8b4d6da3..f95038637036328fab3d4a3598645b62b1953e1d 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts
+@@ -12,8 +12,10 @@ import { sessionMgmtHandlers } from "./session-mgmt.js";
+ import { selectionSideSessionHandlers } from "./selection-side-session.js";
+ import { assistantFeedbackHandlers } from "./assistant-feedback.js";
+ import { highspeedMetricsHandlers } from "./highspeed-metrics.js";
++import { autoCompactHandlers } from "./autocompact.js";
+ 
+ export const NATIVE_HANDLERS = {
++  ...autoCompactHandlers,
+   ...sessionFlowHandlers,
+   ...queueHandlers,
+   ...sessionMgmtHandlers,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 index 859fce79163da5beb7befe3eeac51ccba87442b4..d905739a21e5a6f77b2e71d14a3ef7e7c44003e1 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
@@ -10595,39 +10863,60 @@ index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..f76b717bc237a2e29818c1832d4bc720
      if (loaded.subagentsSeed) publisher.seedSubagents(loaded.subagentsSeed);
      // 同次恢复的种子先应用，再补 live buffer；较新的使用量和选模事件始终获胜。
      if (loaded.usageSeed) publisher.seedUsage(loaded.usageSeed);
-diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
-index 1c047705173dca97b940ea507af53ddc802c5213..ff182580e4840188005d62100b62c3d68eedfb60 100644
---- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
-+++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
-@@ -1,5 +1,13 @@
--import { zcodeWorkspaceUpdateModelIoPreferencesParamsSchema } from "@zcode/shared";
--import { parseParams, type ZCodeProtocolAgentServerContext } from "./server-types.js";
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/CONTRACT.md b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e82afa5d121fd8271f5bb1494d9af19d126444ce
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/CONTRACT.md
+@@ -0,0 +1,3 @@
++# Workspace compaction policy
++
++App module. Server context owns the only workspaceKey-indexed policy map. Reads return a fresh three-field policy, defaulting only for unsynchronized workspaces. Validated updates affect matching resident sessions only. createRecord reads before initialization and again before publication; updates to another workspace never replace either read. No compaction, history mutation, cancellation or authorization changes. Compatibility exports remain in model-io-preferences. Dependencies: shared and zcode-cli.
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.example.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d5cc2ed0e2e7c670cf0a7469a025b61535bb554
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.example.ts
+@@ -0,0 +1,7 @@
++import { readWorkspaceCompactionPolicy } from "./contract.js";
++
++export function exampleReadWorkspacePolicy(
++  ...args: Parameters<typeof readWorkspaceCompactionPolicy>
++) {
++  return readWorkspaceCompactionPolicy(...args);
++}
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..eeccfd065d12955e3a12049bac90e057823e9298
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.ts
+@@ -0,0 +1,7 @@
++export {
++  DEFAULT_COMPACTION_POLICY,
++  readWorkspaceCompactionPolicy,
++  resolveCompactionPolicyRuntimeConfig,
++  updateCompactionPolicy,
++} from "./module.js";
++export type { CompactionPolicyRuntimeConfig } from "./module.js";
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/module.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..734752a1a9e886e0ca24e0417b53e9907491780a
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/module.ts
+@@ -0,0 +1,56 @@
 +import type { CompactionRuntimePolicy } from "@zcode/core";
-+import {
-+  zcodeWorkspaceUpdateCompactionPolicyParamsSchema,
-+  zcodeWorkspaceUpdateModelIoPreferencesParamsSchema,
-+} from "@zcode/shared";
++import { zcodeWorkspaceUpdateCompactionPolicyParamsSchema } from "@zcode/shared";
 +import {
 +  parseParams,
 +  type CompactionPolicyPreference,
 +  type ZCodeProtocolAgentServerContext,
-+} from "./server-types.js";
- 
- /**
-  * ModelIO 写盘策略是 App 全局偏好，但每个 resident session 持有独立 adapter。
-@@ -26,3 +34,56 @@ export async function updateModelIoPreferences(
-     updatedSessionCount,
-   };
- }
++} from "../server-types.js";
 +
-+/** 旧 Host 不发送压缩策略时保持 detailed / 15,000 / 8,000。 */
 +export const DEFAULT_COMPACTION_POLICY: CompactionPolicyPreference = {
 +  profile: "detailed",
 +  tailBudgetTokens: 15_000,
 +  summaryMaxOutputTokens: 8_000,
 +};
-+
-+/** createRecord 写进 `runtimeConfig.compact`：只覆盖这三项，其他压缩策略保持 core 默认。 */
 +export type CompactionPolicyRuntimeConfig = CompactionRuntimePolicy;
 +
 +export function resolveCompactionPolicyRuntimeConfig(
@@ -10640,10 +10929,16 @@ index 1c047705173dca97b940ea507af53ddc802c5213..ff182580e4840188005d62100b62c3d6
 +  };
 +}
 +
-+/**
-+ * workspace/updateCompactionPolicy：缓存策略供 create/resume/冷恢复读取，并只同步
-+ * workspaceKey 匹配的活跃 session（不跨 workspace，也不触发压缩）。
-+ */
++/** The server context owns the only cache; callers receive a fresh three-field value. */
++export function readWorkspaceCompactionPolicy(
++  context: ZCodeProtocolAgentServerContext,
++  workspaceKey: string,
++): CompactionPolicyRuntimeConfig {
++  return resolveCompactionPolicyRuntimeConfig(
++    context.appRuntimePreferences.compactionPolicies?.get(workspaceKey),
++  );
++}
++
 +export async function updateCompactionPolicy(
 +  context: ZCodeProtocolAgentServerContext,
 +  rawParams: unknown,
@@ -10654,24 +10949,32 @@ index 1c047705173dca97b940ea507af53ddc802c5213..ff182580e4840188005d62100b62c3d6
 +    tailBudgetTokens: params.tailBudgetTokens,
 +    summaryMaxOutputTokens: params.summaryMaxOutputTokens,
 +  };
-+  context.appRuntimePreferences.compactionPolicy = policy;
-+
++  const policies = (context.appRuntimePreferences.compactionPolicies ??= new Map());
++  policies.set(params.workspace.workspaceKey, policy);
 +  let updatedSessionCount = 0;
 +  for (const record of context.sessions.values()) {
 +    if (record.workspace.workspaceKey !== params.workspace.workspaceKey) continue;
 +    if (typeof record.app.setCompactionPolicy !== "function") continue;
-+    record.app.setCompactionPolicy(policy);
++    record.app.setCompactionPolicy(resolveCompactionPolicyRuntimeConfig(policy));
 +    updatedSessionCount += 1;
 +  }
-+
-+  return {
-+    workspace: params.workspace,
-+    profile: policy.profile,
-+    tailBudgetTokens: policy.tailBudgetTokens,
-+    summaryMaxOutputTokens: policy.summaryMaxOutputTokens,
-+    updatedSessionCount,
-+  };
++  return { workspace: params.workspace, ...policy, updatedSessionCount };
 +}
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
+index 1c047705173dca97b940ea507af53ddc802c5213..5e46cf6a18d6f45db1b28d55a57753448ea212fe 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-io-preferences.ts
+@@ -26,3 +26,10 @@ export async function updateModelIoPreferences(
+     updatedSessionCount,
+   };
+ }
++
++export {
++  DEFAULT_COMPACTION_POLICY,
++  resolveCompactionPolicyRuntimeConfig,
++  updateCompactionPolicy,
++} from "./compaction-policy/module.js";
++export type { CompactionPolicyRuntimeConfig } from "./compaction-policy/module.js";
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
 index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9dc4dbbd90 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/provider-runtime-headers.ts
@@ -10685,21 +10988,18 @@ index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9d
              ...(input.expectedAccountScope
                ? { expectedAccountScope: input.expectedAccountScope }
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
-index 8ad2b295513baf95b4d7b7b5c16499599f37828e..d615eb034e7c21c42d150df57ad9452cafcfc75a 100644
+index 8ad2b295513baf95b4d7b7b5c16499599f37828e..19d791c66e5913c0cef6a50f55d8394def480f2b 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
-@@ -12,6 +12,10 @@ import {
+@@ -12,6 +12,7 @@ import {
  import { resolveEffectiveBashShellSelection } from "@zcode/adapters/exec";
  import { inputIntentMetadata } from "../zcode-protocol-v4/commands/input-intent.js";
  import { createModelExecutionContext } from "./model-execution.js";
-+import {
-+  DEFAULT_COMPACTION_POLICY,
-+  resolveCompactionPolicyRuntimeConfig,
-+} from "./model-io-preferences.js";
++import { readWorkspaceCompactionPolicy } from "./compaction-policy/module.js";
  import type { SendInputOptions } from "../app/types.js";
  import { repairPersistedRemoteSessionPaths, type TurnAttachment } from "@zcode/core";
  import {
-@@ -3490,6 +3494,13 @@ async function createRecord(
+@@ -3490,6 +3491,11 @@ async function createRecord(
        nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
        toolSearch: { mode: startupPreferences.toolSearchMode },
        modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
@@ -10707,28 +11007,22 @@ index 8ad2b295513baf95b4d7b7b5c16499599f37828e..d615eb034e7c21c42d150df57ad9452c
 +      // workspace 级偏好在这里写入 runtimeConfig.compact。create / resume / v4 冷恢复都经
 +      // createRecord，因此统一读同一份缓存；只覆盖 profile 与两个预算，enabled/microcompact
 +      // 等其余压缩策略保持 core 默认。旧 Host 不发送时用 detailed/15000/8000。
-+      compact: resolveCompactionPolicyRuntimeConfig(
-+        context.appRuntimePreferences.compactionPolicy ?? DEFAULT_COMPACTION_POLICY,
-+      ),
++      compact: readWorkspaceCompactionPolicy(context, workspace.workspaceKey),
        // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
        // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
        ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
-@@ -3564,6 +3575,13 @@ async function createRecord(
+@@ -3564,6 +3570,9 @@ async function createRecord(
      version: context.deps.version,
      modelIoFullRetentionEnabled: context.appRuntimePreferences.modelIoFullRetentionEnabled,
    });
 +  // createWorkspaceZCodeApp 是 await 窗口：期间到达的 workspace/updateCompactionPolicy 看不到
 +  // 尚未登记的 record。发布 record 前按最新缓存补一次，runtime 最终采用最新策略。
-+  app.setCompactionPolicy?.(
-+    resolveCompactionPolicyRuntimeConfig(
-+      context.appRuntimePreferences.compactionPolicy ?? DEFAULT_COMPACTION_POLICY,
-+    ),
-+  );
++  app.setCompactionPolicy?.(readWorkspaceCompactionPolicy(context, workspace.workspaceKey));
    const now = Date.now();
    const record: ZCodeProtocolSessionRecord = {
      app,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
-index 7f6c5430d405a2639aa3f9a38a0029f5b8c816a4..7c6c9265e7d32f3812524febb4512dc290fc09a6 100644
+index 7f6c5430d405a2639aa3f9a38a0029f5b8c816a4..06b79bdd7459337da4c629621b82e108bbfea51f 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts
 @@ -16,6 +16,7 @@ import type { AccountProviderConfigSnapshot } from "@zcode/provider";
@@ -10762,37 +11056,33 @@ index 7f6c5430d405a2639aa3f9a38a0029f5b8c816a4..7c6c9265e7d32f3812524febb4512dc2
 +     * 缺省 detailed / 15,000 / 8,000：不认识 `workspace/updateCompactionPolicy` 的旧 Host
 +     * 或同步前的启动窗口保持既有详细摘要行为。create / resume / v4 冷恢复统一读取这份缓存。
 +     */
-+    compactionPolicy: CompactionPolicyPreference;
++    compactionPolicies?: Map<string, CompactionPolicyPreference>;
    };
    // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
    // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
-index af7bbc7f688e33ec6b2c89984ad5536568640b04..9c7d677f2f3be21164b69acbefb8a84ac275abfb 100644
+index af7bbc7f688e33ec6b2c89984ad5536568640b04..dbc7270795e93464a3f98af710cf526fdb706533 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
-@@ -112,7 +112,11 @@ import {
+@@ -112,7 +112,7 @@ import {
  import { listPluginUiSurfaces } from "./plugin-ui-surfaces.js";
  import { updateInteractionPreferences } from "./interaction-preferences.js";
  import { refreshProviderRegistry, updateAccountProviderConfig } from "./account-provider-config.js";
 -import { updateModelIoPreferences } from "./model-io-preferences.js";
-+import {
-+  DEFAULT_COMPACTION_POLICY,
-+  updateCompactionPolicy,
-+  updateModelIoPreferences,
-+} from "./model-io-preferences.js";
++import { updateCompactionPolicy, updateModelIoPreferences } from "./model-io-preferences.js";
  import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
  import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
  import { grantWorkspaceHookTrustForProtocol } from "./workspace-hook-trust.js";
-@@ -302,6 +306,8 @@ export class ZCodeProtocolAgentServer {
+@@ -302,6 +302,8 @@ export class ZCodeProtocolAgentServer {
          // 动态工作流灰度门 fail-closed：Host 必须显式 workspace/updateDynamicWorkflowPolicy
          // 才开启。
          dynamicWorkflowEnabled: false,
 +        // 压缩策略兼容默认：旧 Host 不发 workspace/updateCompactionPolicy 时保持详细摘要。
-+        compactionPolicy: DEFAULT_COMPACTION_POLICY,
++        compactionPolicies: new Map(),
        },
        notify: (notification) => this.messageSink?.(notification),
        requestClient: (method, params, resultSchema, options) =>
-@@ -592,6 +598,8 @@ export class ZCodeProtocolAgentServer {
+@@ -592,6 +594,8 @@ export class ZCodeProtocolAgentServer {
          return await this.requireV4Gateway().rowsRange(request.params);
        case V4_METHODS.conversationPlans:
          return await this.requireV4Gateway().plans(request.params);
@@ -10801,7 +11091,7 @@ index af7bbc7f688e33ec6b2c89984ad5536568640b04..9c7d677f2f3be21164b69acbefb8a84a
        case V4_METHODS.backgroundBashOutput:
          return await this.requireV4Gateway().backgroundBashOutput(request.params);
        case V4_METHODS.offPeakControl: {
-@@ -725,6 +733,8 @@ export class ZCodeProtocolAgentServer {
+@@ -725,6 +729,8 @@ export class ZCodeProtocolAgentServer {
          return await updateOffPeakToolPolicy(this.context, request.params);
        case zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy:
          return await updateDynamicWorkflowPolicy(this.context, request.params);
@@ -10810,7 +11100,7 @@ index af7bbc7f688e33ec6b2c89984ad5536568640b04..9c7d677f2f3be21164b69acbefb8a84a
        case zcodeProtocolMethods.workspaceGenerateText:
          return await this.withWorkspaceGenerateTextSignal(request, (signal) =>
            generateWorkspaceText(this.context, request.params, signal),
-@@ -985,7 +995,7 @@ export class ZCodeProtocolAgentServer {
+@@ -985,7 +991,7 @@ export class ZCodeProtocolAgentServer {
                PROTOCOL_CLIENT_REQUEST_ERROR_CODES.timedOut,
                `Client request timed out: ${method}`,
                {
@@ -11720,10 +12010,10 @@ index 0000000000000000000000000000000000000000..df62dac3de692a124e72b9e91f157674
 +});
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b7c4b07fa
+index 0000000000000000000000000000000000000000..e75a859fdaf602f952aa24643c97632452f215e9
 --- /dev/null
 +++ b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy.test.ts
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,283 @@
 +import type { SessionStorePort } from "@zcode/contracts";
 +import { zcodeWorkspaceUpdateCompactionPolicyResultSchema } from "@zcode/shared";
 +import { describe, expect, it, vi } from "vitest";
@@ -11756,7 +12046,7 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +      modelIoFullRetentionEnabled: false,
 +      offPeakToolEnabled: false,
 +      dynamicWorkflowEnabled: false,
-+      compactionPolicy: { ...DEFAULT_COMPACTION_POLICY },
++      compactionPolicies: new Map(),
 +    },
 +    sessions,
 +  } as unknown as ZCodeProtocolAgentServerContext;
@@ -11810,7 +12100,7 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +      summaryMaxOutputTokens: 20_000,
 +      updatedSessionCount: 0,
 +    });
-+    expect(context.appRuntimePreferences.compactionPolicy).toEqual({
++    expect(context.appRuntimePreferences.compactionPolicies?.get(workspace.workspaceKey)).toEqual({
 +      profile: "compact",
 +      tailBudgetTokens: 1_000,
 +      summaryMaxOutputTokens: 20_000,
@@ -11822,7 +12112,7 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +      tailBudgetTokens: 100_000,
 +      summaryMaxOutputTokens: 1_000,
 +    });
-+    expect(context.appRuntimePreferences.compactionPolicy).toEqual({
++    expect(context.appRuntimePreferences.compactionPolicies?.get(workspace.workspaceKey)).toEqual({
 +      profile: "detailed",
 +      tailBudgetTokens: 100_000,
 +      summaryMaxOutputTokens: 1_000,
@@ -11843,7 +12133,9 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +    const result = await updateCompactionPolicy(context, { workspace, ...compactPolicy });
 +
 +    expect(result).toEqual({ workspace, ...compactPolicy, updatedSessionCount: 1 });
-+    expect(context.appRuntimePreferences.compactionPolicy).toEqual(compactPolicy);
++    expect(context.appRuntimePreferences.compactionPolicies?.get(workspace.workspaceKey)).toEqual(
++      compactPolicy,
++    );
 +    expect(matching).toHaveBeenCalledTimes(1);
 +    expect(matching).toHaveBeenCalledWith(compactPolicy);
 +    expect(otherWorkspace).not.toHaveBeenCalled();
@@ -11855,7 +12147,7 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +    });
 +    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
 +
-+    expect(context.appRuntimePreferences.compactionPolicy).toEqual(DEFAULT_COMPACTION_POLICY);
++    expect(context.appRuntimePreferences.compactionPolicies?.size).toBe(0);
 +    expect(DEFAULT_COMPACTION_POLICY).toEqual({
 +      profile: "detailed",
 +      tailBudgetTokens: 15_000,
@@ -12002,6 +12294,197 @@ index 0000000000000000000000000000000000000000..fc0d05c1235b80429503f553658aa81b
 +    "%s 路径在 app 初始化完成后采用最新缓存",
 +    async (activation) => {
 +      await latestPolicyWins(activation);
++    },
++  );
++});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/contract.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..628ef5c4e13c8b348bab83155ec1780b7baf342b
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/contract.test.ts
+@@ -0,0 +1,13 @@
++import { expect, it } from "vitest";
++import { exampleReadWorkspacePolicy } from "../../src/zcode-protocol/compaction-policy/contract.example.js";
++import type { ZCodeProtocolAgentServerContext } from "../../src/zcode-protocol/server-types.js";
++
++it("defaults missing workspace policies without creating another cache", () => {
++  const context = { appRuntimePreferences: {} } as ZCodeProtocolAgentServerContext;
++  expect(exampleReadWorkspacePolicy(context, "unknown")).toEqual({
++    profile: "detailed",
++    tailBudgetTokens: 15000,
++    summaryMaxOutputTokens: 8000,
++  });
++  expect(context.appRuntimePreferences.compactionPolicies).toBeUndefined();
++});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/session-limit-handler.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/session-limit-handler.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f09c29bf88cc9fd969060f1c67fb7bcdc260c2ab
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/session-limit-handler.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it, vi } from "vitest";
++import { configureAutoCompact } from "../../src/zcode-protocol-v4/commands/handlers/autocompact.js";
++import type { V4CommandCoreHost } from "../../src/zcode-protocol-v4/commands/types.js";
++import type { CommandEnvelope } from "@zcode/shared/zcode-protocol-v4";
++
++describe("session autocompact handler", () => {
++  it("queries and updates only the envelope session runtime", async () => {
++    const configure = vi.fn(() => ({ limit: null, contextWindowTokens: 200000, requestedThresholdTokens: null, effectiveThresholdTokens: 166000 }));
++    const getRecord = vi.fn((id: string) => id === "current" ? { app: { runtime: { configureAutoCompact: configure } } } : undefined);
++    const host = { getRecord } as unknown as V4CommandCoreHost;
++    const envelope = { sessionId: "current", payload: {} } as CommandEnvelope;
++    expect((await configureAutoCompact(host, envelope)).type).toBe("configureAutoCompact");
++    expect(configure).toHaveBeenLastCalledWith(undefined);
++    await configureAutoCompact(host, { ...envelope, payload: { limit: { unit: "tokens", value: 100000 } } });
++    expect(configure).toHaveBeenLastCalledWith({ limit: { unit: "tokens", value: 100000 } });
++    await expect(configureAutoCompact(host, { ...envelope, sessionId: "missing" })).rejects.toThrow();
++    expect(configure).toHaveBeenCalledTimes(2);
++  });
++});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/workspace-isolation.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/workspace-isolation.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5354bbea50f532bca5fd7eac23071c39cd095bcc
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/compaction-policy/workspace-isolation.test.ts
+@@ -0,0 +1,141 @@
++import { describe, expect, it, vi } from "vitest";
++import type { SessionStorePort } from "@zcode/contracts";
++import { ZCodeProtocolAgentServer } from "../../src/zcode-protocol/server.js";
++import { updateCompactionPolicy } from "../../src/zcode-protocol/model-io-preferences.js";
++import {
++  activateSessionForResume,
++  closeSession,
++  createSessionRecordForV4,
++} from "../../src/zcode-protocol/server-operations.js";
++import type { ZCodeProtocolAgentServerContext } from "../../src/zcode-protocol/server-types.js";
++import type { ZCodeAppOptions } from "../../src/app/types.js";
++import { createFakeApp } from "../helpers/fake-zcode-app.js";
++
++const a = { workspaceKey: "/workspace/a", workspacePath: "/workspace/a" };
++const b = { workspaceKey: "/workspace/b", workspacePath: "/workspace/b" };
++const policyA = {
++  profile: "compact" as const,
++  tailBudgetTokens: 12_000,
++  summaryMaxOutputTokens: 4_000,
++};
++const policyB = {
++  profile: "compact" as const,
++  tailBudgetTokens: 20_000,
++  summaryMaxOutputTokens: 6_000,
++};
++const defaults = { profile: "detailed", tailBudgetTokens: 15_000, summaryMaxOutputTokens: 8_000 };
++
++function deferred() {
++  let resolve!: () => void;
++  const promise = new Promise<void>((done) => {
++    resolve = done;
++  });
++  return { promise, resolve };
++}
++
++describe("workspace compaction policy isolation", () => {
++  it.each(["create", "resume"] as const)(
++    "does not leak A preferences into B %s",
++    async (activation) => {
++      const captured: ZCodeAppOptions[] = [];
++      const server = new ZCodeProtocolAgentServer({
++        createZCodeApp: (options) => {
++          captured.push(options);
++          return createFakeApp(options);
++        },
++        sessionStore: {
++          getSession: async () =>
++            activation === "resume"
++              ? {
++                  id: "sess_b",
++                  directory: b.workspacePath,
++                  path: b.workspacePath,
++                  time: { created: 1, updated: 2 },
++                }
++              : null,
++          messages: async () => [],
++        } as unknown as SessionStorePort,
++      });
++      const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++      await updateCompactionPolicy(context, { workspace: a, ...policyA });
++      const result =
++        activation === "create"
++          ? await createSessionRecordForV4(context, { workspace: b })
++          : await activateSessionForResume(context, { sessionId: "sess_b" });
++      const id = activation === "create" ? (result as { sessionId: string }).sessionId : "sess_b";
++      try {
++        expect(captured.at(-1)?.runtimeConfig?.compact).toEqual(defaults);
++      } finally {
++        await closeSession(context, { sessionId: id });
++      }
++    },
++  );
++
++  it("retains independent A and B values after interleaved updates", async () => {
++    const captured: ZCodeAppOptions[] = [];
++    const server = new ZCodeProtocolAgentServer({
++      createZCodeApp: (options) => {
++        captured.push(options);
++        return createFakeApp(options);
++      },
++    });
++    const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++    await updateCompactionPolicy(context, { workspace: a, ...policyA });
++    await updateCompactionPolicy(context, { workspace: b, ...policyB });
++    for (const [workspace, expected] of [
++      [a, policyA],
++      [b, policyB],
++    ] as const) {
++      const result = await createSessionRecordForV4(context, { workspace });
++      try {
++        expect(captured.at(-1)?.runtimeConfig?.compact).toEqual(expected);
++      } finally {
++        await closeSession(context, { sessionId: result.sessionId });
++      }
++    }
++  });
++
++  it.each(["create", "resume"] as const)(
++    "rechecks only A policy after async A %s while B updates",
++    async (activation) => {
++      const started = deferred();
++      const gate = deferred();
++      const setter = vi.fn();
++      const server = new ZCodeProtocolAgentServer({
++        createZCodeApp: async (options) => {
++          started.resolve();
++          await gate.promise;
++          return createFakeApp(options, { setCompactionPolicy: setter });
++        },
++        sessionStore: {
++          getSession: async () =>
++            activation === "resume"
++              ? {
++                  id: "sess_a",
++                  directory: a.workspacePath,
++                  path: a.workspacePath,
++                  time: { created: 1, updated: 2 },
++                }
++              : null,
++          messages: async () => [],
++        } as unknown as SessionStorePort,
++      });
++      const context = (server as unknown as { context: ZCodeProtocolAgentServerContext }).context;
++      await updateCompactionPolicy(context, { workspace: a, ...policyA });
++      const pending =
++        activation === "create"
++          ? createSessionRecordForV4(context, { workspace: a })
++          : activateSessionForResume(context, { sessionId: "sess_a" });
++      await started.promise;
++      await updateCompactionPolicy(context, { workspace: b, ...policyB });
++      gate.resolve();
++      const result = await pending;
++      const id = activation === "create" ? (result as { sessionId: string }).sessionId : "sess_a";
++      try {
++        expect(setter).toHaveBeenCalledExactlyOnceWith(policyA);
++      } finally {
++        await closeSession(context, { sessionId: id });
++      }
 +    },
 +  );
 +});
@@ -14601,10 +15084,16 @@ index 392256f0fedfa1df1e83a9ba4b59a8472b167ea0..45b01dc28b62b1f76243e61c6695e0e4
  export type {
    LocalMicrocompactBoundaryPayload,
 diff --git a/apps/zcode-cli/packages/core/src/compact/policy.ts b/apps/zcode-cli/packages/core/src/compact/policy.ts
-index 2378ab656ad6eaddb9f50a236cd62528f07d1422..e93fd1bebc54d37bb51e0cae95ef6a5068a2cb66 100644
+index 2378ab656ad6eaddb9f50a236cd62528f07d1422..93a56ea07f6a973f335901d1d49e814373fc78c1 100644
 --- a/apps/zcode-cli/packages/core/src/compact/policy.ts
 +++ b/apps/zcode-cli/packages/core/src/compact/policy.ts
-@@ -13,7 +13,36 @@ export const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
+@@ -1,4 +1,5 @@
+ import { DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY as DEFAULT_BUDGET_STRATEGY } from "@zcode/shared";
++import { applyAutoCompactLimit, type AutoCompactLimit } from "./session-limit/contract.js";
+ import type { CompactModelMessage } from "./manual.js";
+ import { estimateMessageTokens, hasEnoughMessagesToCompact } from "./manual.js";
+ import type { LocalMicrocompactPolicyConfig } from "./microcompact.js";
+@@ -13,7 +14,36 @@ export const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
  export const DEFAULT_AUTOCOMPACT_THRESHOLD_PERCENT = 100;
  export const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3;
  
@@ -14641,6 +15130,27 @@ index 2378ab656ad6eaddb9f50a236cd62528f07d1422..e93fd1bebc54d37bb51e0cae95ef6a50
    enabled?: boolean;
    contextWindow?: number;
    maxOutputTokens?: number;
+@@ -21,6 +51,7 @@ export interface AutoCompactPolicyConfig {
+   summaryReserveTokens?: number;
+   bufferTokens?: number;
+   thresholdPercentOverride?: number;
++  sessionLimit?: AutoCompactLimit | null;
+   maxConsecutiveFailures?: number;
+   microcompact?: LocalMicrocompactPolicyConfig;
+ }
+@@ -84,7 +115,11 @@ export function getAutoCompactOutputReserveTokens(config: AutoCompactPolicyConfi
+ export function getAutoCompactThreshold(config: AutoCompactPolicyConfig = {}): number {
+   const effectiveContextWindow = getEffectiveContextWindowSize(config);
+   const buffer = positiveInt(config.bufferTokens) ?? AUTOCOMPACT_BUFFER_TOKENS;
+-  return Math.max(0, effectiveContextWindow - buffer);
++  return applyAutoCompactLimit(
++    Math.max(0, effectiveContextWindow - buffer),
++    positiveInt(config.contextWindow) ?? DEFAULT_COMPACT_CONTEXT_WINDOW,
++    config.sessionLimit,
++  );
+ }
+ 
+ export function shouldAutoCompact(input: {
 diff --git a/apps/zcode-cli/packages/core/src/compact/prompt.ts b/apps/zcode-cli/packages/core/src/compact/prompt.ts
 index a404eee2bab1453f7090ec3a9e4a3d4f2d7d2557..c13a1926c4f9306926247f591b3a01d4173b6e16 100644
 --- a/apps/zcode-cli/packages/core/src/compact/prompt.ts
@@ -14761,14 +15271,189 @@ index a336ec627e707eaebc681751f92f5d7719516148..0bec0d007c5d7df8504253fdbe941764
  export function groupByAssistantStartedRounds<T>(
    items: readonly T[],
    roleOf: (item: T) => string | undefined,
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/CONTRACT.md b/apps/zcode-cli/packages/core/src/compact/session-limit/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4807ee360495b1b8a233b13443781269f285bbe0
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/CONTRACT.md
+@@ -0,0 +1,3 @@
++# Session auto-compaction limit
++
++Runtime compact config is the only owner. The pure contract applies a requested token/percentage limit without increasing the existing safe threshold. Runtime query resolves the current model without a model request and never mutates config; validated updates affect only the supplied session config. Runtime reconstruction resets the override. Workspace policy updates merge only summary settings and leave the session limit intact. No immediate compaction, authorization changes, new timers, or persistence. Public surfaces: contract.ts and runtime.ts.
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/contract.example.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..17a16dd4694c1c3d60bc0a8c9a9a4456ad691f9d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.example.ts
+@@ -0,0 +1,2 @@
++import { applyAutoCompactLimit } from "./contract.js";
++export const exampleThreshold = applyAutoCompactLimit(166000, 200000, { unit: "tokens", value: 100000 });
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/contract.test.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..066b0b190fd2624880f2c3a7b92749b7378bf409
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.test.ts
+@@ -0,0 +1,18 @@
++import { describe, expect, it } from "vitest";
++import { applyAutoCompactLimit } from "./contract.js";
++
++describe("session autocompact limit", () => {
++  it("preserves the default and never raises the safe threshold", () => {
++    expect(applyAutoCompactLimit(166000, 200000)).toBe(166000);
++    expect(applyAutoCompactLimit(166000, 200000, { unit: "tokens", value: 100000 })).toBe(100000);
++    expect(applyAutoCompactLimit(166000, 200000, { unit: "tokens", value: 1000000 })).toBe(166000);
++  });
++  it("recomputes percentages for the current model", () => {
++    const limit = { unit: "percent", value: 50 } as const;
++    expect(applyAutoCompactLimit(166000, 200000, limit)).toBe(100000);
++    expect(applyAutoCompactLimit(66000, 100000, limit)).toBe(50000);
++  });
++  it.each([0, -1, NaN, Infinity, 101])("rejects invalid percentage %s", (value) => {
++    expect(() => applyAutoCompactLimit(166000, 200000, { unit: "percent", value })).toThrow();
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/contract.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..69f2aff76012d5f60840753f8a97815663df8a6d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/contract.ts
+@@ -0,0 +1,17 @@
++export type AutoCompactLimit = { unit: "tokens" | "percent"; value: number };
++export interface AutoCompactLimitStatus {
++  limit: AutoCompactLimit | null;
++  contextWindowTokens: number;
++  requestedThresholdTokens: number | null;
++  effectiveThresholdTokens: number;
++}
++
++export function applyAutoCompactLimit(safeThreshold: number, contextWindow: number, limit?: AutoCompactLimit | null): number {
++  if (!limit) return safeThreshold;
++  if (!Number.isFinite(limit.value) || limit.value <= 0 ||
++      (limit.unit === "percent" ? limit.value > 100 : !Number.isSafeInteger(limit.value))) {
++    throw new Error("Invalid automatic compaction limit");
++  }
++  const requested = limit.unit === "percent" ? Math.floor(contextWindow * limit.value / 100) : limit.value;
++  return Math.min(safeThreshold, Math.max(1, requested));
++}
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/module.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..82fd15e1960ba3461969aa30b9bf86a17ecee672
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/module.ts
+@@ -0,0 +1,4 @@
++export const sessionAutoCompactModule = {
++  id: "session-autocompact-core", requires: ["zcode-cli"],
++  publicEntrypoints: ["contract.ts", "runtime.ts"],
++} as const;
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.test.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ead64a907703c5cd76cf0b6a8b9fa9daf1021a17
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.test.ts
+@@ -0,0 +1,25 @@
++import { describe, expect, it } from "vitest";
++import { configureSessionAutoCompact } from "./runtime.js";
++import type { AutoCompactPolicyConfig } from "../policy.js";
++import type { RuntimeModelFactory } from "../../runtime/types.js";
++
++const selection = { providerId: "test", modelId: "model" };
++const factory = (() => ({ properties: { contextWindow: 200000 }, optionSpecs: { maxOutputTokens: { max: 32000 } } })) as RuntimeModelFactory;
++
++describe("runtime session limit", () => {
++  it("mutates only the targeted config, queries without mutation, resets", () => {
++    const first: { compact?: AutoCompactPolicyConfig } = {};
++    const second: { compact?: AutoCompactPolicyConfig } = {};
++    expect(configureSessionAutoCompact(first, selection, factory).effectiveThresholdTokens).toBe(166000);
++    expect(first.compact).toBeUndefined();
++    expect(configureSessionAutoCompact(first, selection, factory, { limit: { unit: "tokens", value: 100000 } }).effectiveThresholdTokens).toBe(100000);
++    expect(configureSessionAutoCompact(second, selection, factory).effectiveThresholdTokens).toBe(166000);
++    expect(configureSessionAutoCompact(first, selection, factory, { limit: null }).effectiveThresholdTokens).toBe(166000);
++  });
++  it("does not mutate on invalid input or missing model", () => {
++    const config = {};
++    expect(() => configureSessionAutoCompact(config, selection, factory, { limit: { unit: "percent", value: 101 } })).toThrow();
++    expect(() => configureSessionAutoCompact(config, undefined, factory)).toThrow();
++    expect(config).toEqual({});
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.ts b/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5c724b1f12407ddbdbc2ac3ba3ef2389db228d1
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/compact/session-limit/runtime.ts
+@@ -0,0 +1,27 @@
++import type { AutoCompactPolicyConfig } from "../policy.js";
++import { getAutoCompactThreshold, DEFAULT_COMPACT_CONTEXT_WINDOW } from "../policy.js";
++import type { RuntimeModelFactory } from "../../runtime/types.js";
++import type { ModelSelection } from "@zcode/contracts";
++import type { AutoCompactLimit, AutoCompactLimitStatus } from "./contract.js";
++
++export function configureSessionAutoCompact(
++  config: { compact?: AutoCompactPolicyConfig },
++  selection: ModelSelection | undefined,
++  modelFactory: RuntimeModelFactory,
++  change?: { limit: AutoCompactLimit | null },
++): AutoCompactLimitStatus {
++  if (!selection) throw new Error("Session model is not ready");
++  const model = modelFactory({ selection });
++  const contextWindow = model.properties.contextWindow ?? DEFAULT_COMPACT_CONTEXT_WINDOW;
++  const policy = { ...config.compact, contextWindow, maxOutputTokens: model.optionSpecs.maxOutputTokens.max };
++  if (change) policy.sessionLimit = change.limit;
++  const effectiveThresholdTokens = getAutoCompactThreshold(policy);
++  if (change) config.compact = { ...config.compact, sessionLimit: change.limit };
++  const limit = policy.sessionLimit ?? null;
++  return {
++    limit,
++    contextWindowTokens: contextWindow,
++    requestedThresholdTokens: limit ? limit.unit === "percent" ? Math.floor(contextWindow * limit.value / 100) : limit.value : null,
++    effectiveThresholdTokens,
++  };
++}
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7dbfad814fcd993717d266d73f513cdaf9404df3
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md
+@@ -0,0 +1,3 @@
++# Defensive security notice
++
++Pure domain constant; no dependencies, IO, authorization state or tool execution. Shared Harness construction consumes this constant once for interactive and workflow identities. Only explicitly authorized defense/audit/remediation/compliance is allowed; the notice does not replace approval, sandbox or authentication enforcement.
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.example.ts b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5aabfcd5d2b14e0fb0538685b44367202b22be18
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.example.ts
+@@ -0,0 +1,5 @@
++import { DEFENSIVE_SECURITY_NOTICE } from "./contract.js";
++
++export function exampleDefensiveSecurityNotice(): string {
++  return DEFENSIVE_SECURITY_NOTICE;
++}
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.ts b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec0c5d11c1aa0e59d87f1af8ff3b41c54f546f47
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.ts
+@@ -0,0 +1 @@
++export { DEFENSIVE_SECURITY_NOTICE } from "./module.js";
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/module.ts b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a08451556a5ca9bdcd553aa344969c86cb0db0fc
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/module.ts
+@@ -0,0 +1,3 @@
++/** Guidance supplements, and never replaces, execution-layer authorization. */
++export const DEFENSIVE_SECURITY_NOTICE =
++  "Security work is limited to explicitly authorized defensive security, auditing, remediation, and compliance verification. Do not assist with CTF or target cracking, jailbreaks, prompt injection, destructive attacks, credential theft, or evasion of security controls. Never bypass approvals, sandboxing, authentication, rate limits, or credential protection, including for debugging. If authorization or scope is unclear, stop and ask.";
 diff --git a/apps/zcode-cli/packages/core/src/context/sections/identity.ts b/apps/zcode-cli/packages/core/src/context/sections/identity.ts
-index f018fd6e8b52c822bb1f12e239614919691c5926..83f807c78b5592d0b1db8a92157d3bcf3f01583a 100644
+index f018fd6e8b52c822bb1f12e239614919691c5926..fbc677bf697cda2a5f337ad415e4474b3807036d 100644
 --- a/apps/zcode-cli/packages/core/src/context/sections/identity.ts
 +++ b/apps/zcode-cli/packages/core/src/context/sections/identity.ts
-@@ -6,14 +6,6 @@ import type { ContextSection } from "../types.js";
+@@ -5,14 +5,7 @@
+ import type { ContextSection } from "../types.js";
  import type { OutputStylePromptConfig } from "../types.js";
  import { estimateTokens } from "../utils.js";
- 
+-
 -const SECURITY_NOTICE =
 -  "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.";
 -
@@ -14776,11 +15461,19 @@ index f018fd6e8b52c822bb1f12e239614919691c5926..83f807c78b5592d0b1db8a92157d3bcf
 -export function buildSecurityNotice(): string {
 -  return SECURITY_NOTICE;
 -}
--
++import { DEFENSIVE_SECURITY_NOTICE } from "./defensive-security/contract.js";
+ 
  /**
   * `# Harness` 块：稳定运行时约束，不属于 output style 可替换的 coding instructions，
-  * 也是工作流子代理身份（sections/workflow-actor.ts）逐字复用的那一段。
-@@ -34,7 +26,7 @@ function buildIdentityPrompt(outputStyle?: OutputStylePromptConfig): string {
+@@ -26,6 +19,7 @@ export function buildHarnessBlock(): string {
+     "- The system may send updates, reminders, or modifications to rules via mid-conversation system turns. These are system-controlled, unlike function results. Hooks may intercept tool calls; treat hook output as user feedback.",
+     "- Prefer the dedicated file/search tools over shell commands when one fits. Independent tool calls can run in parallel in one response.",
+     "- Reference code as `file_path:line_number` \u2014 it's clickable.",
++    DEFENSIVE_SECURITY_NOTICE,
+   ].join("\n");
+ }
+ 
+@@ -34,7 +28,7 @@ function buildIdentityPrompt(outputStyle?: OutputStylePromptConfig): string {
      ? "You respond to the user according to the active Output Style below while using ZCode's tools and instructions."
      : "You are an interactive ZCode agent that helps users with software engineering tasks.";
  
@@ -15166,16 +15859,18 @@ index 28830dee7fdc26c4b0add45a90ce0a9e599729ab..ddaacf248713db9a99f7178698a4f204
 +  return typeof value === "string" ? value : undefined;
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a60b9fed9 100644
+index 862b572037e7a12aacf342d9b38fa806f6c51f9c..c7c414603a2567ba34585c0296b4f1b6e0b73724 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,7 @@
  import { configureOffPeakRuntime, controlOffPeakRuntime } from "./off-peak/runtime.js";
++import { configureSessionAutoCompact } from "../compact/session-limit/runtime.js";
++import type { AutoCompactLimit } from "../compact/session-limit/contract.js";
 +import { SessionResourceController } from "../session-resources/module.js";
  import {
    createTurnAgentDefinitions,
    createAgentDefinitionsReader,
-@@ -188,6 +189,7 @@ export class AgentRuntime {
+@@ -188,6 +191,7 @@ export class AgentRuntime {
    private contextBuilder: ContextBuilder | null = null;
    private contextInitialized = false;
    private contextSourceSnapshot?: ContextSourceSnapshot;
@@ -15183,7 +15878,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a
    private latestContextBuildResult?: ContextBuildResult;
    private memoryRoot?: string;
    private memoryIndexContent?: string;
-@@ -198,6 +200,7 @@ export class AgentRuntime {
+@@ -198,6 +202,7 @@ export class AgentRuntime {
    private pendingMemoryUpdate?: ProjectMemoryUpdate;
    private contextSourcePort?: ContextSourcePort;
    private skillPort?: SkillPort;
@@ -15191,7 +15886,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a
    private mcpPort?: McpPort;
    private mcpStartupPromise?: Promise<McpConnectionSnapshot>;
    private residencyBlockingWorkCount = 0;
-@@ -223,6 +226,11 @@ export class AgentRuntime {
+@@ -223,6 +228,11 @@ export class AgentRuntime {
    private imageProcessorPort?: ImageProcessorPort;
    private pdfDocumentPort?: PdfDocumentPort;
    private skillLoadOutcome?: SkillLoadOutcome;
@@ -15203,7 +15898,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a
    private workingDirectory: string;
    private workspaceRoot: string;
    private sessionStore?: SessionStorePort;
-@@ -307,6 +315,30 @@ export class AgentRuntime {
+@@ -307,6 +317,30 @@ export class AgentRuntime {
      this.eventReducer = new EventReducer();
      this.eventStore = deps.eventStore;
      this.sessionStore = deps.sessionStore;
@@ -15234,10 +15929,14 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a
      this.rootTraceContext = deps.traceContext ?? createRootTraceContext({ sessionId });
      this.appVersion = deps.appVersion ?? "0.0.0";
      this.logger = deps.logger?.child({
-@@ -384,10 +416,16 @@ export class AgentRuntime {
+@@ -384,10 +418,20 @@ export class AgentRuntime {
      }
    }
  
++  configureAutoCompact(change?: { limit: AutoCompactLimit | null }) {
++    return configureSessionAutoCompact(this.config, this.sessionModelSelection, this.modelFactory, change);
++  }
++
 +  setCompactionPolicy(policy: import("../compact/policy.js").CompactionRuntimePolicy): void {
 +    this.config.compact = { ...this.config.compact, ...policy };
 +  }
@@ -15251,7 +15950,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..126dde73f76c6e7207c89c9e8a26125a
      // 同一条理由：会话在关，提醒钟不能再到点唤起一轮。
      this.workflowBlockedReminder.stop();
      // 关闭单个 session 后进程仍存活，
-@@ -659,6 +697,12 @@ export interface AgentRuntime {
+@@ -659,6 +703,12 @@ export interface AgentRuntime {
    resolvePermission(toolCallId: ToolCallId, decision: PermissionDecisionResult): Promise<void>;
    getPendingPermissionRequests(): PermissionBrokerRequest[];
    getProjection(): Promise<SessionProjection>;
@@ -16231,128 +16930,6 @@ index 9b16555b64ae068599461489ca25ab45520a846c..55bd5f51be1d5ec605410ce42ee1c6d2
          semantics: {
            origin: "agent_runtime",
            kind: "compact_summary",
-diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
-index adc936f95d04637f9ec078e92a5205bfcc65df92..50c67a37366d3f8bfe912c1a5aec8634123ec93e 100644
---- a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
-+++ b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
-@@ -1,4 +1,7 @@
- import { resolveToolSearchMode } from "../../tool/search/exposure.js";
-+import { SessionEventType } from "../deps.js";
-+import type { SessionResourcesState } from "@zcode/shared/zcode-protocol-v4";
-+import type { SkillMetadata } from "@zcode/contracts";
- import type {
-   CollaborationMode,
-   ExecutionShellSelection,
-@@ -47,6 +50,109 @@ export async function setExecutionState(
-   await applyRuntimeExecutionState(this, input, { source: "command", traceContext });
- }
- 
-+async function readSessionResources(runtime: AgentRuntimeInternal): Promise<SessionResourcesState> {
-+  await runtime.sessionResources.restore();
-+  const catalog = await runtime.getSkillCatalog(runtime.rootTraceContext);
-+  const statuses = (await runtime.mcpPort?.status()) ?? {};
-+  const policy = runtime.sessionResources.snapshot();
-+  return {
-+    policy,
-+    skills: catalog.skills.map((skill) => {
-+      const id = skill.qualifiedName ?? skill.name;
-+      return {
-+        id,
-+        label: id,
-+        available: true,
-+        enabled: !policy.disabledSkills.includes(id),
-+        source: resolveSkillSource(skill.source),
-+      };
-+    }),
-+    mcpServers: [
-+      ...new Set([...Object.keys(runtime.config.mcp?.servers ?? {}), ...Object.keys(statuses)]),
-+    ]
-+      .sort()
-+      .map((id) => {
-+        const available =
-+          Boolean(runtime.mcpPort) &&
-+          runtime.config.mcp?.enabled !== false &&
-+          runtime.config.mcp?.servers?.[id]?.enabled !== false;
-+        return {
-+          id,
-+          label: id,
-+          available,
-+          enabled: available && !policy.disabledMcpServers.includes(id),
-+          source: resolveMcpServerSource(id),
-+        };
-+      }),
-+  };
-+}
-+
-+// 右侧连接器只展示用户自己接入的资源；ZCode 自带与插件提供的连接器不进入该列表。
-+// 归类只影响展示过滤，策略所有权与开关语义仍由 SessionResourceController 裁决。
-+function resolveSkillSource(source: SkillMetadata["source"]): "builtin" | "plugin" | "user" {
-+  if (source === "bundled" || source === "zcode") return "builtin";
-+  return source === "plugin" ? "plugin" : "user";
-+}
-+
-+const BUILTIN_MCP_SERVER_NAMES = new Set(["node_repl"]);
-+const PLUGIN_MCP_SERVER_PREFIX = "plugin:";
-+
-+function resolveMcpServerSource(id: string): "builtin" | "plugin" | "user" {
-+  if (BUILTIN_MCP_SERVER_NAMES.has(id)) return "builtin";
-+  return id.startsWith(PLUGIN_MCP_SERVER_PREFIX) ? "plugin" : "user";
-+}
-+
-+export async function refreshSessionResources(
-+  this: AgentRuntimeInternal,
-+  traceContext = this.rootTraceContext,
-+): Promise<void> {
-+  await this.appendEvent(
-+    this.createEvent(
-+      SessionEventType.SessionResourcesUpdated,
-+      await readSessionResources(this),
-+      traceContext,
-+    ),
-+    traceContext,
-+  );
-+}
-+
-+export async function setSessionResource(
-+  this: AgentRuntimeInternal,
-+  input: { kind: "skill" | "mcp"; id: string; enabled: boolean },
-+  traceContext = this.rootTraceContext,
-+): Promise<void> {
-+  const resources = await readSessionResources(this);
-+  const items = input.kind === "skill" ? resources.skills : resources.mcpServers;
-+  const item = items.find((candidate) => candidate.id === input.id);
-+  if (!item || !item.available) throw new Error("Resource is unavailable in this session");
-+  await this.sessionResources.set(input.kind, input.id, input.enabled);
-+  const policy = this.sessionResources.snapshot();
-+  const next = {
-+    policy,
-+    skills: resources.skills.map((entry) => ({
-+      ...entry,
-+      enabled: entry.available && !policy.disabledSkills.includes(entry.id),
-+    })),
-+    mcpServers: resources.mcpServers.map((entry) => ({
-+      ...entry,
-+      enabled: entry.available && !policy.disabledMcpServers.includes(entry.id),
-+    })),
-+  };
-+  // 保存之后不再查询端口：瞬时状态读取失败不能把已接受策略伪装成保存失败。
-+  await this.appendEvent(
-+    this.createEvent(SessionEventType.SessionResourcesUpdated, next, traceContext),
-+    traceContext,
-+  );
-+}
-+
-+export async function assertSessionResourceEnabled(
-+  this: AgentRuntimeInternal,
-+  kind: "skill" | "mcp",
-+  id: string,
-+): Promise<void> {
-+  await this.sessionResources.assertEnabled(kind, id);
-+}
-+
- export function updateConfig(
-   this: AgentRuntimeInternal,
-   patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
 index 591619e469c542125350313fae1491cc246b89f2..eb3e1978df1dfe8638f94d62f4d153964033b835 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
@@ -16951,20 +17528,22 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
      embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(this),
      skillMetadataBudget: this.config.skillMetadataBudget,
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
-index b4509560520c8df72abe407653a7e7d78a4d044a..9db961876136b685b995cb1995f4f399365631e1 100644
+index b4509560520c8df72abe407653a7e7d78a4d044a..5e30556693cca514d17b24f6e466c2827acaca01 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
-@@ -5,6 +5,9 @@ import {
-   initializeSessionShellEnvironmentIfNeeded,
+@@ -6,6 +6,11 @@ import {
    updateConfig,
    setExecutionState,
+ } from "./config.js";
++import {
 +  refreshSessionResources,
 +  setSessionResource,
 +  assertSessionResourceEnabled,
- } from "./config.js";
++} from "./session-resource-methods.js";
  import { getMode, getPlanEnabled } from "./config.js";
  import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
-@@ -280,6 +283,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
+ import { getProjectId } from "./config.js";
+@@ -280,6 +285,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
    proto.createDefaultSubagentPort = createDefaultSubagentPort;
    proto.ensureContextInitialized = ensureContextInitialized;
    proto.getSkillCatalog = getSkillCatalog;
@@ -18345,6 +18924,119 @@ index 92ec31bdd3090a7a76a9f4e9f045acc650f5e00b..fbe89b20a2537d97842fcbedc5ec83a1
 +    });
 +  }
 +  return [...activeMessages.slice(0, segmentStartIndex), ...selectedSegment];
++}
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e628a0ee90ef2c5f363893401548b5875c3b3834
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts
+@@ -0,0 +1,107 @@
++import { SessionEventType } from "../deps.js";
++import type { SessionResourcesState } from "@zcode/shared/zcode-protocol-v4";
++import type { SkillMetadata } from "@zcode/contracts";
++import type { AgentRuntimeInternal } from "../internal.js";
++
++async function readSessionResources(runtime: AgentRuntimeInternal): Promise<SessionResourcesState> {
++  await runtime.sessionResources.restore();
++  const catalog = await runtime.getSkillCatalog(runtime.rootTraceContext);
++  const statuses = (await runtime.mcpPort?.status()) ?? {};
++  const policy = runtime.sessionResources.snapshot();
++  return {
++    policy,
++    skills: catalog.skills.map((skill) => {
++      const id = skill.qualifiedName ?? skill.name;
++      return {
++        id,
++        label: id,
++        available: true,
++        enabled: !policy.disabledSkills.includes(id),
++        source: resolveSkillSource(skill.source),
++      };
++    }),
++    mcpServers: [
++      ...new Set([...Object.keys(runtime.config.mcp?.servers ?? {}), ...Object.keys(statuses)]),
++    ]
++      .sort()
++      .map((id) => {
++        const available =
++          Boolean(runtime.mcpPort) &&
++          runtime.config.mcp?.enabled !== false &&
++          runtime.config.mcp?.servers?.[id]?.enabled !== false;
++        return {
++          id,
++          label: id,
++          available,
++          enabled: available && !policy.disabledMcpServers.includes(id),
++          source: resolveMcpServerSource(id),
++        };
++      }),
++  };
++}
++
++// 右侧连接器只展示用户自己接入的资源；ZCode 自带与插件提供的连接器不进入该列表。
++// 归类只影响展示过滤，策略所有权与开关语义仍由 SessionResourceController 裁决。
++function resolveSkillSource(source: SkillMetadata["source"]): "builtin" | "plugin" | "user" {
++  if (source === "bundled" || source === "zcode") return "builtin";
++  return source === "plugin" ? "plugin" : "user";
++}
++
++const BUILTIN_MCP_SERVER_NAMES = new Set(["node_repl"]);
++const PLUGIN_MCP_SERVER_PREFIX = "plugin:";
++
++function resolveMcpServerSource(id: string): "builtin" | "plugin" | "user" {
++  if (BUILTIN_MCP_SERVER_NAMES.has(id)) return "builtin";
++  return id.startsWith(PLUGIN_MCP_SERVER_PREFIX) ? "plugin" : "user";
++}
++
++export async function refreshSessionResources(
++  this: AgentRuntimeInternal,
++  traceContext = this.rootTraceContext,
++): Promise<void> {
++  await this.appendEvent(
++    this.createEvent(
++      SessionEventType.SessionResourcesUpdated,
++      await readSessionResources(this),
++      traceContext,
++    ),
++    traceContext,
++  );
++}
++
++export async function setSessionResource(
++  this: AgentRuntimeInternal,
++  input: { kind: "skill" | "mcp"; id: string; enabled: boolean },
++  traceContext = this.rootTraceContext,
++): Promise<void> {
++  const resources = await readSessionResources(this);
++  const items = input.kind === "skill" ? resources.skills : resources.mcpServers;
++  const item = items.find((candidate) => candidate.id === input.id);
++  if (!item || !item.available) throw new Error("Resource is unavailable in this session");
++  await this.sessionResources.set(input.kind, input.id, input.enabled);
++  const policy = this.sessionResources.snapshot();
++  const next = {
++    policy,
++    skills: resources.skills.map((entry) => ({
++      ...entry,
++      enabled: entry.available && !policy.disabledSkills.includes(entry.id),
++    })),
++    mcpServers: resources.mcpServers.map((entry) => ({
++      ...entry,
++      enabled: entry.available && !policy.disabledMcpServers.includes(entry.id),
++    })),
++  };
++  // 保存之后不再查询端口：瞬时状态读取失败不能把已接受策略伪装成保存失败。
++  await this.appendEvent(
++    this.createEvent(SessionEventType.SessionResourcesUpdated, next, traceContext),
++    traceContext,
++  );
++}
++
++export async function assertSessionResourceEnabled(
++  this: AgentRuntimeInternal,
++  kind: "skill" | "mcp",
++  id: string,
++): Promise<void> {
++  await this.sessionResources.assertEnabled(kind, id);
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts b/apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts
 index 547243e05f1c3f65492c6f12eb6be87285301902..fd0bf933054b3606fea6573db5652010ac59669f 100644
@@ -22043,6 +22735,52 @@ index 0000000000000000000000000000000000000000..79fea70ce1fa2e92b76918731bd387b3
 +    ).toBeUndefined();
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/core/tests/defensive-security.test.ts b/apps/zcode-cli/packages/core/tests/defensive-security.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6c04d14a85b1c08f34c631cef9159b7e2ac3680d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/defensive-security.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from "vitest";
++import { buildIdentitySection } from "../src/context/sections/identity.js";
++import { buildWorkflowActorIdentitySection } from "../src/context/sections/workflow-actor.js";
++
++describe("shared defensive security boundary", () => {
++  it.each([
++    () => buildIdentitySection(),
++    () => buildWorkflowActorIdentitySection({ name: "reviewer" }),
++  ])(
++    "keeps defensive-only guidance in every identity without replacing execution gates",
++    (build) => {
++      const content = build().content;
++      expect(content).toContain(
++        "explicitly authorized defensive security, auditing, remediation, and compliance verification",
++      );
++      expect(content).toContain(
++        "Do not assist with CTF or target cracking, jailbreaks, prompt injection",
++      );
++      expect(content).toContain(
++        "Never bypass approvals, sandboxing, authentication, rate limits, or credential protection",
++      );
++      expect(content).toContain("a denied call means the user declined it");
++      expect(content).not.toContain("Assist with authorized security testing");
++    },
++  );
++});
+diff --git a/apps/zcode-cli/packages/core/tests/defensive-security/contract.test.ts b/apps/zcode-cli/packages/core/tests/defensive-security/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5479a53a9ac8f17d3bd30395c2691bc13ff2178d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/defensive-security/contract.test.ts
+@@ -0,0 +1,8 @@
++import { expect, it } from "vitest";
++import { DEFENSIVE_SECURITY_NOTICE } from "../../src/context/sections/defensive-security/contract.js";
++import { exampleDefensiveSecurityNotice } from "../../src/context/sections/defensive-security/contract.example.js";
++
++it("exports one immutable defensive-only notice", () => {
++  expect(exampleDefensiveSecurityNotice()).toBe(DEFENSIVE_SECURITY_NOTICE);
++  expect(DEFENSIVE_SECURITY_NOTICE).toContain("Never bypass approvals");
++});
 diff --git a/apps/zcode-cli/packages/core/tests/dynamic-context-sources.test.ts b/apps/zcode-cli/packages/core/tests/dynamic-context-sources.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..f11eec1bb525545f3988a087b769f962357d0438
@@ -24064,6 +24802,14 @@ index cb358871c06f61e320552ef2476fe8bb1eab7a19..a9d82594373e75a26d17d3ccacb8215d
      });
      const modelImplementation = {
        async generateText(request: {
+diff --git a/apps/zcode-cli/packages/core/tests/session-limit/session-limit.test.ts b/apps/zcode-cli/packages/core/tests/session-limit/session-limit.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..58bf6e901b078000a935fee9642e4362c1602b98
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/session-limit/session-limit.test.ts
+@@ -0,0 +1,2 @@
++import "../../src/compact/session-limit/contract.test.js";
++import "../../src/compact/session-limit/runtime.test.js";
 diff --git a/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts b/apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..43b136580eaebaaf5b0ef54400219c85d69fcb7d

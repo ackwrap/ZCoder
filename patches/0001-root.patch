@@ -37,17 +37,30 @@ index a755ec45888b605736fe8ef09e813c4200452049..e9c4ec1eb32e0ceda1413bd775e46060
      },
      {
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586eefd2b992b 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..ee560e80a3f6a89d8712a51e037f02ab25846bf7 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
-@@ -2,6 +2,37 @@ version: 1
+@@ -2,6 +2,52 @@ version: 1
  
  # 存量模块先标记为 legacy；新模块或完成迁移的模块设置 managed: true。
  modules:
++  - id: session-autocompact-core
++    roots:
++      [
++        apps/zcode-cli/packages/core/src/compact/session-limit,
++        apps/zcode-cli/packages/core/tests/session-limit,
++      ]
++    managed: true
++    requires: [zcode-cli]
++    publicEntrypoints:
++      - apps/zcode-cli/packages/core/src/compact/session-limit/contract.ts
++      - apps/zcode-cli/packages/core/src/compact/session-limit/runtime.ts
++    layers: { app: . }
++    owner: conversation
 +  - id: cli-codex-transport
 +    roots: [apps/zcode-cli/packages/adapters/src/model/codex-transport]
 +    managed: true
-+    requires: []
++    requires: [provider, zcode-cli]
 +    publicEntrypoints:
 +      - apps/zcode-cli/packages/adapters/src/model/codex-transport/contract.ts
 +      - apps/zcode-cli/packages/adapters/src/model/codex-transport/module.ts
@@ -58,12 +71,14 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
 +      [
 +        apps/zcode-cli/packages/core/src/session-resources,
 +        apps/zcode-cli/packages/core/tests/session-resources,
++        apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts,
 +      ]
 +    managed: true
 +    requires: [shared, zcode-cli]
 +    publicEntrypoints:
 +      - apps/zcode-cli/packages/core/src/session-resources/contract.ts
 +      - apps/zcode-cli/packages/core/src/session-resources/module.ts
++      - apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts
 +    layers:
 +      app: .
 +    owner: conversation
@@ -78,7 +93,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
    - id: rpc
      roots: [packages/rpc/src]
      managed: false
-@@ -34,7 +65,7 @@ modules:
+@@ -34,7 +80,7 @@ modules:
      managed: true
      requires: [shared, rpc, services]
      publicEntrypoints: [packages/services/src/storage/contract.ts]
@@ -87,7 +102,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layerOrder: [domain, app, adapters]
      owner: desktop-settings
    - id: client
-@@ -251,14 +282,19 @@ modules:
+@@ -251,14 +297,19 @@ modules:
      managed: true
      requires: []
      publicEntrypoints: [packages/shared/src/gen-ui/index.ts, packages/shared/src/gen-ui/contract.ts]
@@ -110,7 +125,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layerOrder: [domain, app, adapters]
      owner: conversation
  
-@@ -266,8 +302,13 @@ modules:
+@@ -266,8 +317,13 @@ modules:
      roots: [packages/ui/src/gen-ui]
      managed: true
      requires: [ui, services, gen-ui-service, gen-ui-protocol, mcp-apps-protocol, plugin-ui]
@@ -126,7 +141,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layerOrder: [domain, app, adapters, ui]
      owner: conversation
  
-@@ -276,7 +317,12 @@ modules:
+@@ -276,7 +332,12 @@ modules:
      roots: [packages/shared/src/mcp-apps]
      managed: true
      requires: []
@@ -140,7 +155,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layers:
        domain: "."
      owner: plugin
-@@ -284,7 +330,11 @@ modules:
+@@ -284,7 +345,11 @@ modules:
      roots: [apps/zcode-cli/packages/bootstrap/src/zcode-protocol/mcp-ui]
      managed: true
      requires: [zcode-cli, shared, mcp-apps-protocol]
@@ -153,7 +168,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layers:
        app: "."
      owner: plugin
-@@ -292,7 +342,13 @@ modules:
+@@ -292,7 +357,13 @@ modules:
      roots: [packages/services/src/plugin-ui-bridge]
      managed: true
      requires: [services, shared, mcp-apps-protocol]
@@ -168,7 +183,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layers:
        app: "."
      owner: plugin
-@@ -304,8 +360,7 @@ modules:
+@@ -304,8 +375,7 @@ modules:
        - packages/desktop/src/renderer/src/plugin-sandbox
      managed: true
      requires: [desktop, shared, mcp-apps-protocol, gen-ui-protocol]
@@ -178,7 +193,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
          packages/desktop/src/host/pluginSandbox/index.ts,
          packages/desktop/src/host/pluginSandbox/contract.ts,
          packages/desktop/src/preload/pluginSandbox/hostBridge.ts,
-@@ -313,7 +368,7 @@ modules:
+@@ -313,7 +383,7 @@ modules:
          packages/desktop/src/main/pluginSandbox/contract.ts,
          # 页面兼容接口由宿主及其契约测试维护。
          packages/desktop/src/renderer/src/plugin-sandbox/aliasRuntime.ts,
@@ -187,7 +202,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
        ]
      layers:
        adapters: "."
-@@ -322,7 +377,12 @@ modules:
+@@ -322,7 +392,12 @@ modules:
      roots: [packages/ui/src/plugin-ui]
      managed: true
      requires: [ui, shared, services, mcp-apps-protocol, plugin-ui-bridge, plugin-sandbox]
@@ -201,7 +216,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      layers:
        domain: domain
        app: app
-@@ -545,7 +605,7 @@ modules:
+@@ -545,7 +620,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/cli/src/arguments.ts
        - apps/zcode-cli/packages/cli/src/argument-parsing/contract.ts
@@ -210,7 +225,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      owner: agent
    - id: workflow-tool-entrypoints
      roots:
-@@ -561,7 +621,7 @@ modules:
+@@ -561,7 +636,7 @@ modules:
        - apps/zcode-cli/packages/core/src/tool/handlers/list-models.ts
        - apps/zcode-cli/packages/core/src/tool/handlers/fill-workflow-hole.ts
        - apps/zcode-cli/packages/core/src/tool/workflow-entrypoints/contract.ts
@@ -219,7 +234,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      owner: agent
  
    - id: tool-result-settlement
-@@ -574,7 +634,7 @@ modules:
+@@ -574,7 +649,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/core/src/runtime/methods/tool-result-settlement.ts
        - apps/zcode-cli/packages/core/src/runtime/tool-result-settlement/contract.ts
@@ -228,7 +243,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      owner: agent
    - id: channel-reply-tool
      roots:
-@@ -586,7 +646,7 @@ modules:
+@@ -586,7 +661,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/core/src/tool/handlers/reply-to-channel.ts
        - apps/zcode-cli/packages/core/src/tool/channel-reply/contract.ts
@@ -237,7 +252,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      owner: agent
  
    # composer-toolbar-layout：登记既有 DOM 布局入口，不改调用路径。
-@@ -600,7 +660,7 @@ modules:
+@@ -600,7 +675,7 @@ modules:
      publicEntrypoints:
        - packages/ui/src/prompt-editor/useComposerToolbarFit.ts
        - packages/ui/src/composer-toolbar-layout/contract.ts
@@ -246,7 +261,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
      owner: conversation
  
    # task-groups：由 architecture:adopt 登记
-@@ -732,13 +792,148 @@ modules:
+@@ -732,13 +807,252 @@ modules:
      layers:
        ui: .
      owner: conversation
@@ -362,6 +377,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
 +      - packages/shared/src/zcode-protocol-v4/context-schemas
 +      - packages/shared/src/zcode-protocol-v4/compact-summary.ts
 +      - packages/shared/src/zcode-protocol-v4/context-source-update.ts
++      - packages/shared/src/zcode-protocol-v4/autocompact-schema.ts
 +      - packages/shared/test/context-schemas
 +    managed: true
 +    requires: []
@@ -369,6 +385,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
 +      - packages/shared/src/zcode-protocol-v4/context-schemas/contract.ts
 +      - packages/shared/src/zcode-protocol-v4/compact-summary.ts
 +      - packages/shared/src/zcode-protocol-v4/context-source-update.ts
++      - packages/shared/src/zcode-protocol-v4/autocompact-schema.ts
 +    layers: { domain: . }
 +    owner: conversation
 +  - id: v4-context-artifacts-ui
@@ -385,6 +402,108 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
 +      - packages/ui/src/v4/ContextSourceUpdateNotice.tsx
 +    layers: { ui: . }
 +    owner: conversation
++
++  - id: status-capsule-ui
++    roots: [packages/ui/src/v4/status-capsule]
++    managed: true
++    requires: []
++    publicEntrypoints:
++      - packages/ui/src/v4/status-capsule/contract.ts
++      - packages/ui/src/v4/status-capsule/index.ts
++    layers: { ui: . }
++    owner: conversation
++  - id: tool-live-expansion-ui
++    roots: [packages/ui/src/tool-live-expansion]
++    managed: true
++    requires: []
++    publicEntrypoints: [packages/ui/src/tool-live-expansion/contract.ts]
++    layers: { ui: . }
++    owner: conversation
++  - id: task-output-copy-ui
++    roots: [packages/ui/src/task-output-copy]
++    managed: true
++    requires: [ui]
++    publicEntrypoints: [packages/ui/src/task-output-copy/contract.ts]
++    layers: { ui: . }
++    owner: conversation
++  - id: compat-slash-commands-ui
++    roots: [packages/ui/src/v4/slash-commands]
++    managed: true
++    requires: [shared, ui]
++    publicEntrypoints:
++      - packages/ui/src/v4/slash-commands/contract.ts
++      - packages/ui/src/v4/slash-commands/index.ts
++    layers: { ui: . }
++    owner: conversation
++  - id: ui-compaction-settings
++    roots: [packages/ui/src/settings/compaction-settings]
++    managed: true
++    requires: [shared, ui]
++    publicEntrypoints: [packages/ui/src/settings/compaction-settings/contract.ts]
++    layers: { ui: . }
++    owner: desktop-settings
++  - id: ui-edition-messages
++    roots: [packages/ui/src/i18n/edition-messages]
++    managed: true
++    requires: []
++    publicEntrypoints: [packages/ui/src/i18n/edition-messages/contract.ts]
++    layers: { ui: . }
++    owner: desktop-settings
++  - id: cli-instruction-observation
++    roots: [apps/zcode-cli/packages/adapters/src/context/instruction-observation]
++    managed: true
++    requires: [zcode-cli]
++    publicEntrypoints:
++      - apps/zcode-cli/packages/adapters/src/context/instruction-observation/contract.ts
++      - apps/zcode-cli/packages/adapters/src/context/instruction-observation/module.ts
++    layers: { adapters: . }
++    owner: agent
++  - id: cli-compaction-policy
++    roots:
++      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy
++      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts
++      - apps/zcode-cli/packages/bootstrap/tests/compaction-policy
++    managed: true
++    requires: [shared, zcode-cli]
++    publicEntrypoints:
++      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/contract.ts
++      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/compaction-policy/module.ts
++      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts
++    layers: { app: . }
++    owner: conversation
++  - id: cli-defensive-security
++    roots:
++      - apps/zcode-cli/packages/core/src/context/sections/defensive-security
++      - apps/zcode-cli/packages/core/tests/defensive-security
++    managed: true
++    requires: []
++    publicEntrypoints:
++      - apps/zcode-cli/packages/core/src/context/sections/defensive-security/contract.ts
++      - apps/zcode-cli/packages/core/src/context/sections/defensive-security/module.ts
++    layers: { domain: . }
++    owner: agent
++  - id: provider-model-resolution-policy
++    roots:
++      - packages/provider/src/model-resolution-policy
++      - packages/provider/test/model-resolution-policy
++    managed: true
++    requires: [provider]
++    publicEntrypoints:
++      - packages/provider/src/model-resolution-policy/contract.ts
++      - packages/provider/src/model-resolution-policy/index.ts
++    layers: { domain: . }
++    owner: model-providers
++  - id: desktop-compaction-bridge
++    roots:
++      - packages/desktop/src/host/compaction-bridge
++      - packages/desktop/test/compaction-bridge
++    managed: true
++    requires: [desktop, services, shared]
++    publicEntrypoints:
++      - packages/desktop/src/host/compaction-bridge/contract.ts
++      - packages/desktop/src/host/compaction-bridge/index.ts
++    layers: { adapters: . }
++    owner: conversation
  
  global:
    # 临时时间戳（2026-09-10）：unmanaged-new-file 只约束此日期之后首次入库的文件。
@@ -396,7 +515,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c77235316c2486d2d8e7cdbce00586ee
    maxContractLines: 300
    maxPublicMethods: 12
    forbidCycles: true
-@@ -886,3 +1081,27 @@ exceptions:
+@@ -886,3 +1200,27 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.

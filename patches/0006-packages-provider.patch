@@ -238,7 +238,7 @@ index 509ec1e0ecc8089f50c0472c43b7ec4f6344179c..c11ee5795d198614fcadf77255070b65
    });
  }
 diff --git a/packages/provider/src/facades.ts b/packages/provider/src/facades.ts
-index 015acca61b3c258193fead748a75ce7ca2f34931..3e9cfbbc7a8faeb9c7bab2fcb19e9ad5ec8bfaf6 100644
+index 015acca61b3c258193fead748a75ce7ca2f34931..9e0d037a84b2ad4b664b24c82db1041a1cacfc60 100644
 --- a/packages/provider/src/facades.ts
 +++ b/packages/provider/src/facades.ts
 @@ -11,7 +11,6 @@ import type {
@@ -249,14 +249,14 @@ index 015acca61b3c258193fead748a75ce7ca2f34931..3e9cfbbc7a8faeb9c7bab2fcb19e9ad5
    ProviderTemplateMap,
    type ProviderConfigRule,
    type ProviderTemplateNameMap,
-@@ -21,6 +20,7 @@ import {
+@@ -20,6 +19,7 @@ import {
+   parseProviderConfig,
  } from "./config/index.js";
  import type { ProviderRegistryView } from "./registry.js";
++import { resolveProviderModelConfig } from "./model-resolution-policy/contract.js";
  import {
-+  resolveProviderModelConfig,
    serializeRegistryModelConfig,
    serializeRegistryProviderConfig,
-   type ProviderConfigResolution,
 @@ -46,6 +46,11 @@ export interface ProviderRegistryFacadeSource {
  }
  
@@ -386,11 +386,182 @@ index 015acca61b3c258193fead748a75ce7ca2f34931..3e9cfbbc7a8faeb9c7bab2fcb19e9ad5
              ...(personalModelConfig ? { personalExactConfig: personalModelConfig.toJSON() } : {}),
              ...(personalModelRule
                ? { useRecommendedConfig: personalModelRule.type !== "manual-provider-model" }
+diff --git a/packages/provider/src/model-resolution-policy/CONTRACT.md b/packages/provider/src/model-resolution-policy/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5de4418c55dd9ddde49f27ce9d232357c3acd81b
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/CONTRACT.md
+@@ -0,0 +1,9 @@
++# Provider model resolution policy
++
++纯 domain 策略，依赖既有 provider 配置值对象。输入内置规则、个人规则和模型身份，输出继承值、最终值和窗口来源。不访问网络、存储、凭据，不拥有可变状态。
++
++唯一解析顺序为内置推荐 → Codex 已核实离线窗口 → 独立接口来源 → 个人/手动规则。未知 Codex 型号不猜窗口；非 Codex 不应用离线表。来源与值共用规则顺序，不按数值相等推断来源。字段消失按现有规则回落。
++
++Registry 与 Settings 草稿消费同一函数；原 resolver 公开导出兼容保留。成员、启停、事务和持久化仍归原 provider 配置层，发现 owner 不因本模块获得写入权限。
++
++测试位于 `packages/provider/test/model-resolution-policy/contract.test.ts`；还需运行既有 resolver/facades/config-service 和 provider-node codec 回归。
+diff --git a/packages/provider/src/model-resolution-policy/contract.example.ts b/packages/provider/src/model-resolution-policy/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6f533ad11014a1b229f9e8e4132eabf6e7022a3d
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/contract.example.ts
+@@ -0,0 +1,10 @@
++import { ModelConfigRules } from "../config/index.js";
++import { resolveProviderModelConfig } from "./contract.js";
++
++export const exampleModelResolution = resolveProviderModelConfig({
++  providerId: "codex-personal",
++  modelId: "gpt-6-astra",
++  accessType: "codex-oauth",
++  builtinRules: ModelConfigRules.empty(),
++  personalRules: ModelConfigRules.empty(),
++});
+diff --git a/packages/provider/src/model-resolution-policy/contract.ts b/packages/provider/src/model-resolution-policy/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..19fba4a23c295b09e381155b2a159c3a4fba3711
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/contract.ts
+@@ -0,0 +1,6 @@
++export type {
++  ContextWindowSource,
++  ProviderModelResolutionInput,
++  ProviderModelResolution,
++} from "./types.js";
++export { resolveProviderModelConfig } from "./index.js";
+diff --git a/packages/provider/src/model-resolution-policy/index.ts b/packages/provider/src/model-resolution-policy/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bc3ad3f2ad08aa80426498b2a40a14e107d447ca
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/index.ts
+@@ -0,0 +1,82 @@
++import { ModelConfig, ModelConfigRules } from "../config/index.js";
++import type {
++  ContextWindowSource,
++  ProviderModelResolutionInput,
++  ProviderModelResolution,
++} from "./types.js";
++
++// 官方 Codex 当前/历史目录的默认工作窗口，不是 API 总窗口或 max_context_window；
++// Spark 的历史 128k 来自官方发布说明。只登记核实过的型号，不推断未来型号。
++// https://github.com/openai/codex/blob/d63a9b8344cfe58bc78bbe319b560378fc8756ef/codex-rs/models-manager/models.json
++// https://github.com/openai/codex/blob/770616414a51fa179ce4cef10f7f8df838d3f46f/codex-rs/core/models.json
++// https://openai.com/index/introducing-gpt-5-3-codex-spark/
++const CODEX_CONTEXT_WINDOWS = new Map<string, number>([
++  ["gpt-6-astra", 272_000],
++  ["gpt-6.1-sol", 272_000],
++  ["gpt-6-sol", 272_000],
++  ["gpt-6-luna", 272_000],
++  ["gpt-5.6-sol", 272_000],
++  ["gpt-5.6-terra", 272_000],
++  ["gpt-5.6-luna", 272_000],
++  ["gpt-5.5", 272_000],
++  ["gpt-5.4", 272_000],
++  ["gpt-5.3-codex", 272_000],
++  ["gpt-5.2-codex", 272_000],
++  ["gpt-5.1-codex-max", 272_000],
++  ["gpt-5.1-codex", 272_000],
++  ["gpt-5.1-codex-mini", 272_000],
++  ["gpt-5-codex", 272_000],
++  ["gpt-5-codex-mini", 272_000],
++  ["gpt-5.3-codex-spark", 128_000],
++]);
++
++/** Registry 与设置草稿共用一次分层解析，离线兜底不能依赖目录写盘。 */
++export function resolveProviderModelConfig(
++  input: ProviderModelResolutionInput,
++): ProviderModelResolution {
++  let base = input.builtinRules.resolve(input);
++  let contextWindowSource: ContextWindowSource = "builtin";
++  if (input.accessType === "codex-oauth") {
++    const modelId = input.modelId
++      .toLowerCase()
++      .replace(/-\d{4}-\d{2}-\d{2}$/u, "");
++    // 未知型号必须显式获得窗口；沿用 API 的泛用 1M 推荐可能推迟 compact 到溢出。
++    base = base.overlay(
++      ModelConfig.fromData({
++        properties: {
++          contextWindow: CODEX_CONTEXT_WINDOWS.get(modelId) ?? null,
++        },
++      }),
++    );
++    contextWindowSource = CODEX_CONTEXT_WINDOWS.has(modelId)
++      ? "codex-fallback"
++      : "unknown";
++  }
++  const inheritedConfig = base.overlay(
++    input.personalRules.getDiscoveredExact(input.providerId, input.modelId) ??
++      ModelConfig.empty(),
++  );
++  const config = ModelConfigRules.composeEffective(
++    ModelConfigRules.empty(),
++    input.personalRules,
++  ).resolve(input, base);
++  // 来源跟随同一精确规则的覆盖顺序；等值覆盖也会改变来源，不能比较数值反推。
++  for (const rule of input.personalRules.rules()) {
++    if (
++      (rule.type !== "provider-model" &&
++        rule.type !== "manual-provider-model") ||
++      rule.providerId !== input.providerId ||
++      rule.modelId !== input.modelId
++    )
++      continue;
++    if (rule.discoveredConfig?.properties?.contextWindow !== undefined)
++      contextWindowSource = "discovered";
++    if (rule.type === "manual-provider-model") contextWindowSource = "unknown";
++    if (rule.config.properties?.contextWindow !== undefined)
++      contextWindowSource = "personal";
++  }
++  const window = config.properties?.contextWindow;
++  if (typeof window !== "number" || !Number.isFinite(window) || window <= 0)
++    contextWindowSource = "unknown";
++  return { inheritedConfig, config, contextWindowSource };
++}
+diff --git a/packages/provider/src/model-resolution-policy/module.ts b/packages/provider/src/model-resolution-policy/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ab8ee09df6ced32c3efcd97cdaf9f21aeef18c42
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/module.ts
+@@ -0,0 +1,6 @@
++export const providerModelResolutionPolicyModule = {
++  id: "provider-model-resolution-policy",
++  requires: ["provider"],
++  provides: ["provider-model-resolution-policy"],
++  publicEntrypoints: ["contract.ts", "index.ts"],
++} as const;
+diff --git a/packages/provider/src/model-resolution-policy/types.ts b/packages/provider/src/model-resolution-policy/types.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..379f192d315fa99abc4d3676adf74b7df1dc33bf
+--- /dev/null
++++ b/packages/provider/src/model-resolution-policy/types.ts
+@@ -0,0 +1,22 @@
++import type {
++  ModelConfig,
++  ModelConfigRuleResolutionInput,
++  ModelConfigRules,
++} from "../config/index.js";
++
++export type ContextWindowSource =
++  | "personal"
++  | "discovered"
++  | "codex-fallback"
++  | "builtin"
++  | "unknown";
++export type ProviderModelResolutionInput = ModelConfigRuleResolutionInput & {
++  readonly accessType?: string;
++  readonly builtinRules: ModelConfigRules;
++  readonly personalRules: ModelConfigRules;
++};
++export interface ProviderModelResolution {
++  inheritedConfig: ModelConfig;
++  config: ModelConfig;
++  contextWindowSource: ContextWindowSource;
++}
 diff --git a/packages/provider/src/resolver.ts b/packages/provider/src/resolver.ts
-index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d0f6932e4 100644
+index 9a24ad421660dece490ff06f19957486cf736f7e..7fdd56f702a1058a09bd7b3da7f3f99479cec7c2 100644
 --- a/packages/provider/src/resolver.ts
 +++ b/packages/provider/src/resolver.ts
-@@ -9,10 +9,12 @@ import type {
+@@ -9,6 +9,7 @@ import type {
  import type { ConfigValidationIssue } from "./config-overlay.js";
  import {
    type ApiKeyAccessConfig,
@@ -398,12 +569,22 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
    ModelConfig,
    ModelConfigRules,
    type ZhipuAccountAccessConfig,
-   type ModelId,
-+  type ModelConfigRuleResolutionInput,
-   type ProviderConfig,
-   type ProviderConfigRule,
-   ProviderConfigMap,
-@@ -27,7 +29,8 @@ export type RegistryZhipuAccountAccessConfig = ZhipuAccountAccessConfig &
+@@ -21,13 +22,23 @@ import {
+ } from "./config/index.js";
+ import { resolveOwnedOrder } from "./owned-order.js";
+ import type { AccountProviderStates } from "./account-provider-state.js";
++import {
++  resolveProviderModelConfig,
++  type ContextWindowSource,
++} from "./model-resolution-policy/contract.js";
++
++export {
++  resolveProviderModelConfig,
++  type ContextWindowSource,
++} from "./model-resolution-policy/contract.js";
+ 
+ export type RegistryZhipuAccountAccessConfig = ZhipuAccountAccessConfig &
+   z.infer<typeof completeZhipuAccountAccessDataSchema>;
  
  export type RegistryProviderAccessConfig =
    | (ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>)
@@ -413,7 +594,7 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
  
  export type RegistryProviderConfig = ProviderConfig &
    z.infer<typeof completeProviderConfigDataSchema> & {
-@@ -43,20 +46,22 @@ export function serializeRegistryProviderConfig(
+@@ -43,20 +54,22 @@ export function serializeRegistryProviderConfig(
      group: config.group,
      ...(config.logo === undefined ? {} : { logo: config.logo }),
      access:
@@ -450,20 +631,7 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
      api: {
        type: config.api.type,
        baseUrl: config.api.baseUrl,
-@@ -136,12 +141,20 @@ export interface ProviderConfigResolverInput {
-   readonly personalProviderOrder?: readonly ProviderId[];
- }
- 
-+export type ContextWindowSource =
-+  | "personal"
-+  | "discovered"
-+  | "codex-fallback"
-+  | "builtin"
-+  | "unknown";
-+
- export interface ResolvedProviderModelCandidate {
-   readonly kind: "candidate";
-   readonly modelId: ModelId;
+@@ -142,6 +155,7 @@ export interface ResolvedProviderModelCandidate {
    readonly source: "builtin" | "personal";
    readonly config: ModelConfig;
    readonly effectiveBuiltinConfig: ModelConfig;
@@ -471,85 +639,7 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
    readonly issues: readonly ConfigValidationIssue[];
    readonly enabled: boolean;
    readonly executable: boolean;
-@@ -179,6 +192,77 @@ export interface ProviderConfigResolution {
-   readonly issues: readonly ConfigValidationIssue[];
- }
- 
-+// 官方 Codex 当前/历史目录的默认工作窗口，不是 API 总窗口或 max_context_window；
-+// Spark 的历史 128k 来自官方发布说明。只登记核实过的型号，不推断未来型号。
-+// https://github.com/openai/codex/blob/d63a9b8344cfe58bc78bbe319b560378fc8756ef/codex-rs/models-manager/models.json
-+// https://github.com/openai/codex/blob/770616414a51fa179ce4cef10f7f8df838d3f46f/codex-rs/core/models.json
-+// https://openai.com/index/introducing-gpt-5-3-codex-spark/
-+const CODEX_CONTEXT_WINDOWS = new Map<string, number>([
-+  ["gpt-6-astra", 272_000],
-+  ["gpt-6.1-sol", 272_000],
-+  ["gpt-6-sol", 272_000],
-+  ["gpt-6-luna", 272_000],
-+  ["gpt-5.6-sol", 272_000],
-+  ["gpt-5.6-terra", 272_000],
-+  ["gpt-5.6-luna", 272_000],
-+  ["gpt-5.5", 272_000],
-+  ["gpt-5.4", 272_000],
-+  ["gpt-5.3-codex", 272_000],
-+  ["gpt-5.2-codex", 272_000],
-+  ["gpt-5.1-codex-max", 272_000],
-+  ["gpt-5.1-codex", 272_000],
-+  ["gpt-5.1-codex-mini", 272_000],
-+  ["gpt-5-codex", 272_000],
-+  ["gpt-5-codex-mini", 272_000],
-+  ["gpt-5.3-codex-spark", 128_000],
-+]);
-+
-+/** Registry 与设置草稿共用一次分层解析，离线兜底不能依赖目录写盘。 */
-+export function resolveProviderModelConfig(
-+  input: ModelConfigRuleResolutionInput & {
-+    readonly accessType?: string;
-+    readonly builtinRules: ModelConfigRules;
-+    readonly personalRules: ModelConfigRules;
-+  },
-+): { inheritedConfig: ModelConfig; config: ModelConfig; contextWindowSource: ContextWindowSource } {
-+  let base = input.builtinRules.resolve(input);
-+  let contextWindowSource: ContextWindowSource = "builtin";
-+  if (input.accessType === "codex-oauth") {
-+    const modelId = input.modelId.toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/u, "");
-+    // 未知型号必须显式获得窗口；沿用 API 的泛用 1M 推荐可能推迟 compact 到溢出。
-+    base = base.overlay(
-+      ModelConfig.fromData({
-+        properties: { contextWindow: CODEX_CONTEXT_WINDOWS.get(modelId) ?? null },
-+      }),
-+    );
-+    contextWindowSource = CODEX_CONTEXT_WINDOWS.has(modelId) ? "codex-fallback" : "unknown";
-+  }
-+  const inheritedConfig = base.overlay(
-+    input.personalRules.getDiscoveredExact(input.providerId, input.modelId) ?? ModelConfig.empty(),
-+  );
-+  const config = ModelConfigRules.composeEffective(
-+    ModelConfigRules.empty(),
-+    input.personalRules,
-+  ).resolve(input, base);
-+  // 来源跟随同一精确规则的覆盖顺序；等值覆盖也会改变来源，不能比较数值反推。
-+  for (const rule of input.personalRules.rules()) {
-+    if (
-+      (rule.type !== "provider-model" && rule.type !== "manual-provider-model") ||
-+      rule.providerId !== input.providerId ||
-+      rule.modelId !== input.modelId
-+    )
-+      continue;
-+    if (rule.discoveredConfig?.properties?.contextWindow !== undefined)
-+      contextWindowSource = "discovered";
-+    if (rule.type === "manual-provider-model") contextWindowSource = "unknown";
-+    if (rule.config.properties?.contextWindow !== undefined) contextWindowSource = "personal";
-+  }
-+  const window = config.properties?.contextWindow;
-+  if (typeof window !== "number" || !Number.isFinite(window) || window <= 0)
-+    contextWindowSource = "unknown";
-+  return { inheritedConfig, config, contextWindowSource };
-+}
-+
- export class ProviderConfigResolver {
-   resolve(input: ProviderConfigResolverInput): ProviderConfigResolution {
-     const accountProviders = new ProviderConfigMap(
-@@ -206,10 +290,6 @@ export class ProviderConfigResolver {
+@@ -206,10 +220,6 @@ export class ProviderConfigResolver {
        return template ? template.overlay(personal) : personal;
      });
      const effectiveProviders = effectiveBuiltinProviders.overlay(templatePersonalProviders);
@@ -560,7 +650,7 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
      const issues: ConfigValidationIssue[] = [];
      const resolvedProviders: ResolvedProvider[] = [];
      const registryProviders: Provider[] = [];
-@@ -254,19 +334,19 @@ export class ProviderConfigResolver {
+@@ -254,19 +264,19 @@ export class ProviderConfigResolver {
        const providerExecutable =
          enabled && accessEntitled && accountCurrent && providerIssues.length === 0;
        const models = orderedModelIds.map((modelId): ResolvedProviderModel => {
@@ -588,7 +678,7 @@ index 9a24ad421660dece490ff06f19957486cf736f7e..19938e74453b74444595a4237fbb211d
          });
          const registryModelResult = createRegistryModelConfig(modelConfig, [
            ...providerPath,
-@@ -284,6 +364,7 @@ export class ProviderConfigResolver {
+@@ -284,6 +294,7 @@ export class ProviderConfigResolver {
            source: builtinIds.has(modelId) ? "builtin" : "personal",
            config: modelConfig,
            effectiveBuiltinConfig,
@@ -915,6 +1005,82 @@ index 83a96de5de7a52a65a6d3c2d8fc6733212eaa2fc..7f7a61081d9ac7e0f1a8903e5b96c942
    it("Settings View 同时投影 Personal、Effective、问题和调序能力", async () => {
      const service = await createService();
      const view = new ProviderSettingsFacade(service).getView();
+diff --git a/packages/provider/test/model-resolution-policy/contract.test.ts b/packages/provider/test/model-resolution-policy/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..90acfa340b890398c92046509b9045bcc4acd723
+--- /dev/null
++++ b/packages/provider/test/model-resolution-policy/contract.test.ts
+@@ -0,0 +1,70 @@
++import { describe, expect, it } from "vitest";
++import { ModelConfig, ModelConfigRules } from "../../src/config/index.js";
++import { resolveProviderModelConfig } from "../../src/model-resolution-policy/contract.js";
++
++function resolve(
++  modelId = "gpt-6-astra",
++  personalRules = ModelConfigRules.empty(),
++  accessType = "codex-oauth",
++) {
++  return resolveProviderModelConfig({
++    providerId: "p",
++    modelId,
++    accessType,
++    personalRules,
++    builtinRules: new ModelConfigRules([
++      {
++        type: "model",
++        modelMatch: ".*",
++        config: ModelConfig.fromData({
++          properties: { contextWindow: 1_050_000 },
++        }),
++      },
++    ]),
++  });
++}
++
++describe("provider model resolution policy", () => {
++  it("keeps offline lookup pure and isolates unknown and API-key models", () => {
++    expect(resolve().config.properties?.contextWindow).toBe(272_000);
++    expect(
++      resolve("gpt-5.3-codex-spark-2026-02-05").config.properties
++        ?.contextWindow,
++    ).toBe(128_000);
++    expect(resolve("unlisted").contextWindowSource).toBe("unknown");
++    expect(resolve("unlisted").config.properties?.contextWindow).toBeNull();
++    expect(
++      resolve("gpt-6-astra", undefined, "api-key").config.properties
++        ?.contextWindow,
++    ).toBe(1_050_000);
++  });
++
++  it("tracks winning source even for equal values and falls back when API metadata disappears", () => {
++    const discovered = ModelConfigRules.empty().setDiscoveredExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({ properties: { contextWindow: 272_000 } }),
++    );
++    expect(resolve(undefined, discovered).contextWindowSource).toBe(
++      "discovered",
++    );
++    const personal = discovered.setExact(
++      "p",
++      "gpt-6-astra",
++      ModelConfig.fromData({
++        enabled: false,
++        properties: { contextWindow: 272_000 },
++      }),
++    );
++    expect(resolve(undefined, personal).contextWindowSource).toBe("personal");
++    expect(resolve(undefined, personal).config.enabled).toBe(false);
++    const reset = personal.clearExactOverride("p", "gpt-6-astra");
++    expect(resolve(undefined, reset).contextWindowSource).toBe("discovered");
++    expect(
++      resolve(
++        undefined,
++        reset.setDiscoveredExact("p", "gpt-6-astra", ModelConfig.empty()),
++      ).contextWindowSource,
++    ).toBe("codex-fallback");
++  });
++});
 diff --git a/packages/provider/test/provider-template.test.ts b/packages/provider/test/provider-template.test.ts
 index e23493ef15ad174500f002b2226f1192dc89db86..d6d5821dde618a389cd7fd88fb1001aa0d463aeb 100644
 --- a/packages/provider/test/provider-template.test.ts

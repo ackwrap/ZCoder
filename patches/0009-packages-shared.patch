@@ -187,11 +187,54 @@ index e35baf7d861aaf467d3aba5c785823dfe4626920..4e26aaaff4b44c938397454d9563ddfd
    // 空串是「删除选择、回到跟随」的哨兵：RPC 会吞掉 undefined，normalizeSettingsPatch 把它归一成删除。
    dynamicWorkflowMode: z.union([z.enum(DYNAMIC_WORKFLOW_MODES), z.literal("")]).optional(),
    enabledBuiltinAgentCliProviders: enabledBuiltinAgentCliProvidersSchema.optional(),
+diff --git a/packages/shared/src/zcode-protocol-v4/autocompact-schema.ts b/packages/shared/src/zcode-protocol-v4/autocompact-schema.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d34381a98d50ea7bd46f199da01f76efc08f00e
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/autocompact-schema.ts
+@@ -0,0 +1,21 @@
++import { z } from "zod";
++
++export const autoCompactLimitSchema = z.discriminatedUnion("unit", [
++  z.object({
++    unit: z.literal("tokens"),
++    value: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
++  }),
++  z.object({ unit: z.literal("percent"), value: z.number().positive().max(100) }),
++]);
++export const configureAutoCompactPayloadSchema = z
++  .object({
++    limit: autoCompactLimitSchema.nullable().optional(),
++  })
++  .strict();
++export const configureAutoCompactResultSchema = z.object({
++  type: z.literal("configureAutoCompact"),
++  limit: autoCompactLimitSchema.nullable(),
++  contextWindowTokens: z.number().nonnegative(),
++  requestedThresholdTokens: z.number().nullable(),
++  effectiveThresholdTokens: z.number().nonnegative(),
++});
 diff --git a/packages/shared/src/zcode-protocol-v4/command.ts b/packages/shared/src/zcode-protocol-v4/command.ts
-index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..e0e89f82118dde2fa38ec90f6a7ebc6d4a5bd3e7 100644
+index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..24eb3defbd875fbc96f22dd293d2514450162af0 100644
 --- a/packages/shared/src/zcode-protocol-v4/command.ts
 +++ b/packages/shared/src/zcode-protocol-v4/command.ts
-@@ -170,17 +170,17 @@ export const commandPayloadSchemas = {
+@@ -1,3 +1,7 @@
++import {
++  configureAutoCompactPayloadSchema,
++  configureAutoCompactResultSchema,
++} from "./autocompact-schema.js";
+ import { createSessionRequestedConfigSchema } from "./create-session-config.js";
+ import { localTtftContextSchema, localTtftClockSchema } from "../localTtft.js";
+ import { conversationQuotesSchema } from "../conversationSelection.js";
+@@ -50,6 +54,7 @@ function requireModelSelectionForExecution(
+ 
+ // ── §6.4 命令 payload 全集 ──
+ export const commandPayloadSchemas = {
++  configureAutoCompact: configureAutoCompactPayloadSchema,
+   // firstInput 缺省 → phase=draft 空会话；携带 → 直接 turnHeader+userInput rows。
+   createSession: z.object({
+     // Host 预留归属使用稳定 ID；CLI 仍负责拒绝覆盖既有会话。
+@@ -170,17 +175,17 @@ export const commandPayloadSchemas = {
    applyFileRewind: z.object({ target: conversationRowTargetSchema }),
    editUserQuery: z
      .object({
@@ -214,7 +257,7 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..e0e89f82118dde2fa38ec90f6a7ebc6d
      })
      .superRefine(requireModelSelectionForExecution),
    retryTurn: z.object({ target: conversationRowTargetSchema }),
-@@ -262,6 +262,12 @@ export const commandPayloadSchemas = {
+@@ -262,6 +267,12 @@ export const commandPayloadSchemas = {
      mode: z.enum(["build", "edit", "plan", "yolo", "guarded"]),
    }),
    setFollowupMode: z.object({ mode: z.enum(["queue", "guide"]) }),
@@ -227,6 +270,14 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..e0e89f82118dde2fa38ec90f6a7ebc6d
    pauseGoal: z.object({}),
    resumeGoal: z.object({}),
    cancelBackgroundWork: z.object({ workId: z.string() }),
+@@ -388,6 +399,7 @@ export function parseCommandEnvelope(
+ 
+ // ── ACK ──
+ export const commandResultSchema = z.discriminatedUnion("type", [
++  configureAutoCompactResultSchema,
+   z.object({
+     type: z.enum(["createSession", "createSelectionSideSession", "forkAssistant"]),
+     sessionId: z.string(),
 diff --git a/packages/shared/src/zcode-protocol-v4/compact-summary.ts b/packages/shared/src/zcode-protocol-v4/compact-summary.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..4205f11e2b20a08f5203cf7617b34e94d7ce66e7

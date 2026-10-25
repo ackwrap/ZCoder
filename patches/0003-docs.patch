@@ -248,6 +248,81 @@ index 0000000000000000000000000000000000000000..b242417b826c6042b72c028fd6f5af93
 +## Deferred validation
 +
 +Write shared schema, pure projection/hydration and component coverage before implementation. Cover valid live/cold metadata, same-part deduplication, all source/change categories, malformed/untrusted/legacy metadata, absence of hidden prompt text in serialized rows, and long-list collapse. Do not run tests, typecheck, Lint, format checks, architecture checks or preview during parallel implementation. Main agent runs unified acceptance after both writers stop.
+diff --git a/docs/design/desktop-compaction-bridge.md b/docs/design/desktop-compaction-bridge.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a93d7abd8da4de5e58f9703a0155f1e6ad86e01c
+--- /dev/null
++++ b/docs/design/desktop-compaction-bridge.md
+@@ -0,0 +1,15 @@
++# Desktop 压缩策略转发桥
++
++## 范围与所有权
++
++新增 desktop compaction bridge，收口本分支新增的握手中目标集合、当前持久化策略读取和在线目标转发。原 Source connector 继续拥有物理连接、关闭与释放，原 ZCodeAgentService 继续拥有 workspace 串行同步与 CLI 接受状态。本桥不新建连接、不维护第二份已接受策略、不读远端设置。
++
++## 稳定接入
++
++Host 入口在服务装配边界创建一个 bridge，以回调读取当前本机设置、枚举现有 ready 连接并报告错误。connector 的既有 registerCompactionTarget/readCompactionPolicy 回调直接引用 bridge。设置变化调用 bridge.forward，不把 pending 集合、去重和过滤铺在 Host 消息处理中。
++
++同一物理目标按服务对象去重；standalone server 保留自身权威而不接收转发。pending 注册按租约释放，重复登记同一目标时释放其中一份不能删除另一份；桥不关闭连接。握手期间读取最新策略及关闭清理由原 connector 保留。
++
++## 验证
++
++新增行为测试覆盖 pending/ready 去重、standalone 排除、注册释放、失败隔离和每次读取当前设置；继续运行 connector、remote policy 与 ZCodeAgentService 的原定向回归。Bot E2E 的现有连接夹具须实现新增的 syncCompactionPolicy 契约，不以类型断言或跳过场景规避。没有平台实测不声称 SSH/WSL/Docker/macOS 链路通过。
+diff --git a/docs/design/provider-model-resolution-policy.md b/docs/design/provider-model-resolution-policy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..93b6c205e6a73edbd529d2c9819e05618d7b0d77
+--- /dev/null
++++ b/docs/design/provider-model-resolution-policy.md
+@@ -0,0 +1,17 @@
++# Provider 模型分层解析策略
++
++## 范围
++
++将本分支新增的 Codex 离线窗口表和模型分层解析收口到 `packages/provider/src/model-resolution-policy`。不搬运上游 Resolver 的供应商选择、完整性证明、成员排序或事务逻辑，不改变模型发现、保存和启停行为。
++
++## 契约
++
++- 纯同步策略消费既有 ModelConfigRules，返回 inheritedConfig、config 和 contextWindowSource，不做 IO、缓存、写盘或凭据处理。
++- 优先级保持个人/手动固定 > 最新接口来源 > 已核实 Codex 离线窗口 > 普通内置推荐；未知 Codex 型号不借用普通 API 窗口。日期后缀按原规则解析，API Key 不应用 Codex 兜底。
++- 来源按实际规则覆盖顺序确定，等值覆盖仍改变来源。字段消失回落到下一来源；无有效窗口为 unknown。
++- Registry Resolver 和 Settings 草稿预览共用此策略。Resolver 保留原公开导出兼容调用方，不形成第二份实现。
++- 独立发现来源、用户禁用、手动固定、恢复推荐、重命名与删除均由原 Config Service/ModelConfigRules 拥有，本次不变。
++
++## 验证
++
++新增纯策略契约测试覆盖已知/未知/日期型号、非 Codex 隔离、来源等值覆盖、接口字段消失和手动模式；原 Resolver、Facade、Config Service 和文件 codec 测试验证公开边界不变。运行定向类型、Lint 与架构检查，不运行全量构建。
+diff --git a/docs/design/settings-compaction-minimal-integration.md b/docs/design/settings-compaction-minimal-integration.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e723498684eb7
+--- /dev/null
++++ b/docs/design/settings-compaction-minimal-integration.md
+@@ -0,0 +1,25 @@
++# 压缩设置与扩展文案的最小接入
++
++## 范围
++
++对应外层 `docs/patch-minimal-integration-audit.md`，只整理已有行为。遵循 `docs/compaction-profiles.md` 的范围、默认值、错误及 Host 广播契约；不重新设计界面，不迁移上游原生设置实现。
++
++## 模块与权威
++
++- `ui-compaction-settings`（`packages/ui/src/settings/compaction-settings`，ui）：通过 `contract.ts` 提供 `CompactionSettingsSection`，输入持久化设置投影与异步 patch 回调。`AdvancedSection` 保留既有三回调兼容契约，供原回归测试使用。
++- `ui-edition-messages`（`packages/ui/src/i18n/edition-messages`，ui）：通过 `contract.ts` 提供两语言扩展字典。只迁移固定基准 `3c5b227` 中不存在的键；原生键、删除及原有安全文案接入不变。
++- SettingsPage 的 `useSettings` 仍是设置投影与保存命令的唯一入口；新模块不访问服务、不持久化、不另行广播、不乐观修改已接受值。
++
++## 保存顺序与失败
++
++输入 → 本地合法性/重复提交校验 → 注入的 `updateSharedSettings(patch)` → 既有持久化、Host/Bot 同步和广播 → 组件结束 pending。持久化失败不广播，Host 同步失败仍按既有 hook 广播并向保存方报错。组件只保留输入草稿、pending 和错误；新投影到达时同步数值草稿。Enter 与 blur 同帧最多提交一次；失败保留草稿并允许重试。详细模式禁用预算，精简模式范围及默认值不变。
++
++桌面、移动和远端复用既有服务路由与交付，不新增连接、队列、幂等键或重放机制。
++
++## 接入与回滚
++
++SettingsPage 仅 import 与一次组件调用，直接注入现有 patch 回调，移除三个转发 callback。settingsPageHelpers 移除新增压缩实现，仅保留兼容 re-export，不搬动其他设置。原生双语字典各 import 与一次 spread，扩展键不与原生键重叠。回滚可恢复这三处接入与兼容导出，不涉及持久化迁移。
++
++## 回归证据
++
++新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
 diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..807ce77ca02b85004435fcb65012e78b9006bb9f
@@ -376,15 +451,15 @@ index 0000000000000000000000000000000000000000..675fe78c36df44de43f87fd81c0a21f4
 +7. 桌面 E2E 覆盖卡片、详情、取消与错误恢复；真实 OpenAI 登录及模型调用由用户授权后另验，不把 mock 测试当实测成功。
 diff --git a/docs/provider-model-discovery.md b/docs/provider-model-discovery.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b564e6e3d
+index 0000000000000000000000000000000000000000..7292634657b399eb668e6b22847279867a8fd340
 --- /dev/null
 +++ b/docs/provider-model-discovery.md
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,56 @@
 +# 登录 / API Key 保存后的模型自动发现
 +
 +## 行为
 +
-+- Codex 登录完成并安全保存凭据后，按凭据模式自动读取对应目录：浏览器 Token Sharing 为 `/v1/models`，设备码为固定 Codex 后端 `/models`（携带 ZCode client_version 和经验证的账号头），不得混用令牌。
++- Codex 浏览器或设备码登录完成并安全保存凭据后，统一读取固定 Codex 后端 `/models`（携带 ZCode client_version 和经验证的账号头）。旧 Token Sharing 凭据不能用于目录请求，必须由用户显式重新登录。
 +- 普通 API Key / Coding Plan API Key 供应商在有效 Key、协议、地址或请求头改变并保存后自动读取模型；Key 只在输入草稿中变化时不发请求。创建时已提供 Key 同样触发。
 +- 账号型 zhipu-account 继续由原 Account Source 同步，不走通用 Key 发现链路。
 +- 模型设置提供“重新获取模型”及 idle/loading/ready/error/unsupported 状态；UI 切换或关闭不拥有、也不重复启动 Host 任务。
@@ -396,8 +471,7 @@ index 0000000000000000000000000000000000000000..db3798a1db9c139a6d44174d7f002d3b
 +
 +## 参数来源
 +
-+- Codex：参照 OpenCode `c93aaae` 的 `fetchModels/deriveModels`，只接纳 visibility=list 且 supported_in_api=true 的目录；读取 context_window、input_modalities、supported_reasoning_levels。
-+- 显式设备码登录使用 Codex 后端目录，只要求 visibility=list；supported_in_api 不代表 Codex 后端授权。能力字段仍只读取接口返回值，失败保留已有配置。路由与身份见 `provider-codex-device.md`。
++- Codex：浏览器与设备码登录均使用 Codex 后端目录，只接纳 visibility=list；supported_in_api 不代表 Codex 后端授权。读取 context_window、input_modalities、supported_reasoning_levels，不根据型号伪造接口能力；失败保留已有配置。路由与身份见 `provider-codex-device.md`。
 +- Codex 的离线窗口由统一 Provider Model Resolver 提供，不依赖登录、目录请求或启动时写盘；Registry、模型选择和模型编辑预览使用同一规则。仅作用于 `codex-oauth`，不修改 API Key 模型。已核实型号按官方 Codex 目录登记默认工作窗口（当前 Astra、6/6.1 Sol、6 Luna、5.6 系列为 `272000`）；Spark 的历史窗口单列为 `128000`。日期快照继承同型号默认；未知型号不猜 272k/1M，没有接口或手动窗口时不进入可执行 Registry。
 +- 窗口优先级为：手动固定/个人覆盖 > 最新接口字段 > Codex 离线默认 > 普通推荐。`max_context_window` 是可配置上限，不等于已启用工作窗口，不自动升级到该值。窗口沿用现有 compact 预留策略，不用总窗口减输出推算所有型号。
 +- 每条个人模型规则的可选 `discoveredConfig` 只保存接口明确返回的稀疏能力，不含 enabled、凭据或本地兜底。刷新替换该来源（包含字段消失），而 `config` 仍只保存用户覆盖；手动模式下也可更新来源，但不得修改其最终固定值。禁用不复制接口字段，切回智能推荐清除个人字段但保留接口来源；重命名清除旧型号的接口来源，删除同时清除两者。
@@ -640,6 +714,21 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 +OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 +SOFTWARE.
+diff --git a/docs/ui/autocompact-command.md b/docs/ui/autocompact-command.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a1c8449ce5ee7a0cc4871a820b76bdbaa2bdfcb3
+--- /dev/null
++++ b/docs/ui/autocompact-command.md
+@@ -0,0 +1,9 @@
++# 当前会话自动压缩上限
++
++`/autocompact` 查询当前会话的实际自动压缩触发上限；`/autocompact 80000` 设置 token 上限，也支持 `100k`、`1m`、`1.5M`（k=1,000，m=1,000,000，大小写均可）；`/autocompact 80%` 设置模型完整上下文窗口的占比；`/autocompact reset` 恢复默认。
++
++设置仅保存在当前 runtime 的 compact 配置，不修改 workspace/global 设置，不继承到其他已存在会话；runtime 重建后恢复默认。设置不打断正在运行的请求，在下一次正常自动压缩检查时使用。默认算法、安全输出预留、缓冲、最少可压缩消息限制、失败熔断保持不变。用户上限只能降低默认安全阈值，超出安全阈值时以安全阈值为准，并在响应中同时报告请求值和实际值。百分比按当前模型窗口计算，切模型后重新计算。
++
++UI 在 SessionPane 唯一接入：新增 slash-commands hook 包装现有 onSendText，只有无附件、无引用的精确命令才拦截；CLI 同名命令优先。参数错误或命令失败保留输入，不发给模型。只读、草稿、子会话视图不提供写操作入口。菜单选择查询当前值，设置通过输入带参数命令。协议命令 `configureAutoCompact` 只操作 envelope.sessionId 对应 runtime，查询不修改配置。旧服务端拒绝未知命令，不回退成模型 prompt。
++
++验收：纯阈值默认/整数/百分比/安全上限/模型变化；parser非法输入；真实 runtime session隔离；handler与协议校验；UI回调查询/设置/失败/碰撞和附件门禁。
 diff --git a/docs/ui/chat-summary-panel.md b/docs/ui/chat-summary-panel.md
 index 2d36f5662f9f00d709fb6d4bcfba8d5eb976a97b..1ea22df936dcde234913c900701c7eaa60473cd9 100644
 --- a/docs/ui/chat-summary-panel.md
@@ -655,6 +744,30 @@ index 2d36f5662f9f00d709fb6d4bcfba8d5eb976a97b..1ea22df936dcde234913c900701c7eaa
  - 收起态胶囊跟随摘要内容宽度，单条摘要内容高度为 `h-8`，宽度上限即 shell 的容器上限；内部摘要内容使用 `truncate`，避免长 goal / todo / 工作流标题撑开布局。
  - 收起态摘要行 hover / focus 时左侧状态图标切换为 `maximize-2`，提示点击可展开完整 status panel。
  - 用户点击面板右上角收起按钮或收起态摘要行写入当前 workspace shell 的手动偏好：`panel` 表示始终展开，`mini` 表示始终收起，`null` 表示 CSS 自动响应。自动模式下展开内容和 mini 摘要同时保持在同一个 shell 内，由 `@container/conversation` 互斥显示；React 不根据宽度切换 variant。展开态右上角的更多菜单只显示“自动”选项，选择后把偏好恢复为 `null`；“始终展开 / 始终收起”不再作为菜单选项，但既有收起/展开按钮及内部 `panel` / `mini` 逻辑继续保留。偏好只保存在当前 renderer 的 workspace shell 内，不写入 task、session、relay 或 main process，因此不会影响 desktop continuous 和 web remote replayable 的实时链路语义。
+diff --git a/docs/ui/conversation-selection-side-chat.md b/docs/ui/conversation-selection-side-chat.md
+index 5250c4398c9a96fc057464081f68dc2abf2fc51f..655903025298d0fcf3baa2cda80d665dd9e96a2d 100644
+--- a/docs/ui/conversation-selection-side-chat.md
++++ b/docs/ui/conversation-selection-side-chat.md
+@@ -97,7 +97,7 @@ Side Pane 启动页 / 顶部 + 菜单 / 主 composer `/side`、`/btw`
+     |
+     +-- 有 active task（含 running/blocked）
+            |
+-           +-- 裸命令点击 / 选中 --------> 创建隐藏 child、打开新 tab、聚焦空 composer
++           +-- 裸命令点击 / 选中 --------> 立即打开加载态 tab，再创建隐藏 child、聚焦空 composer
+            |                             （移除输入中的命令 token）
+            +-- 带文字参数提交 ----------> 创建并注册 child，首条文字在 child startNow 发送，打开新 tab
+            |                             （父任务 queue/guide 不变）
+@@ -118,6 +118,10 @@ Side Pane 启动页 / 顶部 + 菜单 / 主 composer `/side`、`/btw`
+ | workspace 隔离                     | session workspace ref                | `workspaceIdentity?.trim() \|\| workspacePath` | tab key 与 command route       |
+ | live 列表可见性                    | CLI sessions-index/task-index filter | task list cache                                | root query 排除 parented child |
+ 
++## 先打开，再加载
++
++`/btw` 是 `/side` 的等价别名，两者与固定入口共用打开链路。新建时在等待创建 ACK 前立即打开加载态 tab；带参数入口先完成既有模型推荐（取消时不打开），随后打开加载态再发创建命令。加载态不挂载真实 SessionPane，不读取占位 ID。创建成功只原位更新仍存在的对应 tab，保留标签 ID、序号、owner 和当前激活项，不再次展开面板。失败在该 tab 内显示错误。加载中关闭、切换 owner 或收起面板后的迟到结果不得重新打开或抢焦点；已关闭 tab 的真实 child 返回后沿用现有 closeSession 释放 runtime。同手势创建合并仍由 pendingCreations 负责，加载状态唯一归属 Side Pane registry，不持久化。已有 child 的 readSession 检查不影响本轮新建顺序。
++
+ ## Start 同模型推荐
+ 
+ `/side <text>` / `/btw <text>` 创建并提交首条消息前，使用父 session snapshot 已生效的 provider/model/thought 判断同模型 Start 推荐；不读取父 Composer 尚未提交的模型草稿。缺少完整可验证的继承选择时，继续原有 Host 继承行为并跳过推荐。
 diff --git a/docs/ui/explore-run-summary.md b/docs/ui/explore-run-summary.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..73d95a3387e4c2aa136c2f03eea73eebc2be00d3
@@ -737,6 +850,19 @@ index 38c6010a7a0b8e00d5640aa5623de8ee38139ae7..e68084389f64cb6c20fb1d5e0e53b253
 +启动未打开登录页时有一个新用户直达路径：如果当前没有已打开 workspace，Root 使用 Main 注入的 conversation descriptor，必要时通过 `fileService.ensureConversationWorkspace()` 幂等确保 `<dataBaseDir>/.zcode/workspace/default` 存在。该 workspace 提供真实 cwd，但 UI 保持“未选择项目”，用户无需经过项目选择页即可直接对话。若用户跳过登录且仍没有可用模型，该草稿首页按上一条规则显示 `modelConfigMissing` 横幅。
  
  手动登录和模型供应商连接完成后只关闭 `WelcomeScreen` 并回到原界面，不会创建默认 workspace。
+diff --git a/docs/ui/model-effort-commands.md b/docs/ui/model-effort-commands.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7533d761c
+--- /dev/null
++++ b/docs/ui/model-effort-commands.md
+@@ -0,0 +1,7 @@
++# 模型与推理强度斜杠命令
++
++`/model`（切换模型）与 `/effort`（设置推理强度）是当前 Composer 的本地菜单入口。两者打开已有模型菜单；该菜单同时包含模型选择与 Effort 控制，不新建模型目录、配置状态或持久化路径。选择沿用 Composer 下一次提交意图，不改变在途请求。
++
++仅可编辑且未被 Highspeed 锁定时注册；CLI 同名命令优先。仅作用于发起命令的 SessionPane，不查找其他分屏或侧聊的控件。复用稳定模型触发器，触发器不可用时提示，不绕过 disabled。不提供参数解析，按现有 AppSlashCommand 约定从 `/` 面板选中即打开。
++
++验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
 diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080f9de2638
@@ -753,6 +879,103 @@ index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080
 +- The sidebar activity slot does not render marketing banners (the seasonal claim-token card). `SidebarBottomActivity` now shows only the highspeed share notice from `GlobalNoticeSurface`. Marketing popups, delivery queries, reporting and the `/mcp`-style surfaces are untouched; restore the banner by rendering `<MarketingBanner />` when `useMarketingBannerVisible()` is true.
 +
 +Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger and that `hideAccountEntry` drops the account trigger while keeping the settings button; `sidebarBottomActivity.test.ts` checks the slot never renders the marketing banner but still arbitrates highspeed notices.
+diff --git a/docs/ui/status-capsule-side-pane.md b/docs/ui/status-capsule-side-pane.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0d7b583e9b0ec24a8652b45776bb27bc6eaace4
+--- /dev/null
++++ b/docs/ui/status-capsule-side-pane.md
+@@ -0,0 +1,91 @@
++# Status capsule compacts while the side pane is open
++
++## Context
++
++The conversation status capsule (the collapsed `StatusSummaryRow` inside
++`ConversationStatusPanel`) sits at the conversation's top-right corner. When the
++right Side Pane is open, that corner is crowded and the capsule can overlap the
++side-pane frame on narrow containers.
++
++## Trigger
++
++The capsule compacts only while the right Side Pane is open.
++
++- Single owner: `useAppPanels.isSidePaneCollapsed` -> `App.isSidePaneOpen`.
++- The layout module already receives that value as `isSidePaneOpen`; it passes it
++  into both main conversation trees. Do not derive a second copy, and do not use
++  the `isSidePaneVisible` animation state.
++- Opening the bottom terminal must not compact the capsule.
++
++## Behavior
++
++- When the side pane opens, the capsule automatically shrinks to an icon-only
++  control: roughly a 32px square (`h-8`, `w-8`), no horizontal content padding,
++  no gap, icon centered.
++- The full summary content (label, counts, Git `+added` / `-removed`, workflow
++  phase, and so on) is visually clipped in compact mode, but remains in the DOM
++  through `sr-only` so screen readers and the accessible tree keep the summary
++  semantics.
++- When the side pane closes, the capsule restores exactly the summary it showed
++  before (the same branch priority and the same content), with its original
++  width/padding.
++- Repeated open/close cycles are idempotent; the compact state is a pure
++  projection of `isSidePaneOpen`.
++- The capsule is never hidden. It stays clickable and keeps its accessible name
++  (`chat.summaryPanel.showPanel`) and hover hint in compact mode.
++- Hover and focus still swap the status icon for the maximize affordance, as in
++  the current full capsule.
++- Padding/gap changes transition with the existing low-drama timing, and
++  `prefers-reduced-motion` disables that transition.
++
++## Non-goals
++
++- Do not change the user's `summaryPanelVariantOverride` (`panel` / `mini`).
++- Do not force an expanded status panel to collapse; the trigger applies only to
++  the capsule entry point. When the user has pinned the panel open, it stays
++  open.
++- Do not apply the compact treatment to the Side Pane tree or side chat.
++- Do not trigger from terminal visibility, window width, or any other signal.
++
++## Implementation contract
++
++New managed module `packages/ui/src/v4/status-capsule/`:
++
++- `contract.ts` is the leaf props contract (`SidePaneCapsuleScopeProps`,
++  `StatusCapsuleMetricProps`); it imports only React types.
++- `StatusCapsuleContext.ts` exposes the boolean compact context and
++  `useStatusCapsuleCompact()`. It projects the existing shell state without
++  creating another state owner or synchronization effect.
++- `StatusCapsuleScope.tsx` projects the `compact` prop into that context.
++- `StatusCapsuleButton.tsx` forwards the tooltip trigger ref and attributes,
++  merging its description with a unique reference to the existing full summary
++  content. Screen readers can read Git counts even with an explicit button label.
++- `StatusCapsuleMetric.tsx` owns all compact layout rules. It keeps the original
++  icon slot untouched, wraps the children once, and exposes stable slots:
++  `data-status-capsule`, `data-status-capsule-compact`,
++  `data-status-capsule-icon`, `data-status-capsule-content`. Structural CSS must
++  target these slots, never fragile `:first-child` selectors.
++- `index.ts` is the public entry point, including
++  `withSidePaneCapsuleScope(Component)`.
++
++Integration points:
++
++- `WorkspaceShellLayout.tsx` wraps exactly the two main conversation trees
++  (`V4ChatPane`, `V4WorkspaceChatArea`) with the stable module-level HOC and
++  passes `sidePaneOpen={isSidePaneOpen}`. The HOC is created once at module
++  scope; do not create components during render (that would remount sessions).
++- `ConversationStatusPanel.tsx` keeps one `StatusSummaryMetric` wrapper that
++  delegates to `StatusCapsuleMetric`; individual summary branches must not carry
++  compact conditionals.
++
++## Verification
++
++- Unit/regression (`packages/ui/test/v4StatusCapsuleSidePane.test.ts`):
++  default is not compact; open/close/repeated toggles; provider scope isolation;
++  todo/Git summary semantics preserved under `sr-only`; the capsule click still
++  calls `onVariantChange("panel")`; a pinned panel is not collapsed.
++- Browser fixture/test
++  (`packages/ui/test/browser/manual-review/pending/status-capsule-side-pane.*`):
++  real measured capsule open/close/reopen sizes and content in mini and
++  auto-narrow containers, mouse and keyboard expand, light and dark Zai themes,
++  and narrow viewports.
 diff --git a/docs/ui/tool-display-rendering.md b/docs/ui/tool-display-rendering.md
 index ca5156953349271656dd1ca0e82a07dfebf14e67..fc378f4f06a427ffc3f2275b2fbe13006e01fda3 100644
 --- a/docs/ui/tool-display-rendering.md
@@ -768,7 +991,7 @@ index ca5156953349271656dd1ca0e82a07dfebf14e67..fc378f4f06a427ffc3f2275b2fbe1300
  - `RespondToCoordinator` 的主展示数据使用 Core 生成的 `respond_to_coordinator` display payload，只包含 `status: "success" | "failed"`。`message`、`responseId`、`error` 和原始 result 不得复制到 display、摘要正文或展开内容；真实 tool execution failure 仍复用 `ToolLayout` 的通用失败状态 tooltip，通过 `context.errorText` 在 hover/copy 时展示错误原因，业务 `status: "failed"` 不凭空生成错误详情。普通 child tool row 只在 child session topic 中物化；父会话继续只显示 Agent/Task 摘要，不得为了专属卡片恢复 mirrored child tool row。
  - 新增 display 通过 completed tool metadata 和 V4 `ToolCallRow.display` 传输。旧记录没有对应 display 时，两个 renderer 只使用 input 与通用 tool lifecycle 展示最小摘要，不解析 provider-visible XML/JSON，也不新增持久化迁移。
 diff --git a/docs/ui/tool-inline-diff.md b/docs/ui/tool-inline-diff.md
-index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..e1f026879bd9ca87d045b6372e16eba7d82e583c 100644
+index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..15ebce9164dfe9e4c1ca2e77547f05c21c8b0c5a 100644
 --- a/docs/ui/tool-inline-diff.md
 +++ b/docs/ui/tool-inline-diff.md
 @@ -21,7 +21,7 @@
@@ -776,7 +999,7 @@ index 6cfd99e8fa67783bdda1f0daa2be28c510c8cf3b..e1f026879bd9ca87d045b6372e16eba7
  - 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
  - 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
 -- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
-+- 普通 tool call 按固定官方基线先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write`（含多文件子卡）、`execute`、命令组和查阅组在运行中也不自动展开，完成时不自动改变用户选择的开合状态。用户可手动展开查看 diff、输出或子工具，仍复用 `ToolLayout` 的开合记忆。
++- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行；`edit` / `write`（含多文件子卡）、`execute` 与命令组在运行中默认展开，用户手动收起优先，不因后续运行更新强制重开；终态按既有收尾规则处理。工作过程（reasoning / 查阅组）不因此恢复默认展开。用户仍可手动展开查看 diff、输出或子工具，复用 `ToolLayout` 的开合记忆。
  - 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
  - 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
  - “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现
