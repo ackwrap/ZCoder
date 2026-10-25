@@ -1187,6 +1187,35 @@ index 0000000000000000000000000000000000000000..3f657965ca9aa3b0fd65c648f053de4e
 +  if (!value) throw new Error("codex-id-token-invalid");
 +  return value;
 +}
+diff --git a/packages/services/src/conversation-share/conversationSharePublicProjection.ts b/packages/services/src/conversation-share/conversationSharePublicProjection.ts
+index eb4f8dc547a757417530bfa5b10c41fc672432fb..c4808660b795980f30766a958e52afba1fccfcb7 100644
+--- a/packages/services/src/conversation-share/conversationSharePublicProjection.ts
++++ b/packages/services/src/conversation-share/conversationSharePublicProjection.ts
+@@ -146,6 +146,12 @@ function assertTerminalAndSafe(rows: ConversationRow[]): void {
+       }
+     }
+     if (row.kind === "timelineMarker") {
++      if (row.marker.type === "contextSourceUpdate") {
++        throwProjectionError(
++          "invalid_conversation",
++          "Runtime source catalog notices are not public conversation content",
++        );
++      }
+       if (
+         row.marker.type === "forkNotice" ||
+         row.marker.type === "forkCreated" ||
+@@ -269,6 +275,11 @@ function projectTimelineMarker(
+       return { ...row.marker };
+     case "retryNotice":
+       return { ...row.marker };
++    case "contextSourceUpdate":
++      throwProjectionError(
++        "invalid_conversation",
++        "Runtime source catalog notices are not public conversation content",
++      );
+     case "forkNotice":
+     case "forkCreated":
+     case "checkpointRestored":
 diff --git a/packages/services/src/index.ts b/packages/services/src/index.ts
 index eb7940a7466b27797eac79abf6f441d6941017bc..7297b6cde82264104621ed6a119b72e08827f6ee 100644
 --- a/packages/services/src/index.ts
@@ -2073,7 +2102,7 @@ index 0000000000000000000000000000000000000000..ae722dea0fce471fdbbc691619f61028
 +  publicEntrypoints: ["index.ts", "contract.ts"],
 +} as const;
 diff --git a/packages/services/src/zcode-agent/zcodeAgent.ts b/packages/services/src/zcode-agent/zcodeAgent.ts
-index ea141344ff174c265a41925eaea7b90de18cf6e5..c710276bd453de1cf6d48b93e4b95a1345bb6a68 100644
+index ea141344ff174c265a41925eaea7b90de18cf6e5..06d7175a691ef52fb312c297b7cf540dbae394d0 100644
 --- a/packages/services/src/zcode-agent/zcodeAgent.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgent.ts
 @@ -8,7 +8,7 @@ import type {
@@ -2085,7 +2114,26 @@ index ea141344ff174c265a41925eaea7b90de18cf6e5..c710276bd453de1cf6d48b93e4b95a13
  import type { ZCodeAutomation, ZCodeAutomationRun } from "@zcode/shared";
  import type {
    ZCodeStorageStartupState,
-@@ -604,6 +604,9 @@ export interface ZCodeAgentAppRuntimePreferences {
+@@ -109,6 +109,8 @@ import type {
+   V4ConversationFileChangesResult,
+   V4ConversationFileRewindPreviewResult,
+   V4ConversationPlansResult,
++  V4ConversationCompactSummaryParams,
++  V4ConversationCompactSummaryResult,
+   V4ConversationWorkflowRunEventsResult,
+   V4ConversationWorkflowRunArtifactDataResult,
+   V4ConversationWorkflowRunArtifactReadResult,
+@@ -427,6 +429,9 @@ export interface ZCodeAgentConversationRowsRangeParams extends ZCodeAgentSession
+ /** 当前有效分支里的终态 ExitPlanMode 目录。 */
+ export type ZCodeAgentConversationPlansParams = ZCodeAgentSessionTarget;
+ 
++export type ZCodeAgentConversationCompactSummaryParams = ZCodeAgentSessionTarget &
++  Omit<V4ConversationCompactSummaryParams, "sessionId">;
++
+ /** workflow run 的事件日志分页（详情页审计面）；cursor = journal sequence。 */
+ export interface ZCodeAgentConversationWorkflowRunEventsParams extends ZCodeAgentSessionTarget {
+   runId: string;
+@@ -604,6 +609,9 @@ export interface ZCodeAgentAppRuntimePreferences {
    modelIoFullRetentionEnabled?: boolean;
  }
  
@@ -2095,7 +2143,7 @@ index ea141344ff174c265a41925eaea7b90de18cf6e5..c710276bd453de1cf6d48b93e4b95a13
  export interface ZCodeAgentLocalRuntimeChildProcesses {
    pid: number;
    provider: string;
-@@ -637,6 +640,12 @@ export interface IZCodeAgentService {
+@@ -637,6 +645,12 @@ export interface IZCodeAgentService {
     * desktop-attached remote Host 以传入值为准（缺席 = 跟随服务端）。不得为此启动空闲 Agent。
     */
    syncDynamicWorkflowUserMode(params: { mode?: DynamicWorkflowMode }): Promise<void>;
@@ -2108,8 +2156,42 @@ index ea141344ff174c265a41925eaea7b90de18cf6e5..c710276bd453de1cf6d48b93e4b95a13
    getWorkspaceRuntimeIdentity(
      params: ZCodeAgentWorkspaceTarget,
    ): Promise<ZCodeAgentWorkspaceRuntimeIdentity>;
+@@ -897,6 +911,9 @@ export interface IZCodeAgentService {
+   conversationPlansV4(
+     params: ZCodeAgentConversationPlansParams,
+   ): Promise<V4ConversationPlansResult>;
++  conversationCompactSummaryV4(
++    params: ZCodeAgentConversationCompactSummaryParams,
++  ): Promise<V4ConversationCompactSummaryResult>;
+   /** workflow run 事件日志分页；与 plans 同族（只读、无状态、超时重发安全）。 */
+   conversationWorkflowRunEventsV4(
+     params: ZCodeAgentConversationWorkflowRunEventsParams,
+diff --git a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
+index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..10abb090d87f57dbd7a168c119dce784e7879b75 100644
+--- a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
++++ b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
+@@ -746,6 +746,19 @@ export function createZCodeAgentConnectionScope(
+         withTrustedConnection(params, forwardedConnection(params)),
+       );
+     },
++    async conversationCompactSummaryV4(params) {
++      assertReady();
++      const forwarded = forwardedConnection(params);
++      const ownsConversation = [...owned.values()].some(
++        (entry) =>
++          entry.kind === "conversation" &&
++          entry.topic === conversationTopic(params.sessionId) &&
++          workspaceKey(entry.target) === workspaceKey(params) &&
++          entry.connectionId === forwarded.connectionId,
++      );
++      if (!ownsConversation) throw new Error("fault.subscription.notOwned");
++      return base.conversationCompactSummaryV4(withTrustedConnection(params, forwarded));
++    },
+     async conversationRowsRangeV4(params) {
+       assertReady();
+       return base.conversationRowsRangeV4(
 diff --git a/packages/services/src/zcode-agent/zcodeAgentService.ts b/packages/services/src/zcode-agent/zcodeAgentService.ts
-index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d8235b7df 100644
+index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b71c7fa22 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentService.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentService.ts
 @@ -154,6 +154,9 @@ import {
@@ -2130,7 +2212,24 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
    ZCodeAgentRuntimeLifecycleEvent,
    ZCodeAgentAddPluginMarketplaceParams,
    ZCodeAgentAppUsageParams,
-@@ -932,6 +936,10 @@ function createProviderReadinessSnapshotFromSelectionView(
+@@ -281,6 +285,7 @@ import type {
+   ZCodeAgentConversationFileRewindPreviewParams,
+   ZCodeAgentConversationRowsRangeParams,
+   ZCodeAgentConversationPlansParams,
++  ZCodeAgentConversationCompactSummaryParams,
+   ZCodeAgentConversationWorkflowRunEventsParams,
+   ZCodeAgentConversationWorkflowRunArtifactDataParams,
+   ZCodeAgentConversationWorkflowRunArtifactReadParams,
+@@ -332,6 +337,8 @@ import {
+   v4ConversationFileRewindPreviewResultSchema,
+   v4ConversationRowsRangeResultSchema,
+   v4ConversationPlansResultSchema,
++  v4ConversationCompactSummaryParamsSchema,
++  v4ConversationCompactSummaryResultSchema,
+   v4ConversationWorkflowRunEventsResultSchema,
+   v4ConversationWorkflowRunArtifactDataResultSchema,
+   v4ConversationWorkflowRunArtifactReadResultSchema,
+@@ -932,6 +939,10 @@ function createProviderReadinessSnapshotFromSelectionView(
    };
  }
  
@@ -2141,7 +2240,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
  interface WaitingWorkspaceStartup {
    cancelled: boolean;
    lastLoggedRevision?: string;
-@@ -953,6 +961,14 @@ interface ActiveWorkspaceClient {
+@@ -953,6 +964,14 @@ interface ActiveWorkspaceClient {
     * 只在 workspace/updateDynamicWorkflowPolicy 成功后更新；重同步据此跳过没有变化的请求。
     */
    dynamicWorkflowPolicyMode: DynamicWorkflowMode;
@@ -2156,7 +2255,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
  }
  
  function requiresProviderRegistryRefresh(commandType: string): boolean {
-@@ -996,6 +1012,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -996,6 +1015,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    mcpStatusIdleTimeoutMs?: number;
    accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
    accountRequestAuthService?: IAccountRequestAuthService;
@@ -2164,7 +2263,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
    /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
    authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
    modelSelectionReadinessSource?: ModelSelectionReadinessSource;
-@@ -1042,6 +1059,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -1042,6 +1062,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    resolveDynamicWorkflowUserMode?: () => Promise<DynamicWorkflowMode | undefined>;
    /** 用户选择同步后交给装配层转发（Desktop Host 推给本窗口的远程 Host）；值取自本机设置。 */
    forwardDynamicWorkflowUserMode?: (mode: DynamicWorkflowMode | undefined) => void;
@@ -2179,7 +2278,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
    resolveOffPeakTaskService?: () =>
      | Pick<IOffPeakTaskService, "createTask" | "list" | "getCodingPlanSupport">
      | undefined;
-@@ -1361,6 +1386,10 @@ export function createZCodeAgentService(
+@@ -1361,6 +1389,10 @@ export function createZCodeAgentService(
    let pushedDynamicWorkflowUserMode: DynamicWorkflowMode | undefined;
    /** 每个 workspace 的策略同步链：后入队的步骤在前一步落地后才读取生效模式并发送。 */
    const dynamicWorkflowPolicySyncByWorkspaceKey = new Map<string, Promise<void>>();
@@ -2190,7 +2289,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
    const waitingWorkspaceStartups = new Map<string, WaitingWorkspaceStartup>();
    function cancelWaitingWorkspaceStartup(workspaceKey: string): void {
      const waiting = waitingWorkspaceStartups.get(workspaceKey);
-@@ -1440,6 +1469,11 @@ export function createZCodeAgentService(
+@@ -1440,6 +1472,11 @@ export function createZCodeAgentService(
    async function resolveAccountRequestAuth(
      request: ZCodeProviderRuntimeHeadersRequestParams,
    ): Promise<AccountRequestAuthMaterial | undefined> {
@@ -2202,7 +2301,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
      if (!request.accountAccess || !accountRequestAuthService) {
        return undefined;
      }
-@@ -2648,9 +2682,10 @@ export function createZCodeAgentService(
+@@ -2648,9 +2685,10 @@ export function createZCodeAgentService(
            });
            const accountAccess = parsed.data.accountAccess;
            if (
@@ -2216,7 +2315,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
            ) {
              // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
              // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-@@ -3320,6 +3355,11 @@ export function createZCodeAgentService(
+@@ -3320,6 +3358,11 @@ export function createZCodeAgentService(
      if (active && isReusableActiveClientEntry(params, active)) {
        active.workspace = params;
        await active.interactionPreferencesReady;
@@ -2228,7 +2327,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
        return active;
      }
  
-@@ -3340,6 +3380,7 @@ export function createZCodeAgentService(
+@@ -3340,6 +3383,7 @@ export function createZCodeAgentService(
        modelExecutionEnabled: false,
        workspace: params,
        dynamicWorkflowPolicyMode: "disabled",
@@ -2236,7 +2335,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
      };
      activeClientsByWorkspaceKey.set(workspaceKey, entry);
      const interactionPreferencesReady = (async () => {
-@@ -3382,10 +3423,14 @@ export function createZCodeAgentService(
+@@ -3382,10 +3426,14 @@ export function createZCodeAgentService(
      // 生效模式为关闭时不发请求（CLI 缺省即关闭，对旧 CLI/测试假客户端零打扰）；之后用户改选择时
      // 经同一条 workspace 串行链重发（launch.md「The user's choice」）。
      const dynamicWorkflowPolicyReady = enqueueDynamicWorkflowPolicySync(entry);
@@ -2251,7 +2350,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
      ]).then(() => undefined);
      try {
        // 新建或重启 runtime 在允许任何 session 工作前追平缓存；同步期间的新开关
-@@ -3509,6 +3554,8 @@ export function createZCodeAgentService(
+@@ -3509,6 +3557,8 @@ export function createZCodeAgentService(
          workspace: params,
          // 只提升已有 client，不重放就绪阶段的策略同步；按 CLI 缺省记为关闭，用户改选择时再补发。
          dynamicWorkflowPolicyMode: "disabled",
@@ -2260,7 +2359,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
        });
        return existingClient;
      }
-@@ -3744,6 +3791,80 @@ export function createZCodeAgentService(
+@@ -3744,6 +3794,80 @@ export function createZCodeAgentService(
      return current;
    }
  
@@ -2341,7 +2440,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
    /** 三条创建路径共用：布尔 + mode 的下发对（关闭时两者都缺席）。 */
    async function resolveDynamicWorkflowSessionFlags(): Promise<{
      dynamicWorkflowEnabled: boolean;
-@@ -3925,6 +4046,19 @@ export function createZCodeAgentService(
+@@ -3925,6 +4049,19 @@ export function createZCodeAgentService(
        );
      },
  
@@ -2361,7 +2460,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
      async getWorkspaceRuntimeIdentity(params: ZCodeAgentWorkspaceTarget) {
        // 查询 runtime identity 只能观察现有进程，不能把 dormant workspace 变成活动进程。
        await getReadOnlyClient(params, "existing-only");
-@@ -5713,6 +5847,7 @@ export function createZCodeAgentService(
+@@ -5713,6 +5850,7 @@ export function createZCodeAgentService(
            ? {
                ...(accountRequestAuth?.apiKey ? { apiKey: accountRequestAuth.apiKey } : {}),
                ...(accountRequestAuth?.apiKeyId ? { apiKeyId: accountRequestAuth.apiKeyId } : {}),
@@ -2369,6 +2468,32 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..b3ac202bf2a3226024e7f9791dc81b6d
                ...(accountRequestAuth?.accountScope
                  ? { accountScope: accountRequestAuth.accountScope }
                  : {}),
+@@ -6381,6 +6519,25 @@ export function createZCodeAgentService(
+       );
+     },
+ 
++    async conversationCompactSummaryV4(params: ZCodeAgentConversationCompactSummaryParams) {
++      if (!readTrustedZCodeAgentV4Connection(params))
++        throw new Error("fault.compactSummary.connectionUntrusted");
++      const request = v4ConversationCompactSummaryParamsSchema.parse({
++        sessionId: params.sessionId,
++        baseLogEpoch: params.baseLogEpoch,
++        branchGeneration: params.branchGeneration,
++        rowId: params.rowId,
++        operationId: params.operationId,
++        summaryRef: params.summaryRef,
++      });
++      const client = await getReadOnlyClient(params, "existing-only");
++      return client.request(
++        V4_METHODS.conversationCompactSummary,
++        request,
++        v4ConversationCompactSummaryResultSchema,
++      );
++    },
++
+     // 只读计划目录沿现有 workspace attachment 透传，不建立新 runtime。
+     async conversationPlansV4(params: ZCodeAgentConversationPlansParams) {
+       const client = await getReadOnlyClient(params);
 diff --git a/packages/services/test/codexDeviceLogin.test.ts b/packages/services/test/codexDeviceLogin.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..384bf0495f179dd5b113197fecb09d2c9d488b22
@@ -3084,6 +3209,40 @@ index 0000000000000000000000000000000000000000..f56d6b2174a07a143cf705c31d2ffdad
 +    }
 +  });
 +});
+diff --git a/packages/services/test/conversationSharePublicProjection.test.ts b/packages/services/test/conversationSharePublicProjection.test.ts
+index d9ec8d6110704917de596efd79a7b05609e74d3a..2697efad4811d96b0793d4b984500c953ae46c20 100644
+--- a/packages/services/test/conversationSharePublicProjection.test.ts
++++ b/packages/services/test/conversationSharePublicProjection.test.ts
+@@ -135,6 +135,29 @@ function expectBuildFailure(rows: ConversationRow[], kind: string): void {
+ }
+ 
+ describe("conversation share public projection", () => {
++  it("does not publish runtime source catalog notices", () => {
++    const rows = rowsWithCompletedSubagent();
++    rows.push({
++      rowId: 106,
++      turnId: "local-turn-a",
++      productTurnId: "local-product-turn-a",
++      kind: "timelineMarker",
++      createdAt: 1_050,
++      createdAtSeq: 15,
++      marker: {
++        type: "contextSourceUpdate",
++        update: {
++          version: 1,
++          kind: "skills",
++          sourceKey: "skills:catalog",
++          revision: "a".repeat(64),
++          changes: [{ sourceKey: "skills:private-path", label: "Local skill", change: "added" }],
++        },
++      },
++    });
++    expectBuildFailure(rows, "invalid_conversation");
++  });
++
+   it("SHARE02：重建 artifact 公开身份并保留本地读取引用在 sidecar", () => {
+     const rows = rowsWithCompletedSubagent();
+     rows.push({
 diff --git a/packages/services/test/providerFacadeServices.test.ts b/packages/services/test/providerFacadeServices.test.ts
 index 7746a6384f1e0e21b899b0d01c8215b4671d0845..9b5a615201255e29f11fe01b97aae046bbced90e 100644
 --- a/packages/services/test/providerFacadeServices.test.ts
@@ -3529,6 +3688,74 @@ index 0000000000000000000000000000000000000000..73cfe62a45187872ebbfb9eb053d911e
 +    expect(s.merge).not.toHaveBeenCalled();
 +  });
 +});
+diff --git a/packages/services/test/zcodeAgentConnectionScope.test.ts b/packages/services/test/zcodeAgentConnectionScope.test.ts
+index cb8d9d58c2206d3222ebbb0865ea678ac63c1fce..d36acbeae8d85d095b580d7307869b3348da3c76 100644
+--- a/packages/services/test/zcodeAgentConnectionScope.test.ts
++++ b/packages/services/test/zcodeAgentConnectionScope.test.ts
+@@ -133,6 +133,10 @@ function setupBase() {
+       }),
+     ),
+     backgroundBashOutputV4: vi.fn(async () => ({ kind: "unavailable", workId: "work" })),
++    conversationCompactSummaryV4: vi.fn(async () => ({
++      status: "available",
++      markdown: "# Saved summary",
++    })),
+     conversationRowsRangeV4: vi.fn(async () => ({
+       rows: [],
+       atSeq: 1,
+@@ -205,6 +209,52 @@ function makeRuntimeLifecycleEvent(
+ }
+ 
+ describe("ZCodeAgent connection-scoped service facade", () => {
++  it("requires a handshake and ownership of the exact workspace/session before reading a compact summary", async () => {
++    const { base } = setupBase();
++    const scope = createZCodeAgentConnectionScope(base, {
++      connectionId: "compact-reader",
++      clientMode: "desktop-continuous",
++    });
++    const params = {
++      workspacePath: "/repo",
++      sessionId: "s1",
++      baseLogEpoch: "epoch-1",
++      branchGeneration: 0,
++      rowId: 12,
++      operationId: "op1",
++      summaryRef: "summary1",
++    };
++    try {
++      await expect(scope.service.conversationCompactSummaryV4(params)).rejects.toThrow();
++      await scope.service.helloConversationV4();
++      await scope.service.initializeConversationV4({
++        kind: "clientHello",
++        protocolVersion: 3,
++        clientId: "compact-reader",
++        appVersion: "4.0.0",
++      });
++      await expect(scope.service.conversationCompactSummaryV4(params)).rejects.toThrow("notOwned");
++      await scope.service.subscribeConversationV4({ workspacePath: "/repo", sessionId: "s1" });
++      expect(await scope.service.conversationCompactSummaryV4(params)).toEqual({
++        status: "available",
++        markdown: "# Saved summary",
++      });
++      expect(
++        readTrustedZCodeAgentV4Connection(
++          vi.mocked(base.conversationCompactSummaryV4).mock.calls[0]?.[0],
++        )?.connectionId,
++      ).toBe("compact-reader");
++      await expect(
++        scope.service.conversationCompactSummaryV4({ ...params, sessionId: "s2" }),
++      ).rejects.toThrow("notOwned");
++      await expect(
++        scope.service.conversationCompactSummaryV4({ ...params, workspacePath: "/other" }),
++      ).rejects.toThrow("notOwned");
++      expect(base.conversationCompactSummaryV4).toHaveBeenCalledTimes(1);
++    } finally {
++      scope.dispose();
++    }
++  });
+   it.each([
+     ["desktop continuous lane", "desktop-continuous"],
+     ["mobile replayable recovery", "web-remote-replayable"],
 diff --git a/packages/services/test/zcodeAgentService.compactionPolicy.test.ts b/packages/services/test/zcodeAgentService.compactionPolicy.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..b60b5631fb3e42511f0895c6d8f38837249a7832

@@ -484,6 +484,61 @@ index a4c536b9aac1a880d239efbfac86c3bee0014cab..9d761c41d3428013b597aeb1c5e1297c
            const label = await entry().getText();
            return !/Retry|重试|Loading plans|正在查询套餐/.test(label);
          },
+diff --git a/packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact.test.ts b/packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact.test.ts
+index 45d0eafd4f1597be9271f85651113d2d8bd71afe..42f58b34b877006f5c111196f3005a25382ae949 100644
+--- a/packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact.test.ts
++++ b/packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact.test.ts
+@@ -4,10 +4,7 @@
+ // 事件 → reducer onCompactLifecycle → timelineMarker compact/manual/success。
+ // 证明 slash 命令入口 + compact 全链路（命令面已桥接，仅补 UI 触发）。
+ import { TID_V4_COMPOSER_INPUT } from "@zcode/shared/test-ids";
+-import {
+-  clearAppData,
+-  setInputValueByTestIdDom,
+-} from "../helpers/desktop-app.js";
++import { clearAppData, setInputValueByTestIdDom } from "../helpers/desktop-app.js";
+ import {
+   clickV4Send,
+   prepareV4ConversationE2E,
+@@ -30,8 +27,7 @@ describe("v4 M4 门禁：compact（/compact slash）", () => {
+     await sendV4Prompt("E2E_V4_COMPACT_SEED 请回复种子");
+     await waitForV4TimelineContaining("V4_COMPACT_SEED_OK", 45000);
+     await waitForV4Pane(
+-      (s) =>
+-        !s.canStop && s.sessionId !== "draft" && s.sessionId !== null,
++      (s) => !s.canStop && s.sessionId !== "draft" && s.sessionId !== null,
+       "首轮没有回到空闲态",
+       45000,
+     );
+@@ -45,5 +41,28 @@ describe("v4 M4 门禁：compact（/compact slash）", () => {
+ 
+     // v4 投影产出结构化 marker；文案会随 locale 改变，不参与定位。
+     await waitForV4CompactMarker({ origin: "manual", status: "success" }, 90000);
++    const marker = await browser.$(
++      '[data-marker-type="compact"][data-origin="manual"][data-status="success"]',
++    );
++    const markerCount = (await browser.$$('[data-marker-type="compact"]')).length;
++    const trigger = await marker.$('button[aria-expanded="false"]');
++    await expect(trigger).toExist();
++    await expect(marker.$('[data-testid^="v4-compact-details-"]')).not.toExist();
++    await trigger.click();
++    const details = await marker.$('[data-testid^="v4-compact-details-"]');
++    await details.waitForDisplayed({ timeout: 15000 });
++    await browser.waitUntil(async () => (await details.getAttribute("aria-busy")) === "false", {
++      timeout: 15000,
++    });
++    // Saved fixture summary must be read, rather than merely showing an expanded empty shell.
++    const savedMarkdown = await details.getText();
++    expect(savedMarkdown).not.toContain("Summary unavailable");
++    expect(savedMarkdown).not.toContain("摘要不可用");
++    expect(savedMarkdown).not.toContain("Unable to load");
++    expect(savedMarkdown).not.toContain("无法读取");
++    expect(savedMarkdown.trim().length).toBeGreaterThan(0);
++    expect((await browser.$$('[data-marker-type="compact"]')).length).toBe(markerCount);
++    await marker.$('button[aria-expanded="true"]').click();
++    await expect(marker.$('[data-testid^="v4-compact-details-"]')).not.toExist();
+   });
+ });
 diff --git a/packages/desktop/test/e2e/e2ecase-regression.test.ts b/packages/desktop/test/e2e/e2ecase-regression.test.ts
 index 5faf7be268944945527662b5f3726b7203429656..71a9c1747684fea91141193df70b4c56b6d167f7 100644
 --- a/packages/desktop/test/e2e/e2ecase-regression.test.ts

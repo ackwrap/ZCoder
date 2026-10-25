@@ -227,8 +227,155 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..e0e89f82118dde2fa38ec90f6a7ebc6d
    pauseGoal: z.object({}),
    resumeGoal: z.object({}),
    cancelBackgroundWork: z.object({ workId: z.string() }),
+diff --git a/packages/shared/src/zcode-protocol-v4/compact-summary.ts b/packages/shared/src/zcode-protocol-v4/compact-summary.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4205f11e2b20a08f5203cf7617b34e94d7ce66e7
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/compact-summary.ts
+@@ -0,0 +1,30 @@
++import { z } from "zod";
++
++// At most 128 Ki UTF-16 code units: even JSON's six-byte escaping fits below 1 MiB.
++export const COMPACT_SUMMARY_MAX_CHARS = 128 * 1024;
++
++export const v4ConversationCompactSummaryParamsSchema = z.strictObject({
++  sessionId: z.string().min(1).max(1024),
++  baseLogEpoch: z.string().min(1).max(1024),
++  branchGeneration: z.number().int().nonnegative(),
++  rowId: z.number().int().nonnegative(),
++  operationId: z.string().min(1).max(1024),
++  summaryRef: z.string().min(1).max(1024),
++});
++export type V4ConversationCompactSummaryParams = z.infer<
++  typeof v4ConversationCompactSummaryParamsSchema
++>;
++
++export const v4ConversationCompactSummaryResultSchema = z.discriminatedUnion("status", [
++  z.strictObject({
++    status: z.literal("available"),
++    markdown: z.string().min(1).max(COMPACT_SUMMARY_MAX_CHARS),
++  }),
++  z.strictObject({
++    status: z.literal("unavailable"),
++    reason: z.enum(["notAuthorized", "staleIdentity", "missingBody", "unsupported", "tooLarge"]),
++  }),
++]);
++export type V4ConversationCompactSummaryResult = z.infer<
++  typeof v4ConversationCompactSummaryResultSchema
++>;
+diff --git a/packages/shared/src/zcode-protocol-v4/context-schemas/CONTRACT.md b/packages/shared/src/zcode-protocol-v4/context-schemas/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f6aacc2aa0aa20646850230cac3d470e709f9744
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/context-schemas/CONTRACT.md
+@@ -0,0 +1,14 @@
++# V4 上下文产物 schema
++
++登记既有 `compact-summary.ts` 与 `context-source-update.ts`，层为 domain，`requires: []`。本目录只显式转出这两个文件的 schema、类型和摘要长度常量；不认领整个 v4 协议，不导入 Runtime，不改变 package index 或现有调用路径。
++
++```text
++未知输入 → 既有 schema → 有界摘要身份 / 摘要读取结果 / 安全来源更新投影
++```
++
++- 摘要读取参数绑定 session、log epoch、branch generation、row、operation 与 summary ref；严格拒绝额外字段，不接受任意文件路径。schema 校验不等于授权，授权和读取仍归既有宿主链路。
++- `available` 只携带非空且不超过 `COMPACT_SUMMARY_MAX_CHARS` 的 Markdown；`unavailable` 只携带既有原因枚举，不混入正文。常量计量 UTF-16 code units，不是 token 数。
++- 来源更新只保留版本、分类、source key、revision 和变更标签。沿用 `z.object` 的未知字段剥离语义，包括嵌套变更项；不把 prompt 正文、凭据或 Runtime checkpoint 当作投影字段。
++- schema 不负责生成 revision、决定更新时序、保存摘要或维护会话状态；本次登记不改变 continuous/replayable 投递。
++
++示例使用 `contract.example.ts`，真实 schema 的拒绝与剥离边界由 `packages/shared/test/context-schemas/contract.test.ts` 锁定。
+diff --git a/packages/shared/src/zcode-protocol-v4/context-schemas/contract.example.ts b/packages/shared/src/zcode-protocol-v4/context-schemas/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..41b7e63d5414adfb12f1f2d19805844696219787
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/context-schemas/contract.example.ts
+@@ -0,0 +1,29 @@
++import type {
++  ContextSourceUpdateProjection,
++  V4ConversationCompactSummaryParams,
++  V4ConversationCompactSummaryResult,
++} from "./contract.js";
++
++/** 由宿主绑定当前投影身份；不是文件路径或授权凭据。 */
++export const exampleCompactSummaryParams: V4ConversationCompactSummaryParams = {
++  sessionId: "session-1",
++  baseLogEpoch: "epoch-1",
++  branchGeneration: 0,
++  rowId: 12,
++  operationId: "compact-1",
++  summaryRef: "summary-1",
++};
++
++export const exampleCompactSummaryResult: V4ConversationCompactSummaryResult = {
++  status: "available",
++  markdown: "## Saved context\n\nA persisted summary.",
++};
++
++/** 来源更新只有审计元数据，不包含指令正文。 */
++export const exampleContextSourceUpdate: ContextSourceUpdateProjection = {
++  version: 1,
++  kind: "instructions",
++  sourceKey: "instructions:workspace",
++  revision: "a".repeat(64),
++  changes: [{ sourceKey: "instructions:root", label: "Workspace rules", change: "replaced" }],
++};
+diff --git a/packages/shared/src/zcode-protocol-v4/context-schemas/contract.ts b/packages/shared/src/zcode-protocol-v4/context-schemas/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..be6016c95907c9e015f7b3c3ec61a4659a3b58ca
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/context-schemas/contract.ts
+@@ -0,0 +1,12 @@
++/** 只转出上下文产物的既有 schema；不扩展为整个 v4 协议入口。 */
++export {
++  COMPACT_SUMMARY_MAX_CHARS,
++  v4ConversationCompactSummaryParamsSchema,
++  v4ConversationCompactSummaryResultSchema,
++} from "../compact-summary.js";
++export type {
++  V4ConversationCompactSummaryParams,
++  V4ConversationCompactSummaryResult,
++} from "../compact-summary.js";
++export { contextSourceUpdateSchema } from "../context-source-update.js";
++export type { ContextSourceUpdateProjection } from "../context-source-update.js";
+diff --git a/packages/shared/src/zcode-protocol-v4/context-schemas/module.ts b/packages/shared/src/zcode-protocol-v4/context-schemas/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2ead4d86fe181b791eab968f766b7f64dbb3531c
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/context-schemas/module.ts
+@@ -0,0 +1,7 @@
++/** 窄 domain 边界；requires 与 architecture-policy.yaml 同步。 */
++export const v4ContextSchemasModule = {
++  id: "v4-context-schemas",
++  requires: [],
++  provides: ["v4-context-schemas"],
++  publicEntrypoints: ["contract.ts", "../compact-summary.ts", "../context-source-update.ts"],
++} as const;
+diff --git a/packages/shared/src/zcode-protocol-v4/context-source-update.ts b/packages/shared/src/zcode-protocol-v4/context-source-update.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..543bd1cfc9866a40bfd937e3fb8c14c5aacd526f
+--- /dev/null
++++ b/packages/shared/src/zcode-protocol-v4/context-source-update.ts
+@@ -0,0 +1,19 @@
++import { z } from "zod";
++
++/** Safe audit metadata only; prompt bodies and runtime checkpoints are deliberately absent. */
++export const contextSourceUpdateSchema = z.object({
++  version: z.literal(1),
++  kind: z.enum(["skills", "agents", "mcp_tools", "instructions"]),
++  sourceKey: z.string().min(1).max(4096),
++  revision: z.string().regex(/^[a-f0-9]{64}$/),
++  changes: z
++    .array(
++      z.object({
++        sourceKey: z.string().min(1).max(4096),
++        label: z.string().min(1).max(1024),
++        change: z.enum(["added", "replaced", "removed"]),
++      }),
++    )
++    .max(2048),
++});
++export type ContextSourceUpdateProjection = z.infer<typeof contextSourceUpdateSchema>;
 diff --git a/packages/shared/src/zcode-protocol-v4/delta.ts b/packages/shared/src/zcode-protocol-v4/delta.ts
-index 6856a363b7bb089be59dbcdeaf4c3e641cac798e..4b4624bde7b017536b6f3b4f38bd2773e4906ac6 100644
+index 6856a363b7bb089be59dbcdeaf4c3e641cac798e..bbffcdeb0043bbc99715002b90505a1fb5aa9321 100644
 --- a/packages/shared/src/zcode-protocol-v4/delta.ts
 +++ b/packages/shared/src/zcode-protocol-v4/delta.ts
 @@ -20,6 +20,7 @@ import {
@@ -239,19 +386,66 @@ index 6856a363b7bb089be59dbcdeaf4c3e641cac798e..4b4624bde7b017536b6f3b4f38bd2773
    sessionActionAvailabilitySchema,
    sessionConfigStateSchema,
    sessionControlSchema,
-@@ -39,6 +40,7 @@ import {
+@@ -39,6 +40,8 @@ import {
  
  // StatePatch：键级整体替换（Object.assign），键集合封闭。键内绝不深合并。
  export const statePatchSchema = z.object({
++  branchGeneration: z.number().int().nonnegative().optional(),
 +  sessionResources: sessionResourcesStateSchema.optional(),
    runtimeInitialization: runtimeInitializationSchema.optional(),
    revision: z.number().optional(),
    control: sessionControlSchema.optional(),
+diff --git a/packages/shared/src/zcode-protocol-v4/index.ts b/packages/shared/src/zcode-protocol-v4/index.ts
+index c35d6eb4de75ecb720c4dda2850c0d29eba83f29..4c39366d9554a3fb48c1099eab237b91f912c6f9 100644
+--- a/packages/shared/src/zcode-protocol-v4/index.ts
++++ b/packages/shared/src/zcode-protocol-v4/index.ts
+@@ -6,6 +6,8 @@
+ export * from "./core.js";
+ export * from "../background-bash-output.js";
+ export * from "./rows.js";
++export * from "./compact-summary.js";
++export * from "./context-source-update.js";
+ export * from "./toolDisplay.js";
+ export * from "./create-workflow-display.js";
+ export * from "./workflow-observation-display.js";
+diff --git a/packages/shared/src/zcode-protocol-v4/rows.ts b/packages/shared/src/zcode-protocol-v4/rows.ts
+index 1839ae03fd1cebd10cc61054ea6c04c8a7273662..78f88c177d16f936b36902171ddd1890bc9c0104 100644
+--- a/packages/shared/src/zcode-protocol-v4/rows.ts
++++ b/packages/shared/src/zcode-protocol-v4/rows.ts
+@@ -7,11 +7,9 @@ import { z } from "zod";
+ import { highspeedMessageMetaSchema } from "../highspeed.js";
+ import { executionOutputPreviewSchema } from "../execution-output-preview.js";
+ import { timestampSchema } from "./core.js";
++import { contextSourceUpdateSchema } from "./context-source-update.js";
+ import { conversationInputSourceSchema } from "./input-intent.js";
+-import {
+-  backgroundResultOriginMetaSchema,
+-  workflowLaunchMetaSchema,
+-} from "./workflow-row-meta.js";
++import { backgroundResultOriginMetaSchema, workflowLaunchMetaSchema } from "./workflow-row-meta.js";
+ import { attachmentRefSchema } from "./attachment-ref.js";
+ 
+ // RowBase。rowId：session 内单调、永不复用、事件日志的确定性纯函数。
+@@ -345,10 +343,13 @@ export type HookInvocationRow = z.infer<typeof hookInvocationRowSchema>;
+ // timelineMarker。
+ // compact.status=cancelled 表示 auto compact 被 stop；失败终态为 failed。
+ export const timelineMarkerPayloadSchema = z.union([
++  z.object({ type: z.literal("contextSourceUpdate"), update: contextSourceUpdateSchema }),
+   z.object({
+     type: z.literal("compact"),
+     origin: z.enum(["manual", "auto"]),
+-    status: z.enum(["running", "success", "failed", "noop", "cancelled"]),
++    status: z.enum(["running", "success", "failed", "noop", "cancelled", "interrupted"]),
++    // Optional for older frames; new markers carry the durable operation identity.
++    operationId: z.string().min(1).optional(),
+     tokensBefore: z.number().optional(),
+     tokensAfter: z.number().optional(),
+     summaryRef: z.string().optional(),
 diff --git a/packages/shared/src/zcode-protocol-v4/snapshot.ts b/packages/shared/src/zcode-protocol-v4/snapshot.ts
-index 6d5c07185fc54624d875a6685b4a16b0064f5ff5..66ce4318a8f0dfbf88cd0c722566d0af6cebc0f2 100644
+index 6d5c07185fc54624d875a6685b4a16b0064f5ff5..c79ef5bdc43bb5cddff373843e52fa2ac15b551d 100644
 --- a/packages/shared/src/zcode-protocol-v4/snapshot.ts
 +++ b/packages/shared/src/zcode-protocol-v4/snapshot.ts
-@@ -485,7 +485,31 @@ export const runtimeInitializationSchema = z.discriminatedUnion("status", [
+@@ -485,11 +485,37 @@ export const runtimeInitializationSchema = z.discriminatedUnion("status", [
  ]);
  export type RuntimeInitialization = z.infer<typeof runtimeInitializationSchema>;
  
@@ -283,6 +477,12 @@ index 6d5c07185fc54624d875a6685b4a16b0064f5ff5..66ce4318a8f0dfbf88cd0c722566d0af
    runtimeInitialization: runtimeInitializationSchema.optional(),
    protocolVersion: z.literal(1),
    sessionId: z.string(),
+   logEpoch: z.string(),
++  // Rewind may change branches inside one log epoch; absent only on older senders.
++  branchGeneration: z.number().int().nonnegative().optional(),
+   // 快照对齐水位（= 所在帧 toSeq；从内存投影原子取值）。
+   seq: z.number(),
+   revision: z.number(),
 diff --git a/packages/shared/src/zcode-protocol-v4/toolDisplay.ts b/packages/shared/src/zcode-protocol-v4/toolDisplay.ts
 index 6da9a4829cb67047b1cdf122c96e2e686701653a..5bb705abba4a7e27deb308a91e4f655e8b4182c1 100644
 --- a/packages/shared/src/zcode-protocol-v4/toolDisplay.ts
@@ -323,6 +523,18 @@ index 6da9a4829cb67047b1cdf122c96e2e686701653a..5bb705abba4a7e27deb308a91e4f655e
      output: z.string().min(1).max(2_000).optional(),
      truncated: z.literal(true).optional(),
    })
+diff --git a/packages/shared/src/zcode-protocol-v4/transport.ts b/packages/shared/src/zcode-protocol-v4/transport.ts
+index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..25ff20bad3ac795735ec71d0e608446680f55393 100644
+--- a/packages/shared/src/zcode-protocol-v4/transport.ts
++++ b/packages/shared/src/zcode-protocol-v4/transport.ts
+@@ -347,6 +347,7 @@ export const V4_METHODS = {
+   conversationRowsRange: "v4/conversation/rowsRange",
+   // 当前有效分支的终态 ExitPlanMode 目录；只读、无状态、超时重发安全。
+   conversationPlans: "v4/conversation/plans",
++  conversationCompactSummary: "v4/conversation/compactSummary",
+   conversationFileChanges: "v4/conversation/fileChanges",
+   backgroundBashOutput: "v4/conversation/backgroundBashOutput",
+   offPeakControl: "v4/conversation/offPeakControl",
 diff --git a/packages/shared/src/zcode-protocol/index.ts b/packages/shared/src/zcode-protocol/index.ts
 index e606fa59fa5992bc11d4b92d63dc20fb291910c4..fce4fec6bfb508b9e0df4c9776e5da0c152c9b3e 100644
 --- a/packages/shared/src/zcode-protocol/index.ts
@@ -538,6 +750,132 @@ index 6bccae6bcd60a4ec7dfb3563f2a76ddb0f64adbd..a44d1cc0022a53b69156b18876747800
  // DWG-19（docs/dynamic-workflow/launch.md「The user's choice」）：空串是删除选择的哨兵，
  // 读文件时的未知取值按「跟随」处理，不能把整份设置读坏。
  describe("dynamicWorkflowMode 设置（DWG-19）", () => {
+diff --git a/packages/shared/test/context-schemas/contract.test.ts b/packages/shared/test/context-schemas/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..94723ea236762aac5a3faebf0dc9a3c05de4469b
+--- /dev/null
++++ b/packages/shared/test/context-schemas/contract.test.ts
+@@ -0,0 +1,120 @@
++import { describe, expect, expectTypeOf, it } from "vitest";
++import {
++  COMPACT_SUMMARY_MAX_CHARS,
++  contextSourceUpdateSchema,
++  v4ConversationCompactSummaryParamsSchema,
++  v4ConversationCompactSummaryResultSchema,
++  type ContextSourceUpdateProjection,
++  type V4ConversationCompactSummaryParams,
++  type V4ConversationCompactSummaryResult,
++} from "../../src/zcode-protocol-v4/context-schemas/contract.js";
++import {
++  exampleCompactSummaryParams,
++  exampleCompactSummaryResult,
++  exampleContextSourceUpdate,
++} from "../../src/zcode-protocol-v4/context-schemas/contract.example.js";
++
++describe("v4 context schemas contract", () => {
++  it("exports the real schemas and their inferred types for the narrow examples", () => {
++    const params = v4ConversationCompactSummaryParamsSchema.parse(exampleCompactSummaryParams);
++    const result = v4ConversationCompactSummaryResultSchema.parse(exampleCompactSummaryResult);
++    const update = contextSourceUpdateSchema.parse(exampleContextSourceUpdate);
++    expectTypeOf(params).toEqualTypeOf<V4ConversationCompactSummaryParams>();
++    expectTypeOf(result).toEqualTypeOf<V4ConversationCompactSummaryResult>();
++    expectTypeOf(update).toEqualTypeOf<ContextSourceUpdateProjection>();
++    expect(params).toEqual(exampleCompactSummaryParams);
++    expect(result).toEqual(exampleCompactSummaryResult);
++    expect(update).toEqual(exampleContextSourceUpdate);
++  });
++
++  it("requires every identity field and rejects paths, invalid counters and oversized refs", () => {
++    for (const key of Object.keys(exampleCompactSummaryParams)) {
++      const missing: Record<string, unknown> = { ...exampleCompactSummaryParams };
++      delete missing[key];
++      expect(v4ConversationCompactSummaryParamsSchema.safeParse(missing).success).toBe(false);
++    }
++    for (const patch of [
++      { path: "/private/session.db" },
++      { sessionId: "" },
++      { baseLogEpoch: "e".repeat(1025) },
++      { branchGeneration: -1 },
++      { branchGeneration: 0.5 },
++      { rowId: -1 },
++      { rowId: 1.5 },
++      { operationId: "" },
++      { summaryRef: "r".repeat(1025) },
++    ]) {
++      expect(
++        v4ConversationCompactSummaryParamsSchema.safeParse({
++          ...exampleCompactSummaryParams,
++          ...patch,
++        }).success,
++      ).toBe(false);
++    }
++  });
++
++  it("bounds saved Markdown and refuses bodies on unavailable results", () => {
++    expect(COMPACT_SUMMARY_MAX_CHARS).toBe(128 * 1024);
++    expect(
++      v4ConversationCompactSummaryResultSchema.safeParse({
++        status: "available",
++        markdown: "x".repeat(COMPACT_SUMMARY_MAX_CHARS),
++      }).success,
++    ).toBe(true);
++    for (const invalid of [
++      { status: "available", markdown: "" },
++      { status: "available", markdown: "x".repeat(COMPACT_SUMMARY_MAX_CHARS + 1) },
++      { status: "available", content: "not saved Markdown" },
++      { status: "unavailable", reason: "missingBody", markdown: "private body" },
++      { status: "unavailable", reason: "private storage error" },
++    ]) {
++      expect(v4ConversationCompactSummaryResultSchema.safeParse(invalid).success).toBe(false);
++    }
++    for (const reason of [
++      "notAuthorized",
++      "staleIdentity",
++      "missingBody",
++      "unsupported",
++      "tooLarge",
++    ] as const) {
++      expect(
++        v4ConversationCompactSummaryResultSchema.parse({ status: "unavailable", reason }),
++      ).toEqual({ status: "unavailable", reason });
++    }
++  });
++
++  it.each(["skills", "agents", "mcp_tools", "instructions"] as const)(
++    "keeps only safe %s metadata, stripping unknown top-level and nested bodies",
++    (kind) => {
++      const expected = { ...exampleContextSourceUpdate, kind };
++      const parsed = contextSourceUpdateSchema.parse({
++        ...expected,
++        content: "PRIVATE PROMPT",
++        runtimeCheckpoint: { credentials: "PRIVATE TOKEN" },
++        changes: expected.changes.map((change) => ({ ...change, body: "PRIVATE SOURCE BODY" })),
++      });
++      expect(parsed).toEqual(expected);
++      expect(JSON.stringify(parsed)).not.toContain("PRIVATE");
++    },
++  );
++
++  it("rejects malformed or oversized audit metadata rather than exposing a body fallback", () => {
++    const change = exampleContextSourceUpdate.changes[0]!;
++    for (const patch of [
++      { version: 2 },
++      { kind: "runtime" },
++      { sourceKey: "" },
++      { sourceKey: "s".repeat(4097) },
++      { revision: "not-a-hash" },
++      { revision: "A".repeat(64) },
++      { changes: [{ ...change, label: "" }] },
++      { changes: [{ ...change, label: "x".repeat(1025) }] },
++      { changes: [{ ...change, change: "updated" }] },
++      { changes: Array.from({ length: 2049 }, () => change) },
++    ]) {
++      expect(
++        contextSourceUpdateSchema.safeParse({ ...exampleContextSourceUpdate, ...patch }).success,
++      ).toBe(false);
++    }
++  });
++});
 diff --git a/packages/shared/test/conversationShareToolPresentation.test.ts b/packages/shared/test/conversationShareToolPresentation.test.ts
 index 7b4168c9b542781c9b499b722143472a9acb0549..daca14892de7e86402616e4dc6297cd83a2f2fd2 100644
 --- a/packages/shared/test/conversationShareToolPresentation.test.ts
@@ -663,3 +1001,121 @@ index 69dd0ab88970f5e25e2a92a5ee03e9fee4ba54cd..f73a6cc9fe04b1a4f401495bc078ca30
    it("parses a valid sendText envelope with typed payload", () => {
      const result = parseCommandEnvelope({
        commandId: "018f0000-0000-7000-8000-000000000001",
+diff --git a/packages/shared/test/zcodeProtocolV4CompactSummary.test.ts b/packages/shared/test/zcodeProtocolV4CompactSummary.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e94fca72bec3558e1879c714331987867f81858b
+--- /dev/null
++++ b/packages/shared/test/zcodeProtocolV4CompactSummary.test.ts
+@@ -0,0 +1,57 @@
++import { describe, expect, it } from "vitest";
++import {
++  V4_METHODS,
++  v4ConversationCompactSummaryParamsSchema,
++  v4ConversationCompactSummaryResultSchema,
++} from "../src/zcode-protocol-v4/index.js";
++
++const identity = {
++  sessionId: "session-1",
++  baseLogEpoch: "epoch-1",
++  branchGeneration: 2,
++  rowId: 12,
++  operationId: "compact-1",
++  summaryRef: "summary-1",
++};
++
++describe("V4 compact summary read boundary", () => {
++  it("requires an exact bounded identity and no arbitrary path", () => {
++    expect(V4_METHODS.conversationCompactSummary).toBe("v4/conversation/compactSummary");
++    expect(v4ConversationCompactSummaryParamsSchema.parse(identity)).toEqual(identity);
++    for (const key of Object.keys(identity)) {
++      const invalid = { ...identity } as Record<string, unknown>;
++      delete invalid[key];
++      expect(v4ConversationCompactSummaryParamsSchema.safeParse(invalid).success).toBe(false);
++    }
++    expect(
++      v4ConversationCompactSummaryParamsSchema.safeParse({ ...identity, path: "/db" }).success,
++    ).toBe(false);
++    expect(
++      v4ConversationCompactSummaryParamsSchema.safeParse({ ...identity, branchGeneration: -1 })
++        .success,
++    ).toBe(false);
++  });
++
++  it("distinguishes saved Markdown from unavailable without accepting model content", () => {
++    expect(
++      v4ConversationCompactSummaryResultSchema.parse({ status: "available", markdown: "# Saved" }),
++    ).toEqual({ status: "available", markdown: "# Saved" });
++    expect(
++      v4ConversationCompactSummaryResultSchema.parse({
++        status: "unavailable",
++        reason: "missingBody",
++      }),
++    ).toEqual({ status: "unavailable", reason: "missingBody" });
++    expect(
++      v4ConversationCompactSummaryResultSchema.safeParse({ status: "available", content: "early" })
++        .success,
++    ).toBe(false);
++    expect(
++      v4ConversationCompactSummaryResultSchema.safeParse({
++        status: "unavailable",
++        reason: "missingBody",
++        markdown: "fake",
++      }).success,
++    ).toBe(false);
++  });
++});
+diff --git a/packages/shared/test/zcodeProtocolV4ContextSourceUpdate.test.ts b/packages/shared/test/zcodeProtocolV4ContextSourceUpdate.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d712e4bd89148bb84feef282a8a6aa4ae215e55
+--- /dev/null
++++ b/packages/shared/test/zcodeProtocolV4ContextSourceUpdate.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, it } from "vitest";
++import { contextSourceUpdateSchema } from "../src/zcode-protocol-v4/index.js";
++
++const update = {
++  version: 1,
++  kind: "skills",
++  sourceKey: "skills:catalog",
++  revision: "a".repeat(64),
++  changes: [
++    { sourceKey: "skills:one", label: "One", change: "added" },
++    { sourceKey: "skills:two", label: "Two", change: "replaced" },
++    { sourceKey: "skills:old", label: "Old", change: "removed" },
++  ],
++};
++
++describe("V4 context source update metadata", () => {
++  it.each(["skills", "agents", "mcp_tools", "instructions"])(
++    "accepts the %s source category",
++    (kind) => {
++      expect(contextSourceUpdateSchema.parse({ ...update, kind })).toEqual({ ...update, kind });
++    },
++  );
++
++  it("projects only allowlisted metadata, including nested changes", () => {
++    const parsed = contextSourceUpdateSchema.parse({
++      ...update,
++      content: "HIDDEN PROMPT",
++      runtimeMessage: { credentials: "PRIVATE" },
++      changes: update.changes.map((change) => ({ ...change, body: "SKILL BODY" })),
++    });
++    expect(parsed).toEqual(update);
++    expect(JSON.stringify(parsed)).not.toContain("HIDDEN PROMPT");
++    expect(JSON.stringify(parsed)).not.toContain("PRIVATE");
++    expect(JSON.stringify(parsed)).not.toContain("SKILL BODY");
++  });
++
++  it.each([
++    { ...update, version: 2 },
++    { ...update, kind: "unknown" },
++    { ...update, sourceKey: "" },
++    { ...update, revision: "not-a-hash" },
++    { ...update, changes: [{ sourceKey: "one", label: "", change: "added" }] },
++    { ...update, changes: [{ sourceKey: "one", label: "One", change: "updated" }] },
++    { ...update, changes: [{ sourceKey: "one", label: "x".repeat(1025), change: "added" }] },
++    { ...update, changes: Array.from({ length: 2049 }, () => update.changes[0]) },
++  ])("rejects malformed or oversized metadata", (invalid) => {
++    expect(contextSourceUpdateSchema.safeParse(invalid).success).toBe(false);
++  });
++});

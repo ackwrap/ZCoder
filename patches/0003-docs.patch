@@ -1,3 +1,15 @@
+diff --git a/docs/architecture/architecture-governance.md b/docs/architecture/architecture-governance.md
+index b72d1ecad6a16c4fe058bc0d0b66cac337d416cd..99f39007ec158970f6922a6809c4bbf6ca427c9b 100644
+--- a/docs/architecture/architecture-governance.md
++++ b/docs/architecture/architecture-governance.md
+@@ -115,3 +115,7 @@ CLI 的 `lint` 入口枚举 packages/tools 中声明的 oxlint 命令，保留
+ 本次整合中已存在且超过 800 行的 CLI 文件及移入模块的既有远程连接 hook，在根 `.oxlintrc.json` 按精确路径登记为行数 warning，保留诊断但允许提交。其余文件超过 800 行仍报错，其他 lint 规则不降级。指定上游原样文件的行数存量仍通过固定提交内容校验接纳，不接受目录级豁免。
+ 
+ 远程连接 hook 的原行数 disable 改为精确路径 warning；架构门禁仅登记该文件的行数例外，模块依赖和其他规则仍执行。
++
++### 行数上限上调（2026-10-25）
++
++普通源码的行数上限由 800 上调到 4000 行。Lint 的 `max-lines` 与架构检查的 `maxFileLines` 必须同步修改：只改一处会让两道门禁对同一文件给出相反结论。模块登记、依赖方向、公开入口、循环依赖、契约行数（`maxContractLines`）及其他 lint 规则均不随之放宽。上一节 2026-10-10 的 800 行结论只保留为历史记录，现行阈值为 4000。
 diff --git a/docs/assistant-message-markdown-type-scale.md b/docs/assistant-message-markdown-type-scale.md
 index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80b80413cc 100644
 --- a/docs/assistant-message-markdown-type-scale.md
@@ -170,6 +182,72 @@ index 0000000000000000000000000000000000000000..b5acdc2757bfb8d92710c58caef920af
 +## 验收
 +
 +主会话运行定向检查，不重复不变测试，不运行全量构建。核心覆盖默认 detailed、七节 prompt、附加指令、精简预算/超预算最新组/工具配对、活动压缩 policy 快照与下一次更新；shared/协议覆盖默认值、边界校验、活跃及创建恢复、旧方法降级和串行同步；UI 覆盖导航位置、两选项、数字合法性及保存失败。交互验证采用真实组件和可观察的下一次压缩请求；没有真实桌面/移动平台证据时明确报告，mock 不证明所有平台兼容。
+diff --git a/docs/design/compact-result-details.md b/docs/design/compact-result-details.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..86519a1cb04e6e66f56ee702207d0bf93910f102
+--- /dev/null
++++ b/docs/design/compact-result-details.md
+@@ -0,0 +1,35 @@
++# Compact result details
++
++## Scope
++
++Extend the existing V4 compact timeline marker; do not create another transcript message. Manual compact stays in the timeline-only lane and automatic compact stays in assistant work. Summary messages remain hidden from transcript, model history is not duplicated, and default sharing/export does not acquire summary bodies. Compaction prompts, profiles, preservation/tail policy and model requests are unchanged.
++
++## Presentation
++
++- Every marker names its origin (automatic/manual) and lifecycle (running/completed/no-op/failed/cancelled/interrupted). Only durable successful results have expandable details.
++- Successful markers default to collapsed, intentionally unlike OpenCode's immediately expanded summary, to avoid long summaries taking over the conversation.
++- The title shows estimated context tokens before and after. Both are local context estimates: `preCompactTokenCount` and **only** `truePostCompactTokenCount`. `postCompactTokenCount` is summary-request usage, never post-compaction context size. Missing historical counts display unknown, not zero or usage. Format finite nonnegative estimates as integer numbers with `Intl.NumberFormat` and the current locale; the existing lightweight `IntlInstance` only supplies message formatting and must not be expanded for this view.
++- Expanding loads the saved Markdown from `MessageInfo.summary.body`; never display early `ModelComplete.content`, reconstruct from visible messages, or call a model again. Use the shared Markdown renderer, semantic colors and `text-ui-*` typography. Collapsing hides the details. Loading, unavailable and read-error states are distinct and localized in Chinese/English.
++- Old records lacking the reference, durable boundary or body display an explicit unavailable explanation. Failed/running/no-op/cancelled/interrupted markers cannot claim to have a summary.
++
++## Read boundary
++
++Add `v4/conversation/compactSummary` on the existing workspace-owned service/transport/gateway path. Request carries session, log epoch, branch generation, marker row, operation and summary reference. The active projection must contain that exact successful marker. A missing/mismatched row, operation or reference is not authorized; stale log/branch identity is explicitly unavailable. Repeat authorization after asynchronous storage reads.
++
++The CLI bridge uses the existing session store's `getSession` and session-scoped `messageWithParts` to fetch **one** summary. It does not load the entire transcript for one summary. Verify session identity, current durable branch generation, hidden `compact_summary` semantics and the matching durable compaction part's operation and boundary `summaryMessageIds`. Active-branch membership comes from the authoritative projected marker, built by the existing branch-aware cold hydration; a stored arbitrary message ID is never sufficient. Cold recovery only restores a reference when the active transcript contains that trusted hidden summary's own session/message/operation-matching compaction boundary. A surviving timeline carrier, even one containing a copied boundary, cannot prove ownership of a retired summary. Preserve earlier carrier routing metadata such as source command and anchor while the persisted boundary supplies final status, reference and true estimates. Unsupported/legacy records degrade to unavailable. Bound summary size to keep the ordinary RPC envelope below 1 MiB; oversized content is unavailable, never silently truncated into a different summary.
++
++Cold merge owns the distinction between historical and still-live compaction. Transcript-only `started`/`retrying` facts recover as interrupted. At first materialization, a same-session, same-operation latest live `CompactStarted` (`started`/`retrying`) remains active if its turn has not ended and no later compact terminal or session-resume boundary retired it. For an existing carrier, its durable message and part must also match. Replace the provisional interruption synthesized from that in-flight carrier with this trusted live fact after replaying completed transcript turns, preserving the running marker, compact active work, operation lock and Stop affordance. Never treat a different operation/session or a historical start followed by a terminal as proof of liveness. Durable completed summary/boundary facts always take precedence over stale live starts.
++
++No direct renderer/host database access, new authentication flow, approval bypass, writes, credentials or automatic export/share inclusion.
++
++## Identity and races
++
++Expose additive branch generation with snapshots/state updates and restore it from the existing durable session revert metadata. A committed conversation rewind updates it even when the target row is outside the loaded projection. UI request state is isolated by workspace identity/path, session, log epoch, branch generation, row, operation and summary reference; changing any identity resets expansion and content. Do not install a global summary cache. Effect cleanup ignores late fulfilled/rejected responses; stale data and errors never render in a reused row or another session. Server rechecks projected and durable identity after I/O.
++
++## Deferred validation (not run during implementation)
++
++- Shared schemas: strict bounded request/result identities; invalid/missing/cross-scope fields rejected.
++- Gateway/bridge: one scoped read; durable body and operation checks; old/missing/oversized body; non-success statuses; arbitrary ID/session/operation/ref; stale log/branch; branch change while a read is pending; cold restoration.
++- Projection: same marker upsert through lifecycle; use only true post estimate; legacy usage-only remains unknown; committed rewind generation is propagated and cold seeded.
++- UI: collapsed by default; one lazy fetch per opening; Markdown; unknown tokens; localized origin/status/error/unavailable; collapse; row/session/workspace/branch/ref identity changes and late success/error ignored.
++- Unified interactive acceptance: manual/automatic layout, expansion/collapse and keyboard access; restart then expand the same durable summary; legacy missing body; stop/failure/no-op/interruption; rewind while expanded; narrow/wide Zai Light/Dark. Run existing compact desktop E2E plus the focused component tests after both development lines stop writing.
+diff --git a/docs/design/context-source-update-notices.md b/docs/design/context-source-update-notices.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b242417b826c6042b72c028fd6f5af93bed0ec87
+--- /dev/null
++++ b/docs/design/context-source-update-notices.md
+@@ -0,0 +1,19 @@
++# Context source update notices
++
++## Scope
++
++Project the dynamic resource core's persisted `ContextSourceUpdate` v1 metadata as an audit notice in the existing V4 timeline. This is a source catalog change receipt, not a user message, permission grant, tool invocation or full system-prompt viewer.
++
++Trusted metadata includes version, kind (`skills`, `agents`, `mcp_tools`, or `instructions`), aggregate source key, revision and item changes (`added`, `replaced`, `removed`, source key and display label). Project only these explicitly allowlisted fields. Never display hidden text-part content, loaded Skill body, Agent system prompt, MCP credentials or runtime checkpoint metadata. Old hidden messages without valid metadata stay hidden. No model call or history duplication.
++
++## Live and restored facts
++
++The existing `persistPart` path has no SessionEvent notification, only a logger event. The core line must publish a sanitized `SystemMessage` subtype `context_source_update` after durable part persistence, carrying message ID, part ID and `sourceUpdate`, with content limited to safe change labels (or empty). Bootstrap ignores that content. Cold hydration reads the same top-level part metadata (or runtimeMessage.sourceUpdate compatibility field) on a trusted agent-runtime hidden synthetic message from `context_source_update`, `instruction_file_update`, `agent_listing_delta` or `tool_search_announcement` and synthesizes the same event. Identity is the durable part ID; live/cold deduplicate it and never create two notices for the same part. Branch-aware cold materialization excludes retired notices. Memory-only notice facts require an exact message ID still present in the active transcript, even when that transcript is empty; without durable branch proof cold recovery fails closed. Malformed or over-limit metadata is not projected; no silent body or list truncation is performed.
++
++## UI
++
++Use an additive `timelineMarker` variant, leaving snapshot state unchanged. The notice names the source category and counts additions/replacements/removals. Render only safe item labels with localized change verbs. Keep the view dense; small lists are visible, long lists are collapsed behind an accessible native details control to avoid flooding a long session. There is no hidden-body expander. Chinese and English copy use the existing locale files and design tokens. Default sharing keeps omitting runtime marker rows; the lower-level public projection explicitly rejects source-update notices rather than publishing catalog keys or paths. No new export or shared-context inclusion is added.
++
++## Deferred validation
++
++Write shared schema, pure projection/hydration and component coverage before implementation. Cover valid live/cold metadata, same-part deduplication, all source/change categories, malformed/untrusted/legacy metadata, absence of hidden prompt text in serialized rows, and long-list collapse. Do not run tests, typecheck, Lint, format checks, architecture checks or preview during parallel implementation. Main agent runs unified acceptance after both writers stop.
 diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..807ce77ca02b85004435fcb65012e78b9006bb9f

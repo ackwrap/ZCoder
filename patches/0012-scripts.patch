@@ -1,0 +1,41 @@
+diff --git a/scripts/test/source-size-policy.test.mjs b/scripts/test/source-size-policy.test.mjs
+index 211e8efc90a8c367a654cd13e600f247c9e5a6af..52547c07cbd60a013138b71a5ba085dd2c83274b 100644
+--- a/scripts/test/source-size-policy.test.mjs
++++ b/scripts/test/source-size-policy.test.mjs
+@@ -9,13 +9,16 @@ import { test } from "node:test";
+ const exec = promisify(execFile);
+ const root = resolve(import.meta.dirname, "../..");
+ 
+-test("800 行为默认阻断阈值，已接纳的大文件仅降级行数诊断", async () => {
++test("默认行数上限阻断、已接纳的大文件仅降级行数诊断", async () => {
+   const cwd = await mkdtemp(join(tmpdir(), "zcode-size-policy-"));
+   try {
+     const { config } = ts.parseConfigFileTextToJson(
+       ".oxlintrc.json",
+       await readFile(join(root, ".oxlintrc.json"), "utf8"),
+     );
++    // 阈值只从配置读取，避免测试写死数字后与 .oxlintrc.json 漂移。
++    const limit = config.rules["max-lines"][1].max;
++    assert.equal(typeof limit, "number");
+     // 只验证规则本身；根 runner 排除 CLI，由独立 CLI runner 检查。
+     config.ignorePatterns = [];
+     await writeFile(join(cwd, ".oxlintrc.json"), JSON.stringify(config));
+@@ -39,15 +42,15 @@ test("800 行为默认阻断阈值，已接纳的大文件仅降级行数诊断"
+       return JSON.parse(result.stdout).diagnostics;
+     }
+     assert.equal(
+-      (await lint(regular, 800)).filter((x) => x.code === "eslint(max-lines)").length,
++      (await lint(regular, limit)).filter((x) => x.code === "eslint(max-lines)").length,
+       0,
+     );
+     assert.equal(
+-      (await lint(regular, 801)).find((x) => x.code === "eslint(max-lines)")?.severity,
++      (await lint(regular, limit + 1)).find((x) => x.code === "eslint(max-lines)")?.severity,
+       "error",
+     );
+     assert.equal(
+-      (await lint(accepted, 801)).find((x) => x.code === "eslint(max-lines)")?.severity,
++      (await lint(accepted, limit + 1)).find((x) => x.code === "eslint(max-lines)")?.severity,
+       "warning",
+     );
+   } finally {

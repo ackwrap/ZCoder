@@ -2919,7 +2919,7 @@ index 5c849ba8b42ba2ccb969076a74ce89644ed72e39..f91d37e3f5707df5fcdf776758f24479
          ? (path: string) => services.fileService.readMediaPreview({ path })
          : undefined,
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03d827428e 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..4e408e0b7af3020010f7b9a3873ec682eb8fc878 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,62 @@
@@ -3027,7 +3027,34 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03
    "chat.message.retry": "Retry",
    "chat.history.workingFor": "Working for {duration}",
    "chat.history.workedFor": "Worked for {duration}",
-@@ -5829,6 +5902,13 @@ const enUS: Record<string, string> = {
+@@ -5813,6 +5886,26 @@ const enUS: Record<string, string> = {
+   "chat.contextCompaction.failed": "Context compression failed",
+   "chat.contextCompaction.interrupted": "Context compression interrupted",
+   "chat.contextCompaction.retry": "Retry",
++  "chat.contextCompaction.cancelled": "Context compression cancelled",
++  "chat.contextOptimization.cancelled": "Conversation optimization cancelled",
++  "chat.contextSourceUpdate.title": "{source} context updated",
++  "chat.contextSourceUpdate.source.skills": "Skills",
++  "chat.contextSourceUpdate.source.agents": "Agents",
++  "chat.contextSourceUpdate.source.mcp_tools": "MCP tools",
++  "chat.contextSourceUpdate.source.instructions": "Instructions",
++  "chat.contextSourceUpdate.change.added": "Added",
++  "chat.contextSourceUpdate.change.replaced": "Changed",
++  "chat.contextSourceUpdate.change.removed": "Removed",
++  "chat.contextSourceUpdate.counts": "+{added} · ~{replaced} · −{removed}",
++  "chat.contextSourceUpdate.details": "Show changes",
++  "chat.contextCompaction.origin.manual": "Manual",
++  "chat.contextCompaction.origin.auto": "Automatic",
++  "chat.contextCompaction.tokensUnknown": "Unknown",
++  "chat.contextCompaction.estimatedTokens": "Estimated context: {before} → {after} tokens",
++  "chat.contextCompaction.summaryLoading": "Loading saved summary…",
++  "chat.contextCompaction.summaryError": "Unable to load the saved summary.",
++  "chat.contextCompaction.summaryUnavailable":
++    "Summary unavailable for this record or active branch.",
+   "chat.goalVerification.checking": "Verifying goal",
+   "chat.goalVerification.incomplete": "Goal incomplete, continuing",
+   "chat.goalVerification.complete": "Goal complete, ending task",
+@@ -5829,6 +5922,13 @@ const enUS: Record<string, string> = {
    "chat.target.resume": "Resume goal",
    "chat.target.clear": "Clear goal",
    "chat.summaryPanel.title": "Status",
@@ -3041,7 +3068,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03
    "chat.summaryPanel.duration.hours": "h",
    "chat.summaryPanel.duration.minutes": "m",
    "chat.summaryPanel.duration.seconds": "s",
-@@ -5905,6 +5985,39 @@ const enUS: Record<string, string> = {
+@@ -5905,6 +6005,39 @@ const enUS: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
    "chat.slash.app.plan.label": "Plan mode",
    "chat.slash.app.plan.description": "Enable Plan mode",
@@ -3081,7 +3108,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03
    "chat.compact.runningBlocked": "Compact context after the current task finishes.",
    "chat.compact.queued": "Compaction queued and will run in order.",
    "chat.compact.duplicateBlocked": "A compaction is already running or queued.",
-@@ -6075,6 +6188,11 @@ const enUS: Record<string, string> = {
+@@ -6075,6 +6208,11 @@ const enUS: Record<string, string> = {
    "chat.toolCall.taskOutput.stopped": "Fetch stopped",
    "chat.toolCall.taskOutput.taskStopped": "Task stopped",
    "chat.toolCall.taskOutput.truncated": "Remaining output omitted.",
@@ -3093,7 +3120,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03
    "chat.toolCall.taskStop.stopping": "Stopping",
    "chat.toolCall.taskStop.stopped": "Stopped",
    "chat.toolCall.taskStop.failed": "Failed to stop task",
-@@ -6790,6 +6908,19 @@ const enUS: Record<string, string> = {
+@@ -6790,6 +6928,19 @@ const enUS: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "Result",
    "chat.toolCall.sessionContext.noResult": "No context returned.",
    "chat.toolCall.explore.label": "Explore",
@@ -3114,7 +3141,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..842f58c3b1ac6496bab66c31bafa1e03
    "chat.toolCall.explore.bucket.search.other": "searches",
    "chat.toolCall.explore.bucket.list.one": "list",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d83c6c2ef 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..4e20ffaab2c4e1c24371fbbf2972d75220e458b9 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,56 @@
@@ -3215,7 +3242,33 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d
    "chat.message.retry": "重试",
    "chat.history.workingFor": "工作中 {duration}",
    "chat.history.workedFor": "已工作 {duration}",
-@@ -5451,6 +5517,13 @@ const zhCN: Record<string, string> = {
+@@ -5435,6 +5501,25 @@ const zhCN: Record<string, string> = {
+   "chat.contextCompaction.failed": "上下文压缩失败",
+   "chat.contextCompaction.interrupted": "上下文压缩已中断",
+   "chat.contextCompaction.retry": "重试",
++  "chat.contextCompaction.cancelled": "上下文压缩已取消",
++  "chat.contextOptimization.cancelled": "优化对话已取消",
++  "chat.contextSourceUpdate.title": "{source} 上下文已更新",
++  "chat.contextSourceUpdate.source.skills": "Skills",
++  "chat.contextSourceUpdate.source.agents": "Agent",
++  "chat.contextSourceUpdate.source.mcp_tools": "MCP 工具",
++  "chat.contextSourceUpdate.source.instructions": "指令文件",
++  "chat.contextSourceUpdate.change.added": "新增",
++  "chat.contextSourceUpdate.change.replaced": "修改",
++  "chat.contextSourceUpdate.change.removed": "移除",
++  "chat.contextSourceUpdate.counts": "+{added} · ~{replaced} · −{removed}",
++  "chat.contextSourceUpdate.details": "查看变更",
++  "chat.contextCompaction.origin.manual": "手动",
++  "chat.contextCompaction.origin.auto": "自动",
++  "chat.contextCompaction.tokensUnknown": "未知",
++  "chat.contextCompaction.estimatedTokens": "估算上下文：{before} → {after} tokens",
++  "chat.contextCompaction.summaryLoading": "正在读取已保存的摘要…",
++  "chat.contextCompaction.summaryError": "无法读取已保存的摘要。",
++  "chat.contextCompaction.summaryUnavailable": "此记录或当前活动分支的摘要不可用。",
+   "chat.goalVerification.checking": "目标校验中",
+   "chat.goalVerification.incomplete": "目标未完成，任务继续",
+   "chat.goalVerification.complete": "目标已完成，任务结束",
+@@ -5451,6 +5536,13 @@ const zhCN: Record<string, string> = {
    "chat.target.resume": "继续目标",
    "chat.target.clear": "清空目标",
    "chat.summaryPanel.title": "状态",
@@ -3229,7 +3282,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d
    "chat.summaryPanel.duration.hours": "小时",
    "chat.summaryPanel.duration.minutes": "分",
    "chat.summaryPanel.duration.seconds": "秒",
-@@ -5530,6 +5603,37 @@ const zhCN: Record<string, string> = {
+@@ -5530,6 +5622,37 @@ const zhCN: Record<string, string> = {
    "chat.goal.planModeBlocked": "Goal 无法在 Plan 模式下使用，请切换模式。",
    "chat.slash.app.plan.label": "计划模式",
    "chat.slash.app.plan.description": "开启计划模式",
@@ -3267,7 +3320,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d
    "chat.compact.runningBlocked": "运行中不能压缩上下文，请等待当前任务结束。",
    "chat.compact.queued": "已加入队列，将按顺序压缩上下文。",
    "chat.compact.duplicateBlocked": "已有压缩任务正在运行或排队。",
-@@ -5697,6 +5801,11 @@ const zhCN: Record<string, string> = {
+@@ -5697,6 +5820,11 @@ const zhCN: Record<string, string> = {
    "chat.toolCall.taskOutput.stopped": "获取已停止",
    "chat.toolCall.taskOutput.taskStopped": "任务已停止",
    "chat.toolCall.taskOutput.truncated": "后续内容已省略。",
@@ -3279,7 +3332,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9d6beed12835fb131f83f34d781c273d
    "chat.toolCall.taskStop.stopping": "正在停止任务",
    "chat.toolCall.taskStop.stopped": "已停止",
    "chat.toolCall.taskStop.failed": "停止任务失败",
-@@ -6463,6 +6572,19 @@ const zhCN: Record<string, string> = {
+@@ -6463,6 +6591,19 @@ const zhCN: Record<string, string> = {
    "chat.toolCall.sessionContext.result": "结果",
    "chat.toolCall.sessionContext.noResult": "没有返回上下文。",
    "chat.toolCall.explore.label": "查阅",
@@ -6094,19 +6147,316 @@ index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1b
    // 未注入时走 GlobalNoticeSurface 默认的 browserGlobalNoticeStore。
    return <GlobalNoticeSurface store={noticeStore ?? undefined} />;
  }
+diff --git a/packages/ui/src/v4/CompactResultMarker.tsx b/packages/ui/src/v4/CompactResultMarker.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc4d5b6a4cd55cbe3bdad395e480a2c3628d3a28
+--- /dev/null
++++ b/packages/ui/src/v4/CompactResultMarker.tsx
+@@ -0,0 +1,218 @@
++import { memo, useEffect, useId, useState, type ReactNode } from "react";
++import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
++import type {
++  TimelineMarkerRow,
++  V4ConversationCompactSummaryResult,
++} from "@zcode/shared/zcode-protocol-v4";
++import { TID_V4_ROW, testId } from "@zcode/shared/test-ids";
++import { MessageResponse } from "@/components/ai-elements/message.js";
++import { Button } from "@/components/ui/button.js";
++import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
++
++type Props = {
++  row: TimelineMarkerRow;
++  context: ConversationRowRenderContext;
++  label: ReactNode;
++  icon: ReactNode;
++};
++type ReadState = { status: "loading" | "error" } | V4ConversationCompactSummaryResult;
++
++/** No global summary cache: identity changes synchronously unmount all old data and errors. */
++export const CompactResultMarker = memo(function CompactResultMarker(props: Props) {
++  const { row, context } = props;
++  if (row.marker.type !== "compact") return null;
++  const identity = JSON.stringify([
++    context.workspacePath,
++    context.workspaceIdentity,
++    context.workspaceRemoteSessionId,
++    context.sessionId,
++    context.logEpoch,
++    context.branchGeneration ?? 0,
++    row.rowId,
++    row.marker.operationId,
++    row.marker.summaryRef,
++    row.marker.status,
++  ]);
++  return <CompactResultMarkerContent key={identity} {...props} />;
++});
++
++function CompactResultMarkerContent({ row, context, label, icon }: Props) {
++  const { intl, locale } = useZCodeIntl();
++  const panelId = useId();
++  const [open, setOpen] = useState(false);
++  const [attempt, setAttempt] = useState(0);
++  const [result, setResult] = useState<ReadState>({ status: "loading" });
++  const marker = row.marker;
++  const read = context.readCompactSummary;
++  const sessionId = context.sessionId;
++  const logEpoch = context.logEpoch;
++  const generation = context.branchGeneration ?? 0;
++  const operationId = marker.type === "compact" ? marker.operationId : undefined;
++  const summaryRef = marker.type === "compact" ? marker.summaryRef : undefined;
++  const success = marker.type === "compact" && marker.status === "success";
++
++  useEffect(() => {
++    if (!open || !success) return;
++    let ignore = false;
++    if (!read || !sessionId || !logEpoch || !operationId || !summaryRef) {
++      setResult({ status: "unavailable", reason: "missingBody" });
++      return;
++    }
++    setResult({ status: "loading" });
++    void Promise.resolve()
++      .then(() =>
++        read({
++          sessionId,
++          baseLogEpoch: logEpoch,
++          branchGeneration: generation,
++          rowId: row.rowId,
++          operationId,
++          summaryRef,
++        }),
++      )
++      .then(
++        (value) => {
++          if (!ignore) setResult(value);
++        },
++        () => {
++          if (!ignore) setResult({ status: "error" });
++        },
++      );
++    return () => {
++      ignore = true;
++    };
++  }, [
++    open,
++    success,
++    read,
++    sessionId,
++    logEpoch,
++    generation,
++    row.rowId,
++    operationId,
++    summaryRef,
++    attempt,
++  ]);
++
++  if (marker.type !== "compact") return null;
++  const running = marker.status === "running";
++  const origin = intl.formatMessage({ id: `chat.contextCompaction.origin.${marker.origin}` });
++  const unknown = intl.formatMessage({ id: "chat.contextCompaction.tokensUnknown" });
++  const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
++  const tokens = (value: number | undefined) =>
++    value !== undefined && Number.isFinite(value) && value >= 0
++      ? numberFormat.format(value)
++      : unknown;
++  const heading = (
++    <>
++      <span className={running ? "animated-gradient-text font-medium" : undefined}>
++        {origin} · {label}
++      </span>
++      {success ? (
++        <span className="text-ui-sm text-foreground-subtle">
++          {intl.formatMessage(
++            { id: "chat.contextCompaction.estimatedTokens" },
++            { before: tokens(marker.tokensBefore), after: tokens(marker.tokensAfter) },
++          )}
++        </span>
++      ) : null}
++      {success ? (
++        open ? (
++          <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
++        ) : (
++          <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
++        )
++      ) : null}
++    </>
++  );
++  const divider = (
++    <>
++      <span aria-hidden className="h-px min-w-4 flex-1 bg-border/50" />
++      <span className="inline-flex min-w-0 shrink flex-wrap items-center justify-center gap-1.5 text-center leading-5">
++        {running ? null : icon}
++        {heading}
++      </span>
++      <span aria-hidden className="h-px min-w-4 flex-1 bg-border/50" />
++    </>
++  );
++  const headingClass =
++    "flex w-full items-center gap-3 px-4 py-2 text-ui-base text-foreground-subtle";
++  return (
++    <div
++      data-row-id={row.rowId}
++      data-row-kind="timelineMarker"
++      data-marker-type="compact"
++      data-status={marker.status}
++      data-origin={marker.origin}
++      data-source-command-id={row.sourceCommandId}
++      data-testid={testId(TID_V4_ROW, String(row.rowId))}
++    >
++      {success ? (
++        <button
++          type="button"
++          className={`${headingClass} transition-colors hover:text-foreground`}
++          aria-expanded={open}
++          aria-controls={panelId}
++          onClick={() => setOpen((value) => !value)}
++        >
++          {divider}
++        </button>
++      ) : (
++        <div className={headingClass}>{divider}</div>
++      )}
++      {success && open ? (
++        <div
++          id={panelId}
++          data-testid={`v4-compact-details-${row.rowId}`}
++          className="mx-4 mb-2 min-w-0 rounded-xl border border-border bg-surface p-3"
++          aria-busy={result.status === "loading"}
++        >
++          {result.status === "available" ? (
++            <MessageResponse
++              streaming={false}
++              theme={context.theme}
++              codePreviewSettings={context.codePreviewSettings}
++              workspacePath={context.workspacePath}
++              workspaceHomePath={context.workspaceHomePath}
++              workspaceIdentity={context.workspaceIdentity}
++              workspaceRemoteSessionId={context.workspaceRemoteSessionId}
++              sessionId={sessionId ?? undefined}
++              onOpenFileLink={context.onOpenFileLink}
++              onOpenCodeViewer={context.onOpenCodeViewer}
++              onOpenExternalUrl={context.onOpenBrowserUrl}
++            >
++              {result.markdown}
++            </MessageResponse>
++          ) : (
++            <div
++              className="flex flex-wrap items-center gap-2 text-ui-sm text-foreground-subtle"
++              role="status"
++            >
++              <span>
++                {intl.formatMessage({
++                  id:
++                    result.status === "loading"
++                      ? "chat.contextCompaction.summaryLoading"
++                      : result.status === "error"
++                        ? "chat.contextCompaction.summaryError"
++                        : "chat.contextCompaction.summaryUnavailable",
++                })}
++              </span>
++              {result.status === "error" ? (
++                <Button
++                  type="button"
++                  variant="ghost"
++                  size="sm"
++                  onClick={() => setAttempt((value) => value + 1)}
++                >
++                  {intl.formatMessage({ id: "chat.contextCompaction.retry" })}
++                </Button>
++              ) : null}
++            </div>
++          )}
++        </div>
++      ) : null}
++    </div>
++  );
++}
+diff --git a/packages/ui/src/v4/ContextSourceUpdateNotice.tsx b/packages/ui/src/v4/ContextSourceUpdateNotice.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..665a6a51a0728878aee155dbe5d58df8f30a8cd8
+--- /dev/null
++++ b/packages/ui/src/v4/ContextSourceUpdateNotice.tsx
+@@ -0,0 +1,63 @@
++import { memo } from "react";
++import { RefreshCwIcon } from "lucide-react";
++import type { TimelineMarkerRow } from "@zcode/shared/zcode-protocol-v4";
++import { TID_V4_ROW, testId } from "@zcode/shared/test-ids";
++import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++
++export const ContextSourceUpdateNotice = memo(function ContextSourceUpdateNotice({
++  row,
++}: {
++  row: TimelineMarkerRow;
++}) {
++  const { intl } = useZCodeIntl();
++  if (row.marker.type !== "contextSourceUpdate") return null;
++  const update = row.marker.update;
++  const source = intl.formatMessage({ id: `chat.contextSourceUpdate.source.${update.kind}` });
++  const title = intl.formatMessage({ id: "chat.contextSourceUpdate.title" }, { source });
++  const list = (
++    <ul className="min-w-0 space-y-1 text-ui-sm text-foreground-subtle">
++      {update.changes.map((change) => (
++        <li key={change.sourceKey} className="flex min-w-0 items-baseline gap-2">
++          <span className="shrink-0">
++            {intl.formatMessage({ id: `chat.contextSourceUpdate.change.${change.change}` })}
++          </span>
++          <span className="min-w-0 break-words text-foreground">{change.label}</span>
++        </li>
++      ))}
++    </ul>
++  );
++  return (
++    <div
++      data-row-id={row.rowId}
++      data-row-kind="timelineMarker"
++      data-marker-type="contextSourceUpdate"
++      data-testid={testId(TID_V4_ROW, String(row.rowId))}
++      className="mx-4 my-1 min-w-0 rounded-xl border border-border bg-surface px-3 py-2"
++    >
++      <div className="mb-1 flex min-w-0 items-center gap-2 text-ui-sm text-foreground-subtle">
++        <RefreshCwIcon aria-hidden className="size-3.5 shrink-0" />
++        <span>{title}</span>
++        <span className="text-ui-xs">
++          {intl.formatMessage(
++            { id: "chat.contextSourceUpdate.counts" },
++            {
++              added: update.changes.filter((change) => change.change === "added").length,
++              replaced: update.changes.filter((change) => change.change === "replaced").length,
++              removed: update.changes.filter((change) => change.change === "removed").length,
++            },
++          )}
++        </span>
++      </div>
++      {update.changes.length > 5 ? (
++        <details>
++          <summary className="cursor-pointer text-ui-sm text-foreground-subtle">
++            {intl.formatMessage({ id: "chat.contextSourceUpdate.details" })}
++          </summary>
++          <div className="mt-2">{list}</div>
++        </details>
++      ) : (
++        list
++      )}
++    </div>
++  );
++});
 diff --git a/packages/ui/src/v4/ConversationRowView.tsx b/packages/ui/src/v4/ConversationRowView.tsx
-index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e895d14843 100644
+index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..fe1e6e9fab99c296ad9cbf36152080268b996c46 100644
 --- a/packages/ui/src/v4/ConversationRowView.tsx
 +++ b/packages/ui/src/v4/ConversationRowView.tsx
-@@ -139,6 +139,7 @@ import { splitUserInputEpilogue } from "@/v4/ConversationUserInputEpilogue.js";
+@@ -137,8 +137,11 @@ import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.
+ import { BotGroupSourceLabel } from "@/v4/BotGroupSourceLabel.js";
+ import { splitUserInputEpilogue } from "@/v4/ConversationUserInputEpilogue.js";
  import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
++import { CompactResultMarker } from "@/v4/CompactResultMarker.js";
++import { ContextSourceUpdateNotice } from "@/v4/ContextSourceUpdateNotice.js";
  import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
  import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
 +import { formatTokensPerSecondLabel } from "@/session-diagnostics/contract.js";
  import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
  
  function RowShell({
-@@ -1480,6 +1481,7 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
+@@ -1480,6 +1483,7 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
    entityId,
    text,
    createdAt,
@@ -6114,7 +6464,7 @@ index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e8
    compactForRemoteControl = false,
    feedback = null,
    hookInvocations,
-@@ -1494,6 +1496,8 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
+@@ -1494,6 +1498,8 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
    entityId?: string;
    text: string;
    createdAt: number;
@@ -6123,7 +6473,7 @@ index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e8
    compactForRemoteControl?: boolean;
    feedback?: AssistantMessageFeedback | null;
    hookInvocations?: readonly HookInvocationRow[];
-@@ -1640,6 +1644,18 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
+@@ -1640,6 +1646,18 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
        ) : null}
        {/* Bugfix: 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
            时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
@@ -6142,6 +6492,60 @@ index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..f6712f59d5d9196bf0c4ff62d742f7e8
        {timeLabel ? (
          <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
        ) : null}
+@@ -1955,12 +1973,14 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
+             : marker.status === "noop"
+               ? "skipped"
+               : marker.status === "cancelled"
+-                ? "interrupted"
+-                : marker.status === "failed"
+-                  ? "failed"
+-                  : marker.origin === "auto" && !automaticOptimization
+-                    ? "completedAuto"
+-                    : "completed";
++                ? "cancelled"
++                : marker.status === "interrupted"
++                  ? "interrupted"
++                  : marker.status === "failed"
++                    ? "failed"
++                    : marker.origin === "auto" && !automaticOptimization
++                      ? "completedAuto"
++                      : "completed";
+         return {
+           icon: MARKER_ARCHIVE_ICON,
+           label: intl.formatMessage({ id: `${scope}.${statusMessage}` }),
+@@ -2047,23 +2067,24 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
+     return () => onNavigate(marker.parentSessionId, marker.parentRowId);
+   }, [marker, onNavigate]);
+ 
++  if (marker.type === "contextSourceUpdate") return <ContextSourceUpdateNotice row={row} />;
+   if (!view) {
+     return null;
+   }
++  if (marker.type === "compact") {
++    return <CompactResultMarker row={row} context={context} label={view.label} icon={view.icon} />;
++  }
+   return (
+     <MarkerDividerRow
+       rowId={row.rowId}
+       markerType={marker.type}
+       markerStatus={
+-        marker.type === "compact"
+-          ? marker.status
+-          : marker.type === "goalVerify"
+-            ? marker.outcome
+-            : marker.type === "forkNotice"
+-              ? "created"
+-              : "applied"
++        marker.type === "goalVerify"
++          ? marker.outcome
++          : marker.type === "forkNotice"
++            ? "created"
++            : "applied"
+       }
+-      markerOrigin={marker.type === "compact" ? marker.origin : undefined}
+       markerSourceCommandId={row.sourceCommandId}
+       icon={view.icon}
+       label={view.label}
 diff --git a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx b/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
 index a367bba0009b0e7d593b5b6095559b6577e1cf80..ccb7a30094e9942b5da2ab9f66efee1ad01aead2 100644
 --- a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
@@ -7224,7 +7628,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04a2914071 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..8e16b9d92722c592fd89e1172b7a38abf173e8ae 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -7272,7 +7676,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -1144,6 +1142,7 @@ export function SessionPane({
+@@ -668,6 +666,7 @@ export function SessionPane({
+     attachmentReadRange,
+     onRuntimeRestart,
+     onRuntimeLifecycle,
++    compactSummary,
+     fileChanges,
+     fileRewindPreview,
+   } = useV4Conversation();
+@@ -1144,6 +1143,7 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -7280,7 +7692,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1899,6 @@ export function SessionPane({
+@@ -1900,7 +1900,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -7288,7 +7700,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2353,12 @@ export function SessionPane({
+@@ -2355,6 +2354,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -7301,7 +7713,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2863,6 +2867,16 @@ export function SessionPane({
+@@ -2863,6 +2868,16 @@ export function SessionPane({
        keywords: ["plan", "计划", "计划模式"],
        run: () => handleDraftSwitchMode("plan"),
      };
@@ -7318,7 +7730,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2887,7 @@ export function SessionPane({
+@@ -2873,7 +2888,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -7327,7 +7739,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2898,7 @@ export function SessionPane({
+@@ -2884,6 +2899,7 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -7335,7 +7747,25 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -3898,6 +3913,11 @@ export function SessionPane({
+@@ -2982,6 +2998,8 @@ export function SessionPane({
+       workspaceRemoteSessionId: remoteSessionId ?? undefined,
+       modelSelectionView,
+       logEpoch: snapshot?.logEpoch,
++      branchGeneration: snapshot?.branchGeneration ?? 0,
++      readCompactSummary: compactSummary,
+       theme,
+       codePreviewSettings,
+       sessionId,
+@@ -3060,6 +3078,8 @@ export function SessionPane({
+       remoteSessionId,
+       modelSelectionView,
+       snapshot?.logEpoch,
++      snapshot?.branchGeneration,
++      compactSummary,
+       theme,
+       codePreviewSettings,
+       sessionId,
+@@ -3898,6 +3918,11 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -7347,7 +7777,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -4943,7 +4963,8 @@ export function SessionPane({
+@@ -4943,7 +4968,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -7357,7 +7787,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5035,6 @@ export function SessionPane({
+@@ -5014,42 +5040,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -7400,7 +7830,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,7 +5467,6 @@ export function SessionPane({
+@@ -5482,7 +5472,6 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -7408,7 +7838,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        modelConfigTarget={modelConfigTarget}
        onOpenCodeViewer={onOpenCodeViewer}
        suppressGoalCommands={selectionSideChat}
-@@ -5570,12 +5554,6 @@ export function SessionPane({
+@@ -5570,12 +5559,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -7421,7 +7851,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5606,14 @@ export function SessionPane({
+@@ -5628,6 +5611,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -7436,7 +7866,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5745,39 @@ export function SessionPane({
+@@ -5759,6 +5750,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -7476,6 +7906,92 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..856f96ae23405d05bae024dfe9a28b04
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
+diff --git a/packages/ui/src/v4/V4ConversationContext.tsx b/packages/ui/src/v4/V4ConversationContext.tsx
+index 84d2e2e51aff36b20444a86decca3db00c266aff..7374fa9af3a409614e7dc4c6c6a0b38ba564c4fb 100644
+--- a/packages/ui/src/v4/V4ConversationContext.tsx
++++ b/packages/ui/src/v4/V4ConversationContext.tsx
+@@ -49,6 +49,7 @@ import { ConversationTelemetryPaneAttachment } from "@/v4/telemetry/Conversation
+ 
+ export interface V4ConversationContextValue {
+   layer: SessionDataLayer;
++  compactSummary?: ConversationTransport["compactSummary"];
+   sendCommand(
+     envelope: CommandEnvelope,
+     context?: { projectId?: string | null },
+@@ -176,6 +177,10 @@ function ReadyV4ConversationProvider({
+       layer,
+       sendCommand: (envelope: CommandEnvelope, context?: { projectId?: string | null }) =>
+         transport.sendCommand(envelope, context),
++      compactSummary: transport.compactSummary
++        ? (params: Parameters<NonNullable<ConversationTransport["compactSummary"]>>[0]) =>
++            transport.compactSummary!(params)
++        : undefined,
+       fileChanges: (params: V4ConversationFileChangesParams) => transport.fileChanges(params),
+       fileRewindPreview: (params: V4ConversationFileRewindPreviewParams) =>
+         transport.fileRewindPreview(params),
+@@ -252,7 +257,7 @@ export function V4ConversationProvider({
+       remoteSessionId={ready.remoteSessionId}
+     >
+       <RemoteConversationAvailability available={resolution.rpcReady} banner={disconnectedBanner}>
+-      {children}
++        {children}
+       </RemoteConversationAvailability>
+     </ReadyV4ConversationProvider>
+   );
+@@ -333,7 +338,7 @@ export function V4PaneConversationProvider({
+         available={targetResolution.rpcReady}
+         banner={disconnectedBanner}
+       >
+-      {children}
++        {children}
+       </RemoteConversationAvailability>
+     </ReadyV4PaneConversationProvider>
+   );
+@@ -368,6 +373,10 @@ function ReadyV4PaneConversationProvider({
+         layer: lease.layer,
+         sendCommand: (envelope: CommandEnvelope, context?: { projectId?: string | null }) =>
+           lease.transport.sendCommand(envelope, context),
++        compactSummary: lease.transport.compactSummary
++          ? (params: Parameters<NonNullable<ConversationTransport["compactSummary"]>>[0]) =>
++              lease.transport.compactSummary!(params)
++          : undefined,
+         fileChanges: (params: V4ConversationFileChangesParams) =>
+           lease.transport.fileChanges(params),
+         fileRewindPreview: (params: V4ConversationFileRewindPreviewParams) =>
+diff --git a/packages/ui/src/v4/agentConversationTransport.ts b/packages/ui/src/v4/agentConversationTransport.ts
+index e52de993de439bab9438104d2ec9d4fb6ab089e3..d0d9979add3ec3118e46bf14ef13a0055fc3c80a 100644
+--- a/packages/ui/src/v4/agentConversationTransport.ts
++++ b/packages/ui/src/v4/agentConversationTransport.ts
+@@ -26,6 +26,7 @@ import {
+   type V4ConversationFileChangesResult,
+   type V4ConversationFileRewindPreviewParams,
+   type V4ConversationFileRewindPreviewResult,
++  type V4ConversationCompactSummaryParams,
+   type V4ConversationPlansParams,
+   type V4ConversationPlansResult,
+   type V4ConversationRowsRangeParams,
+@@ -81,7 +82,7 @@ type ConversationV4AgentService = Pick<
+   | "onDynamicLocalTtftFacts"
+   | "onAgentRuntimeRestarted"
+ > &
+-  Partial<Pick<IZCodeAgentService, "onAgentRuntimeLifecycle">>;
++  Partial<Pick<IZCodeAgentService, "onAgentRuntimeLifecycle" | "conversationCompactSummaryV4">>;
+ 
+ /**
+  * 一条 host 连接（= 一个 workspace）上的 v4 conversation 传输面。
+@@ -387,6 +388,12 @@ export function createAgentConversationTransport(
+         limit: params.limit,
+       });
+     },
++    async compactSummary(params: V4ConversationCompactSummaryParams) {
++      await ensureHandshake();
++      if (!agentService.conversationCompactSummaryV4)
++        return { status: "unavailable" as const, reason: "unsupported" as const };
++      return agentService.conversationCompactSummaryV4({ ...workspace, ...params });
++    },
+     async plans(params: V4ConversationPlansParams): Promise<V4ConversationPlansResult> {
+       await ensureHandshake();
+       return agentService.conversationPlansV4({
 diff --git a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx b/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
 index 8ef15aa09127a178e757f9408f184124b38f1363..0f91afb83e7c2ef1ae81515b301d48f0629a51cf 100644
 --- a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
@@ -7568,6 +8084,82 @@ index 8ef15aa09127a178e757f9408f184124b38f1363..0f91afb83e7c2ef1ae81515b301d48f0
            startPlanBalance={contextStartPlanBalance}
            selectedProvider={displayProvider}
            intl={intl}
+diff --git a/packages/ui/src/v4/context-artifacts/CONTRACT.md b/packages/ui/src/v4/context-artifacts/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..dead5d2c182bef63fd454b43594801ba4a879dbb
+--- /dev/null
++++ b/packages/ui/src/v4/context-artifacts/CONTRACT.md
+@@ -0,0 +1,16 @@
++# V4 上下文产物展示
++
++登记既有 `CompactResultMarker.tsx` 与 `ContextSourceUpdateNotice.tsx`，层为 ui，`requires: [shared, ui]`。契约显式转出原组件，以 `React.ComponentProps` 推导 props；不复制组件，不更改原入口、调用方或 package index。
++
++```text
++既有 timelineMarker 投影 → 原组件 → 安全展示
++宿主注入 readCompactSummary → 绑定当前身份的摘要读取 → 原 Markdown 展示与链接回调
++```
++
++- Runtime/宿主仍是摘要和来源变更的事实所有者；本模块不直接访问 services、Runtime、存储或建立第二条 transport。组件当前从 shared 的 v4 公共入口取类型，无直连 `v4-context-schemas` 的 import，故不新增该 requires。
++- 摘要成功标记默认折叠，展开才调用上下文注入的 `readCompactSummary`，透传 session、log epoch、branch generation、row、operation 与 summary ref；无读取能力显示不可用，不回退到任意路径读取。
++- Markdown 和文件、代码、外部链接沿用原展示器及上下文回调。读取异常只显示通用提示，不展示宿主错误正文。身份变更卸载旧详情，迟到结果不进入新身份展示。
++- 来源通知只展示分类、增改删计数和标签；source key、revision、未知正文和 Runtime checkpoint 不进入可见 DOM。标签按文本展示，不解释为 HTML；长列表沿用原生折叠详情。
++- props 保持现有投影与上下文类型，不把授权决策或更新执行交给组件；桌面 continuous 和手机 replayable 链路均不改变。
++
++`contract.example.ts` 演示原 props 和原组件的连接；`packages/ui/test/v4-context-artifacts/contract.test.ts` 通过真实契约入口锁定 props、注入回调和安全展示边界，不替代已有完整交互回归。
+diff --git a/packages/ui/src/v4/context-artifacts/contract.example.ts b/packages/ui/src/v4/context-artifacts/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..33deda624618211c020db189728b8aa6565a3884
+--- /dev/null
++++ b/packages/ui/src/v4/context-artifacts/contract.example.ts
+@@ -0,0 +1,17 @@
++import { createElement } from "react";
++import {
++  CompactResultMarker,
++  ContextSourceUpdateNotice,
++  type CompactResultMarkerProps,
++  type ContextSourceUpdateNoticeProps,
++} from "./contract.js";
++
++/** 宿主传入原投影、展示上下文及读取回调；示例不建立连接或取服务。 */
++export function exampleCompactResultMarker(props: CompactResultMarkerProps) {
++  return createElement(CompactResultMarker, props);
++}
++
++/** 通知组件只接收既有行投影。 */
++export function exampleContextSourceUpdateNotice(props: ContextSourceUpdateNoticeProps) {
++  return createElement(ContextSourceUpdateNotice, props);
++}
+diff --git a/packages/ui/src/v4/context-artifacts/contract.ts b/packages/ui/src/v4/context-artifacts/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e530f905e2810651d0648ceb4078fdf6a557adfc
+--- /dev/null
++++ b/packages/ui/src/v4/context-artifacts/contract.ts
+@@ -0,0 +1,8 @@
++import type { ComponentProps } from "react";
++import { CompactResultMarker } from "../CompactResultMarker.js";
++import { ContextSourceUpdateNotice } from "../ContextSourceUpdateNotice.js";
++
++/** 原组件即公开展示入口；props 只复用既有投影和宿主回调。 */
++export { CompactResultMarker, ContextSourceUpdateNotice };
++export type CompactResultMarkerProps = ComponentProps<typeof CompactResultMarker>;
++export type ContextSourceUpdateNoticeProps = ComponentProps<typeof ContextSourceUpdateNotice>;
+diff --git a/packages/ui/src/v4/context-artifacts/module.ts b/packages/ui/src/v4/context-artifacts/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e7e809e13c5905eb1dd705053c9d5779db21ea55
+--- /dev/null
++++ b/packages/ui/src/v4/context-artifacts/module.ts
+@@ -0,0 +1,11 @@
++/** 窄 ui 边界；requires 与 architecture-policy.yaml 同步。 */
++export const v4ContextArtifactsUiModule = {
++  id: "v4-context-artifacts-ui",
++  requires: ["shared", "ui"],
++  provides: ["v4-context-artifacts-ui"],
++  publicEntrypoints: [
++    "contract.ts",
++    "../CompactResultMarker.tsx",
++    "../ContextSourceUpdateNotice.tsx",
++  ],
++} as const;
 diff --git a/packages/ui/src/v4/conversationAssistantWorkItems.ts b/packages/ui/src/v4/conversationAssistantWorkItems.ts
 index 25e03132a2d2020be063c2bb283500604472548c..cde77255409867b4a5aeb576dd9f35a316fa80a3 100644
 --- a/packages/ui/src/v4/conversationAssistantWorkItems.ts
@@ -7726,6 +8318,126 @@ index 25e03132a2d2020be063c2bb283500604472548c..cde77255409867b4a5aeb576dd9f35a3
          options?.stageTailIsRunning === true && index === preparedRows.length,
        ),
      );
+diff --git a/packages/ui/src/v4/conversationRowContext.ts b/packages/ui/src/v4/conversationRowContext.ts
+index d52b1999b56a1a810d353d3a7324c302349ebba5..998781f2a5665226c76f765ae6a6e4ad1f2b3767 100644
+--- a/packages/ui/src/v4/conversationRowContext.ts
++++ b/packages/ui/src/v4/conversationRowContext.ts
+@@ -37,6 +37,8 @@ export type ConversationFileChangesState = Exclude<
+ 
+ export interface ConversationRowRenderContext {
+   logEpoch?: string;
++  branchGeneration?: number;
++  readCompactSummary?: NonNullable<ConversationTransport["compactSummary"]>;
+   workspacePath: string;
+   /** 当前 workspace Host 的用户 Home，用于解析 Assistant 输出中的 ~/ 路径。 */
+   workspaceHomePath?: string;
+diff --git a/packages/ui/src/v4/replaceableConversationTransport.ts b/packages/ui/src/v4/replaceableConversationTransport.ts
+index 57a594887ca3c3c53fd4dc3f583a952d4c7e0bdd..98ee5b392ba896dd7358df28a73184a1394ce59b 100644
+--- a/packages/ui/src/v4/replaceableConversationTransport.ts
++++ b/packages/ui/src/v4/replaceableConversationTransport.ts
+@@ -134,6 +134,15 @@ export class ReplaceableConversationTransport implements ConversationTransport {
+     return this.current.rowsRange(params);
+   }
+ 
++  compactSummary(
++    params: Parameters<NonNullable<ConversationTransport["compactSummary"]>>[0],
++  ): ReturnType<NonNullable<ConversationTransport["compactSummary"]>> {
++    return (
++      this.current.compactSummary?.(params) ??
++      Promise.resolve({ status: "unavailable", reason: "unsupported" })
++    );
++  }
++
+   plans(
+     params: Parameters<ConversationTransport["plans"]>[0],
+   ): ReturnType<ConversationTransport["plans"]> {
+diff --git a/packages/ui/src/v4/transport.ts b/packages/ui/src/v4/transport.ts
+index f536d0e7aea0902165a7b914bd42e918aa81ec12..ec4c0a2b40cd28d51af156c1b2db63caa285dc7e 100644
+--- a/packages/ui/src/v4/transport.ts
++++ b/packages/ui/src/v4/transport.ts
+@@ -16,6 +16,8 @@ import type {
+   V4ConversationFileChangesResult,
+   V4ConversationFileRewindPreviewParams,
+   V4ConversationFileRewindPreviewResult,
++  V4ConversationCompactSummaryParams,
++  V4ConversationCompactSummaryResult,
+   V4ConversationPlansParams,
+   V4ConversationPlansResult,
+   V4ConversationRowsRangeParams,
+@@ -65,6 +67,10 @@ export interface ConversationTransport {
+   rowsRange(params: V4ConversationRowsRangeParams): Promise<V4ConversationRowsRangeResult>;
+   /** v4/conversation/plans：当前有效分支里的全部终态计划。 */
+   plans(params: V4ConversationPlansParams): Promise<V4ConversationPlansResult>;
++  /** Additive read capability; older hosts never fetch or synthesize summary content. */
++  compactSummary?(
++    params: V4ConversationCompactSummaryParams,
++  ): Promise<V4ConversationCompactSummaryResult>;
+   /** v4/conversation/workflowRunEvents：workflow run 的事件日志分页（cursor = journal sequence）。 */
+   workflowRunEvents(
+     params: V4ConversationWorkflowRunEventsParams,
+diff --git a/packages/ui/src/v4/workspaceConnectionRegistry.ts b/packages/ui/src/v4/workspaceConnectionRegistry.ts
+index 1fa51b2c15f919c2cffc988b488b90c225ba0855..441f14c791d5c403049af70ac090865edb7cc35b 100644
+--- a/packages/ui/src/v4/workspaceConnectionRegistry.ts
++++ b/packages/ui/src/v4/workspaceConnectionRegistry.ts
+@@ -44,7 +44,8 @@ export type WorkspaceConnectionAgentService = Pick<
+   | "onDynamicConversationFrame"
+   | "onDynamicLocalTtftFacts"
+   | "onAgentRuntimeRestarted"
+->;
++> &
++  Partial<Pick<IZCodeAgentService, "conversationCompactSummaryV4">>;
+ 
+ export interface WorkspaceConnectionScope {
+   /** = pane 绑定的 primary workspace（连接路由键）。 */
+diff --git a/packages/ui/test/agentV4ConnectionTransports.test.ts b/packages/ui/test/agentV4ConnectionTransports.test.ts
+index 142695c04a8a659898aa4a12c58061761f8aaac7..def8d2af6d69a37e04b9e25ca8183e3f6b02eca1 100644
+--- a/packages/ui/test/agentV4ConnectionTransports.test.ts
++++ b/packages/ui/test/agentV4ConnectionTransports.test.ts
+@@ -72,6 +72,7 @@ function setupAgent() {
+     ),
+     conversationRowsRangeV4: vi.fn(),
+     conversationPlansV4: vi.fn(),
++    conversationCompactSummaryV4: vi.fn(),
+     conversationFileChangesV4: vi.fn(),
+     conversationFileRewindPreviewV4: vi.fn(),
+     attachmentBeginV4: vi.fn(),
+@@ -1129,6 +1130,36 @@ describe("agent V4 connection transports", () => {
+     });
+   });
+ 
++  it("compact summary query preserves exact branch/operation identity on its workspace transport", async () => {
++    const agent = setupAgent();
++    agent.conversationCompactSummaryV4.mockResolvedValue({
++      status: "available",
++      markdown: "# Saved",
++    });
++    const transport = createAgentConversationTransport(agent as never, {
++      workspacePath: "/repo",
++      workspaceIdentity: "remote:ssh:host:/repo",
++    });
++    const params = {
++      sessionId: "session-1",
++      baseLogEpoch: "epoch-1",
++      branchGeneration: 2,
++      rowId: 12,
++      operationId: "op1",
++      summaryRef: "summary1",
++    };
++    await expect(transport.compactSummary!(params)).resolves.toEqual({
++      status: "available",
++      markdown: "# Saved",
++    });
++    expect(agent.conversationCompactSummaryV4).toHaveBeenCalledWith({
++      ...params,
++      workspacePath: "/repo",
++      workspaceIdentity: "remote:ssh:host:/repo",
++    });
++    expect(agent.initializeConversationV4).toHaveBeenCalledTimes(1);
++  });
++
+   it("plans query 通过同一 shared-host 身份路由转发", async () => {
+     const agent = setupAgent();
+     agent.conversationPlansV4.mockResolvedValue({
 diff --git a/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx b/packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..e791b399a7b45358f64dcb544e67dde699d827ec
@@ -7954,6 +8666,220 @@ index 0000000000000000000000000000000000000000..75275b7a1db69375ca8b8c1f07fb4d96
 +    await page.close();
 +  }
 +});
+diff --git a/packages/ui/test/browser/manual-review/pending/context-results.fixture.tsx b/packages/ui/test/browser/manual-review/pending/context-results.fixture.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..776c087811a9f77da845df127c76ec319b02d8b7
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/context-results.fixture.tsx
+@@ -0,0 +1,161 @@
++import { useCallback, useState } from "react";
++import { createRoot } from "react-dom/client";
++import type {
++  TimelineMarkerRow,
++  V4ConversationCompactSummaryResult,
++} from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { TooltipProvider } from "@/components/ui/tooltip.js";
++import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
++import { ConversationRowView } from "@/v4/ConversationRowView.js";
++import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
++import "@/styles.css";
++
++const params = new URLSearchParams(location.search);
++const theme = params.get("theme") === "dark" ? "dark" : "light";
++document.documentElement.className = `${theme} theme-zai-${theme}`;
++const summary =
++  "## Saved summary\n\n**Durable result** from this session.\n\n- Preserve user choices.\n- Continue the current task.\n\n```ts\nconst ready = true;\n```";
++const baseRow = { turnId: "fixture-turn", createdAt: 1, createdAtSeq: 1 };
++const notice: TimelineMarkerRow = {
++  ...baseRow,
++  rowId: 20,
++  kind: "timelineMarker",
++  marker: {
++    type: "contextSourceUpdate",
++    update: {
++      version: 1,
++      kind: "skills",
++      sourceKey: "skills:catalog",
++      revision: "a".repeat(64),
++      changes: Array.from({ length: 6 }, (_, index) => ({
++        sourceKey: `skills:${index}`,
++        label: `project:long-skill-label-${index}-for-narrow-layout-verification`,
++        change: index === 0 ? "removed" : index === 1 ? "replaced" : "added",
++      })),
++    },
++  },
++};
++
++function Fixture() {
++  const [sessionId, setSessionId] = useState("session-one");
++  const [generation, setGeneration] = useState(0);
++  const [reads, setReads] = useState(0);
++  const [fail, setFail] = useState(false);
++  const [pending, setPending] = useState(false);
++  const [release, setRelease] = useState<(() => void) | null>(null);
++  const read = useCallback<
++    NonNullable<ConversationRowRenderContext["readCompactSummary"]>
++  >(async () => {
++    setReads((value) => value + 1);
++    if (fail) throw new Error("private-storage-error-must-not-render");
++    const value: V4ConversationCompactSummaryResult = {
++      status: "available",
++      markdown: `${summary}\n\nSession: ${sessionId}`,
++    };
++    if (!pending) return value;
++    return new Promise((resolve) => setRelease(() => () => resolve(value)));
++  }, [fail, pending, sessionId]);
++  const context: ConversationRowRenderContext = {
++    workspacePath: "/fixture-project",
++    workspaceIdentity: "fixture-workspace",
++    sessionId,
++    logEpoch: "fixture-epoch",
++    branchGeneration: generation,
++    theme,
++    codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
++    readCompactSummary: read,
++  };
++  const compact: TimelineMarkerRow = {
++    ...baseRow,
++    rowId: 12,
++    entityId: "fixture-operation",
++    kind: "timelineMarker",
++    marker: {
++      type: "compact",
++      origin: "manual",
++      status: "success",
++      operationId: "fixture-operation",
++      summaryRef: "fixture-summary",
++      tokensBefore: 10000,
++      tokensAfter: 2000,
++    },
++  };
++  const rows: TimelineMarkerRow[] = [
++    compact,
++    notice,
++    ...(["running", "failed", "noop", "cancelled", "interrupted"] as const).map(
++      (status, index): TimelineMarkerRow => ({
++        ...baseRow,
++        rowId: 30 + index,
++        kind: "timelineMarker",
++        marker: { type: "compact", origin: "auto", status },
++      }),
++    ),
++    {
++      ...baseRow,
++      rowId: 40,
++      kind: "timelineMarker",
++      marker: { type: "compact", origin: "auto", status: "success", tokensBefore: 10000 },
++    },
++  ];
++  return (
++    <main className="min-h-screen bg-background py-4 text-ui-base text-foreground">
++      <div className="mx-auto max-w-3xl" data-testid="context-results-fixture">
++        <h1 className="px-4 text-ui-lg">Context results interaction fixture</h1>
++        <div className="m-4 flex flex-wrap items-center gap-2">
++          <button
++            type="button"
++            onClick={() =>
++              setSessionId((value) => (value === "session-one" ? "session-two" : "session-one"))
++            }
++          >
++            Switch session
++          </button>
++          <button type="button" onClick={() => setGeneration((value) => value + 1)}>
++            Rewind branch
++          </button>
++          <label>
++            <input
++              type="checkbox"
++              checked={fail}
++              onChange={(event) => setFail(event.target.checked)}
++            />
++            Fail reads
++          </label>
++          <label>
++            <input
++              type="checkbox"
++              checked={pending}
++              onChange={(event) => setPending(event.target.checked)}
++            />
++            Delay reads
++          </label>
++          <button
++            type="button"
++            disabled={!release}
++            onClick={() => {
++              release?.();
++              setRelease(null);
++            }}
++          >
++            Release delayed read
++          </button>
++          <output aria-label="Read count">{reads}</output>
++          <output aria-label="Current session">{sessionId}</output>
++        </div>
++        {rows.map((row) => (
++          <ConversationRowView key={row.rowId} row={row} context={context} />
++        ))}
++      </div>
++    </main>
++  );
++}
++
++createRoot(document.getElementById("root")!).render(
++  <ZCodeIntlProvider initialLocale={params.get("locale") === "zh-CN" ? "zh-CN" : "en-US"}>
++    <TooltipProvider>
++      <Fixture />
++    </TooltipProvider>
++  </ZCodeIntlProvider>,
++);
+diff --git a/packages/ui/test/browser/manual-review/pending/context-results.server.mjs b/packages/ui/test/browser/manual-review/pending/context-results.server.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bc68c15d6f05edc76b95cbc7d7eea508c978b43
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/context-results.server.mjs
+@@ -0,0 +1,41 @@
++import { fileURLToPath } from "node:url";
++import { createServer } from "vite";
++import react from "@vitejs/plugin-react";
++import tailwindcss from "@tailwindcss/vite";
++
++const root = fileURLToPath(new URL("../../../../../../", import.meta.url));
++const entry = "/packages/ui/test/browser/manual-review/pending/context-results.fixture.tsx";
++const server = await createServer({
++  root,
++  configFile: false,
++  plugins: [
++    react(),
++    tailwindcss(),
++    {
++      name: "context-results-fixture",
++      configureServer(vite) {
++        vite.middlewares.use(async (req, res, next) => {
++          if (!req.url?.startsWith("/fixture?")) return next();
++          res.setHeader("Content-Type", "text/html");
++          res.end(
++            await vite.transformIndexHtml(
++              req.url,
++              `<html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="root"></div><script type="module" src="${entry}"></script></body></html>`,
++            ),
++          );
++        });
++      },
++    },
++  ],
++  resolve: { alias: { "@": `${root}packages/ui/src` } },
++  optimizeDeps: { entries: [entry.slice(1)] },
++  server: { host: "127.0.0.1", port: 0 },
++});
++await server.listen();
++console.log(
++  `Context results fixture: ${server.resolvedUrls.local[0]}fixture?locale=en-US&theme=light`,
++);
++for (const signal of ["SIGINT", "SIGTERM"])
++  process.once(signal, () => {
++    void server.close().then(() => process.exit(0));
++  });
 diff --git a/packages/ui/test/browser/manual-review/pending/conversation-hook-footer.fixture.tsx b/packages/ui/test/browser/manual-review/pending/conversation-hook-footer.fixture.tsx
 index 2ec829f3595f76835be39551e35b769a65c757fc..3d522302b009d6fa6cf89a04c392943086cb6f3a 100644
 --- a/packages/ui/test/browser/manual-review/pending/conversation-hook-footer.fixture.tsx
@@ -11382,6 +12308,56 @@ index 66b2c366ecd358a73f5540a58ab9b45b6cd89f39..b4db0b9ae965713dae4ff3cacf8513da
      expect(html).toContain("深度求索");
      expect(html).toContain("Alibaba Model Studio (International)");
      expect(html.indexOf("深度求索")).toBeLessThan(
+diff --git a/packages/ui/test/replaceableConversationTransport.test.ts b/packages/ui/test/replaceableConversationTransport.test.ts
+index ef3ebb3245765122250fe48bea48056fee4b7bb1..8a21edceef5cd6964115c48d90761010daba6b4b 100644
+--- a/packages/ui/test/replaceableConversationTransport.test.ts
++++ b/packages/ui/test/replaceableConversationTransport.test.ts
+@@ -28,6 +28,45 @@ const firstPage: V4ConversationWorkflowRunEventsResult = {
+ };
+ const secondPage: V4ConversationWorkflowRunEventsResult = { events: [], hasMore: false };
+ 
++describe("ReplaceableConversationTransport compactSummary", () => {
++  const params = {
++    sessionId: "session-1",
++    baseLogEpoch: "epoch-1",
++    branchGeneration: 2,
++    rowId: 12,
++    operationId: "compact-1",
++    summaryRef: "summary-1",
++  };
++
++  it("forwards the complete summary identity to the current proxy", async () => {
++    const firstRead = vi.fn().mockResolvedValue({ status: "available", markdown: "# First" });
++    const secondRead = vi.fn().mockResolvedValue({ status: "unavailable", reason: "missingBody" });
++    const replaceable = new ReplaceableConversationTransport({
++      compactSummary: firstRead,
++    } as unknown as ConversationTransport);
++    await expect(replaceable.compactSummary(params)).resolves.toEqual({
++      status: "available",
++      markdown: "# First",
++    });
++    expect(firstRead).toHaveBeenCalledWith(params);
++    replaceable.replace({ compactSummary: secondRead } as unknown as ConversationTransport);
++    await expect(replaceable.compactSummary(params)).resolves.toEqual({
++      status: "unavailable",
++      reason: "missingBody",
++    });
++    expect(secondRead).toHaveBeenCalledWith(params);
++    expect(firstRead).toHaveBeenCalledTimes(1);
++  });
++
++  it("reports unavailable for an older proxy without summary capability", async () => {
++    const replaceable = new ReplaceableConversationTransport({} as ConversationTransport);
++    await expect(replaceable.compactSummary(params)).resolves.toEqual({
++      status: "unavailable",
++      reason: "unsupported",
++    });
++  });
++});
++
+ describe("ReplaceableConversationTransport workflowRunEvents", () => {
+   it("原样转发给当前 transport，params 一个字段不动", async () => {
+     const first = stubTransport(firstPage);
 diff --git a/packages/ui/test/sessionDiagnostics.test.ts b/packages/ui/test/sessionDiagnostics.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..90f8a17d8e4513613063564d3235da1bad795c9c
@@ -12521,6 +13497,163 @@ index 0000000000000000000000000000000000000000..9a9a1f79996fdab51869f60da09e8e08
 +    hook.unmount();
 +  });
 +});
+diff --git a/packages/ui/test/v4-context-artifacts/contract.test.ts b/packages/ui/test/v4-context-artifacts/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ef9e8c192e638cb2565e7046da18807819e331a
+--- /dev/null
++++ b/packages/ui/test/v4-context-artifacts/contract.test.ts
+@@ -0,0 +1,151 @@
++// @vitest-environment jsdom
++import { createElement, type ComponentProps } from "react";
++import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
++import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
++import {
++  CompactResultMarker,
++  ContextSourceUpdateNotice,
++  type CompactResultMarkerProps,
++  type ContextSourceUpdateNoticeProps,
++} from "@/v4/context-artifacts/contract.js";
++import {
++  exampleCompactResultMarker,
++  exampleContextSourceUpdateNotice,
++} from "@/v4/context-artifacts/contract.example.js";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
++
++type ReadSummary = NonNullable<CompactResultMarkerProps["context"]["readCompactSummary"]>;
++
++function compactProps(readCompactSummary?: ReadSummary): CompactResultMarkerProps {
++  return {
++    row: {
++      rowId: 12,
++      turnId: "turn-1",
++      kind: "timelineMarker",
++      createdAt: 1,
++      createdAtSeq: 1,
++      marker: {
++        type: "compact",
++        status: "success",
++        origin: "manual",
++        operationId: "compact-1",
++        summaryRef: "summary-1",
++      },
++    },
++    context: {
++      workspacePath: "/repo",
++      workspaceIdentity: "workspace-1",
++      sessionId: "session-1",
++      logEpoch: "epoch-1",
++      branchGeneration: 2,
++      theme: "light",
++      codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
++      readCompactSummary,
++    },
++    label: "Saved context",
++    icon: null,
++  };
++}
++
++function localized(children: ReturnType<typeof createElement>) {
++  return createElement(ZCodeIntlProvider, { initialLocale: "en-US", children });
++}
++
++afterEach(cleanup);
++
++describe("v4 context artifacts UI contract", () => {
++  it("derives props from the original components and forwards them without a second owner", () => {
++    expectTypeOf<CompactResultMarkerProps>().toEqualTypeOf<
++      ComponentProps<typeof CompactResultMarker>
++    >();
++    expectTypeOf<ContextSourceUpdateNoticeProps>().toEqualTypeOf<
++      ComponentProps<typeof ContextSourceUpdateNotice>
++    >();
++    expectTypeOf<keyof CompactResultMarkerProps>().toEqualTypeOf<
++      "row" | "context" | "label" | "icon"
++    >();
++    expectTypeOf<keyof ContextSourceUpdateNoticeProps>().toEqualTypeOf<"row">();
++    const props = compactProps();
++    const compact = exampleCompactResultMarker(props);
++    const notice = exampleContextSourceUpdateNotice({ row: props.row });
++    expect(compact.type).toBe(CompactResultMarker);
++    expect(compact.props.context).toBe(props.context);
++    expect(compact.props.row).toBe(props.row);
++    expect(notice.type).toBe(ContextSourceUpdateNotice);
++    expect(notice.props.row).toBe(props.row);
++  });
++
++  it("reads only through the injected callback, lazily passing the exact projected identity", async () => {
++    const read = vi.fn<ReadSummary>().mockResolvedValue({
++      status: "unavailable",
++      reason: "notAuthorized",
++    });
++    const view = render(localized(exampleCompactResultMarker(compactProps(read))));
++    expect(read).not.toHaveBeenCalled();
++    expect(view.container.textContent).toContain("Saved context");
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    await waitFor(() => expect(view.container.textContent).toContain("Summary unavailable"));
++    expect(read).toHaveBeenCalledExactlyOnceWith({
++      sessionId: "session-1",
++      baseLogEpoch: "epoch-1",
++      branchGeneration: 2,
++      rowId: 12,
++      operationId: "compact-1",
++      summaryRef: "summary-1",
++    } satisfies Parameters<ReadSummary>[0]);
++    expect(view.container.querySelectorAll('[data-row-kind="timelineMarker"]')).toHaveLength(1);
++  });
++
++  it("does not fall back to a service when the host omits the read capability", async () => {
++    const view = render(localized(createElement(CompactResultMarker, compactProps())));
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    await waitFor(() => expect(view.container.textContent).toContain("Summary unavailable"));
++    expect(view.queryByRole("button", { name: "Retry" })).toBeNull();
++  });
++
++  it("keeps host read errors out of rendered output", async () => {
++    const secret = "PRIVATE /session.db credential=secret";
++    const read = vi.fn<ReadSummary>().mockRejectedValue(new Error(secret));
++    const view = render(localized(createElement(CompactResultMarker, compactProps(read))));
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    await waitFor(() => expect(view.getByRole("button", { name: "Retry" })).toBeTruthy());
++    expect(view.container.innerHTML).not.toContain(secret);
++    expect(view.container.textContent).not.toContain("PRIVATE");
++  });
++
++  it("renders notice labels as text without keys, revisions, prompt bodies or checkpoints", () => {
++    const label = '<img src=x onerror="alert(1)">';
++    const update = {
++      version: 1 as const,
++      kind: "instructions" as const,
++      sourceKey: "PRIVATE CATALOG KEY",
++      revision: "a".repeat(64),
++      content: "PRIVATE PROMPT BODY",
++      runtimeCheckpoint: { token: "PRIVATE TOKEN" },
++      changes: [
++        { sourceKey: "PRIVATE ITEM KEY", label, change: "replaced" as const, body: "PRIVATE BODY" },
++      ],
++    };
++    const props: ContextSourceUpdateNoticeProps = {
++      row: {
++        rowId: 13,
++        turnId: "turn-1",
++        kind: "timelineMarker",
++        createdAt: 1,
++        createdAtSeq: 1,
++        marker: { type: "contextSourceUpdate", update },
++      },
++    };
++    const view = render(localized(exampleContextSourceUpdateNotice(props)));
++    expect(view.container.textContent).toContain(label);
++    expect(view.container.textContent).toContain("Changed");
++    expect(view.container.innerHTML).not.toContain("PRIVATE");
++    expect(view.container.innerHTML).not.toContain(update.revision);
++    expect(view.container.querySelector("img, script")).toBeNull();
++    expect(view.container.querySelector('[data-row-kind="userInput"]')).toBeNull();
++    expect(
++      view.container.querySelectorAll('[data-marker-type="contextSourceUpdate"]'),
++    ).toHaveLength(1);
++  });
++});
 diff --git a/packages/ui/test/v4AssistantWorkRenderItems.test.ts b/packages/ui/test/v4AssistantWorkRenderItems.test.ts
 index e89297a203f59dee4af8755c965c47a75ff7eb2f..2d5692a115d4585a17b83f867086eac23ba96ecd 100644
 --- a/packages/ui/test/v4AssistantWorkRenderItems.test.ts
@@ -12729,6 +13862,288 @@ index e89297a203f59dee4af8755c965c47a75ff7eb2f..2d5692a115d4585a17b83f867086eac2
    });
  
    it("ends Explore and starts a Changes group for write tools", () => {
+diff --git a/packages/ui/test/v4CompactResultDetails.test.ts b/packages/ui/test/v4CompactResultDetails.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..359aa491e5b9154357ff915832e2afa3be38b4a6
+--- /dev/null
++++ b/packages/ui/test/v4CompactResultDetails.test.ts
+@@ -0,0 +1,183 @@
++// @vitest-environment jsdom
++import { act, createElement } from "react";
++import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type {
++  TimelineMarkerRow,
++  V4ConversationCompactSummaryResult,
++} from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
++import { ConversationRowView } from "@/v4/ConversationRowView.js";
++import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
++
++const row: TimelineMarkerRow = {
++  rowId: 12,
++  entityId: "op1",
++  turnId: "turn1",
++  kind: "timelineMarker",
++  createdAt: 1,
++  createdAtSeq: 1,
++  marker: {
++    type: "compact",
++    status: "success",
++    origin: "manual",
++    operationId: "op1",
++    summaryRef: "summary1",
++    tokensBefore: 10000,
++    tokensAfter: 2000,
++  },
++};
++function context(
++  overrides: Partial<ConversationRowRenderContext> = {},
++): ConversationRowRenderContext {
++  return {
++    workspacePath: "/repo",
++    workspaceIdentity: "workspace1",
++    sessionId: "s1",
++    logEpoch: "epoch1",
++    branchGeneration: 0,
++    theme: "light",
++    codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
++    ...overrides,
++  };
++}
++function element(
++  ctx: ConversationRowRenderContext,
++  markerRow = row,
++  locale: "en-US" | "zh-CN" = "en-US",
++) {
++  return createElement(ZCodeIntlProvider, {
++    initialLocale: locale,
++    children: createElement(ConversationRowView, { row: markerRow, context: ctx }),
++  });
++}
++afterEach(cleanup);
++
++describe("compact result marker", () => {
++  it.each(["en-US", "zh-CN"] as const)(
++    "formats integer estimates using the actual %s locale provider",
++    (locale) => {
++      const markerRow = {
++        ...row,
++        marker: { ...row.marker, tokensBefore: 12345.6, tokensAfter: 2345.1 },
++      } as TimelineMarkerRow;
++      const view = render(element(context(), markerRow, locale));
++      const format = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
++      expect(view.container.textContent).toContain(
++        `${format.format(12345.6)} → ${format.format(2345.1)}`,
++      );
++    },
++  );
++
++  it("defaults collapsed, lazily reads saved Markdown, and collapses without another row", async () => {
++    const read = vi.fn().mockResolvedValue({
++      status: "available",
++      markdown: "## Saved result\n\n**Durable** summary",
++    });
++    const view = render(element(context({ readCompactSummary: read })));
++    expect(read).not.toHaveBeenCalled();
++    expect(view.container.textContent).toContain("Manual");
++    expect(view.container.textContent).toContain("10,000 → 2,000");
++    const trigger = view.getByRole("button", { expanded: false });
++    fireEvent.click(trigger);
++    await waitFor(() => expect(view.getByRole("heading", { name: "Saved result" })).toBeTruthy());
++    expect(read).toHaveBeenCalledWith({
++      sessionId: "s1",
++      baseLogEpoch: "epoch1",
++      branchGeneration: 0,
++      rowId: 12,
++      operationId: "op1",
++      summaryRef: "summary1",
++    });
++    expect(view.container.querySelectorAll('[data-row-kind="timelineMarker"]')).toHaveLength(1);
++    fireEvent.click(view.getByRole("button", { expanded: true }));
++    expect(view.queryByRole("heading", { name: "Saved result" })).toBeNull();
++  });
++
++  it.each(["workspace", "session", "branch", "operation", "ref"])(
++    "ignores late success after %s identity changes",
++    async (change) => {
++      let finish!: (result: V4ConversationCompactSummaryResult) => void;
++      const read = vi.fn().mockImplementation(
++        () =>
++          new Promise<V4ConversationCompactSummaryResult>((resolve) => {
++            finish = resolve;
++          }),
++      );
++      const ctx = context({ readCompactSummary: read });
++      const view = render(element(ctx));
++      fireEvent.click(view.getByRole("button", { expanded: false }));
++      await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
++      const nextContext = {
++        ...ctx,
++        ...(change === "workspace"
++          ? { workspaceIdentity: "workspace2" }
++          : change === "session"
++            ? { sessionId: "s2" }
++            : change === "branch"
++              ? { branchGeneration: 1 }
++              : {}),
++      };
++      const nextRow =
++        change === "operation" || change === "ref"
++          ? ({
++              ...row,
++              marker: {
++                ...row.marker,
++                ...(change === "operation" ? { operationId: "op2" } : { summaryRef: "summary2" }),
++              },
++            } as TimelineMarkerRow)
++          : row;
++      view.rerender(element(nextContext, nextRow));
++      await act(async () => finish({ status: "available", markdown: "SECRET OLD SUMMARY" }));
++      expect(view.container.textContent).not.toContain("SECRET OLD SUMMARY");
++      expect(view.getByRole("button", { expanded: false })).toBeTruthy();
++    },
++  );
++
++  it("ignores late read errors on reused rows and exposes retryable current errors", async () => {
++    let fail!: (reason: Error) => void;
++    const read = vi
++      .fn()
++      .mockImplementationOnce(
++        () =>
++          new Promise((_resolve, reject) => {
++            fail = reject;
++          }),
++      )
++      .mockRejectedValue(new Error("private storage failure"));
++    const view = render(element(context({ readCompactSummary: read })));
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
++    view.rerender(element(context({ sessionId: "s2", readCompactSummary: read })));
++    await act(async () => fail(new Error("old private error")));
++    expect(view.container.textContent).not.toContain("Unable to load");
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    await waitFor(() => expect(view.container.textContent).toContain("Unable to load"));
++    expect(view.container.textContent).not.toContain("private");
++    expect(view.getByRole("button", { name: "Retry" })).toBeTruthy();
++  });
++
++  it("shows unavailable legacy summaries and unknown post-context estimates", async () => {
++    const old = {
++      ...row,
++      marker: { type: "compact", origin: "auto", status: "success", tokensBefore: 10000 },
++    } as TimelineMarkerRow;
++    const view = render(element(context(), old));
++    expect(view.container.textContent).toContain("10,000 → Unknown");
++    fireEvent.click(view.getByRole("button", { expanded: false }));
++    expect(view.container.textContent).toContain("Summary unavailable");
++  });
++
++  it.each(["running", "failed", "noop", "cancelled", "interrupted"] as const)(
++    "never offers a summary for %s",
++    (status) => {
++      const read = vi.fn();
++      const markerRow = { ...row, marker: { ...row.marker, status } } as TimelineMarkerRow;
++      const view = render(element(context({ readCompactSummary: read }), markerRow));
++      expect(view.queryByRole("button", { expanded: false })).toBeNull();
++      expect(read).not.toHaveBeenCalled();
++    },
++  );
++});
+diff --git a/packages/ui/test/v4ContextSourceUpdateNotice.test.ts b/packages/ui/test/v4ContextSourceUpdateNotice.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a3b9d1ca247ffc5353e5377be9a8ccb2e0ba35bd
+--- /dev/null
++++ b/packages/ui/test/v4ContextSourceUpdateNotice.test.ts
+@@ -0,0 +1,87 @@
++// @vitest-environment jsdom
++import { createElement } from "react";
++import { cleanup, render } from "@testing-library/react";
++import { afterEach, describe, expect, it } from "vitest";
++import type {
++  ContextSourceUpdateProjection,
++  TimelineMarkerRow,
++} from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
++import { ConversationRowView } from "@/v4/ConversationRowView.js";
++
++function renderNotice(
++  kind: ContextSourceUpdateProjection["kind"],
++  changes: ContextSourceUpdateProjection["changes"],
++) {
++  const row: TimelineMarkerRow = {
++    rowId: 12,
++    turnId: "turn1",
++    kind: "timelineMarker",
++    createdAt: 1,
++    createdAtSeq: 1,
++    marker: {
++      type: "contextSourceUpdate",
++      update: {
++        version: 1,
++        kind,
++        sourceKey: "PRIVATE CATALOG KEY",
++        revision: "a".repeat(64),
++        changes,
++      },
++    },
++  };
++  return render(
++    createElement(ZCodeIntlProvider, {
++      initialLocale: "en-US",
++      children: createElement(ConversationRowView, {
++        row,
++        context: {
++          workspacePath: "/repo",
++          theme: "light",
++          codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
++        },
++      }),
++    }),
++  );
++}
++
++afterEach(cleanup);
++describe("context source update notice", () => {
++  it.each(["skills", "agents", "mcp_tools", "instructions"] as const)(
++    "shows %s changes without a user bubble or body",
++    (kind) => {
++      const view = renderNotice(kind, [
++        { sourceKey: "PRIVATE ITEM KEY", label: "Safe item", change: "added" },
++        { sourceKey: "two", label: "Second", change: "replaced" },
++        { sourceKey: "three", label: "Old", change: "removed" },
++      ]);
++      expect(view.container.textContent).toContain("Safe item");
++      expect(view.container.textContent).toContain("Added");
++      expect(view.container.textContent).toContain("Changed");
++      expect(view.container.textContent).toContain("Removed");
++      expect(view.container.textContent).not.toContain("PRIVATE");
++      expect(view.container.textContent).not.toContain("a".repeat(64));
++      expect(view.container.querySelector('[data-row-kind="userInput"]')).toBeNull();
++      expect(view.container.querySelector('[data-marker-type="contextSourceUpdate"]')).toBeTruthy();
++      expect(view.container.querySelector("details")).toBeNull();
++    },
++  );
++
++  it("keeps a long item list collapsed behind a native disclosure", () => {
++    const view = renderNotice(
++      "skills",
++      Array.from({ length: 6 }, (_, index) => ({
++        sourceKey: `skills:${index}`,
++        label: `Item ${index}`,
++        change: "added" as const,
++      })),
++    );
++    const details = view.container.querySelector("details");
++    expect(details).not.toBeNull();
++    expect(details?.open).toBe(false);
++    expect(details?.hasAttribute("open")).toBe(false);
++    expect(details?.querySelector("summary")?.textContent).toBeTruthy();
++    expect(details?.querySelectorAll("li")).toHaveLength(6);
++  });
++});
 diff --git a/packages/ui/test/v4ConversationStatusPanel.test.ts b/packages/ui/test/v4ConversationStatusPanel.test.ts
 index 79a0fb4876bc9af54192e6987879540298e1ab02..e1b9f6a1459e36fd86d13bbcc4e71409cda8cfc4 100644
 --- a/packages/ui/test/v4ConversationStatusPanel.test.ts
