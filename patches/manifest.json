@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "5ab80f8e2a4f73750c53008f2a2d325f5dd45f73",
-  "tree": "a4b0dfe6c50e0fc0dd33b581904c4819cbfe8c10",
+  "sourceHead": "519a20e332d2707dcdd13d0b6c688b1557eda3f8",
+  "tree": "a0e90dc62e6a480aff3f06028a1f7a48f34402ca",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -23,7 +23,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "83515e235a421ebc26011261e3d17bfca39d58a8d64f13f91075601a13e60b47",
+      "sha256": "82d6cad92d504ea77bc2895a165490c3053af786c2aee354ffede6ebff5deecc",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",

@@ -11070,7 +11070,7 @@ index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9d
              ...(input.expectedAccountScope
                ? { expectedAccountScope: input.expectedAccountScope }
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
-index 8ad2b295513baf95b4d7b7b5c16499599f37828e..fc823aa3fe35dff039ab6ef9516ee3309141dd52 100644
+index 8ad2b295513baf95b4d7b7b5c16499599f37828e..bf4a1e6f69689e88600e74df2f92e533dc3ef97f 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
 @@ -12,6 +12,7 @@ import {
@@ -11081,7 +11081,24 @@ index 8ad2b295513baf95b4d7b7b5c16499599f37828e..fc823aa3fe35dff039ab6ef9516ee330
  import type { SendInputOptions } from "../app/types.js";
  import { repairPersistedRemoteSessionPaths, type TurnAttachment } from "@zcode/core";
  import {
-@@ -3490,6 +3491,11 @@ async function createRecord(
+@@ -168,6 +169,8 @@ interface SessionStartupPreferences {
+   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
+   nativeSearchEnhancementsEnabled: boolean;
+   toolSearchMode: AppToolSearchMode;
++  /** 高级设置显式选择的标题生成模型；缺席 = 继承会话当前模型。 */
++  titleGenerationModelSelection?: { providerId: string; modelId: string };
+   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
+ }
+ 
+@@ -3394,6 +3397,7 @@ async function resolveSessionStartupPreferences(
+     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
+     toolSearchMode: runtimePreferences.toolSearchMode,
++    titleGenerationModelSelection: runtimePreferences.titleGenerationModelSelection,
+     resolveInitialBashShellSelection: async () => {
+       const executionPreferences = await requestSessionRuntimePreferences(
+         context,
+@@ -3490,6 +3494,11 @@ async function createRecord(
        nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
        toolSearch: { mode: startupPreferences.toolSearchMode },
        modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
@@ -11093,7 +11110,7 @@ index 8ad2b295513baf95b4d7b7b5c16499599f37828e..fc823aa3fe35dff039ab6ef9516ee330
        // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
        // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
        ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
-@@ -3504,7 +3510,13 @@ async function createRecord(
+@@ -3504,7 +3513,13 @@ async function createRecord(
        // 永远命中，模型生成 title 的请求从不触发，侧边栏标题一直停在 first_input 的用户 query。
        // 这里补一份默认配置开启；具体是否生成仍由 runtime 按 parent/taskType/turnNumber 把关。
        // automation 执行会话显式关闭二次命名，避免回答内容覆盖原始用户 query 标题。
@@ -11108,7 +11125,7 @@ index 8ad2b295513baf95b4d7b7b5c16499599f37828e..fc823aa3fe35dff039ab6ef9516ee330
        workingDirectory: workspace.workspacePath,
        // 身份隔离与路径执行分开：core 只把 identity 写入 session.workspace_id，
        // workingDirectory 仍是远端机器上的实际路径；本地 workspace 保持 undefined。
-@@ -3564,6 +3576,9 @@ async function createRecord(
+@@ -3564,6 +3579,9 @@ async function createRecord(
      version: context.deps.version,
      modelIoFullRetentionEnabled: context.appRuntimePreferences.modelIoFullRetentionEnabled,
    });
