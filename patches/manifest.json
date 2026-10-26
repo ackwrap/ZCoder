@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "e3c13c793ad1c9d0d4fb777e3971d00ade97228c",
-  "tree": "98fa1c4f4e8f4f0a1b4f8093aba3264edc57203c",
+  "sourceHead": "bb8211263c483ff93f59f049414819c9901124f4",
+  "tree": "b59a854d84a44d652c88a2cccea4fbc48def17ba",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -261,21 +261,24 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "99b5dd69819ee9237e615048e1f3644878aa13b4d5dd06c43452deab0fd63dff",
+      "sha256": "7fa05ccb23337f52d7735c164afd9d6f08143dde17a4839fc2f2660d9a419bcf",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
         "docs/chat/assistant-latest-part-actions.md",
         "docs/chat/conversation-turn-view-model.md",
         "docs/compaction-profiles.md",
+        "docs/conversation-session-case-catalog.md",
         "docs/design/compact-result-details.md",
         "docs/design/context-source-update-notices.md",
         "docs/design/desktop-compaction-bridge.md",
         "docs/design/provider-model-resolution-policy.md",
         "docs/design/settings-compaction-minimal-integration.md",
+        "docs/plan-slash-command.md",
         "docs/provider-codex-device.md",
         "docs/provider-codex.md",
         "docs/provider-model-discovery.md",
+        "docs/rename-slash-command.md",
         "docs/session-context-and-mcp-diagnostics.md",
         "docs/session-resource-controls.md",
         "docs/status-panel-header-layout.md",
@@ -305,7 +308,7 @@
     {
       "file": "0005-packages-desktop.patch",
       "directory": "packages/desktop",
-      "sha256": "ed7aca4a3b42a4dadcbd4b96d81c90cc74a5aeafb0264f7a44a40d8f580f8897",
+      "sha256": "a96a1587953694e544f13085f509aa37d0d43becd0a232d03eff01841c07a946",
       "paths": [
         "packages/desktop/src/host/compaction-bridge/CONTRACT.md",
         "packages/desktop/src/host/compaction-bridge/contract.example.ts",
@@ -322,6 +325,7 @@
         "packages/desktop/test/e2e/coding-plan-team-usage.test.ts",
         "packages/desktop/test/e2e/coding-plan-upgrade-webview-refresh-provider.test.ts",
         "packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact.test.ts",
+        "packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan-shortcut.test.ts",
         "packages/desktop/test/e2e/e2ecase-regression.test.ts",
         "packages/desktop/test/e2e/helpers/coding-plan-upgrade.ts",
         "packages/desktop/test/e2e/helpers/desktop-app.ts",
@@ -466,7 +470,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "e821e5803f220378c1936de47248acf9f8da5585dea96de09aa081777fcb54bc",
+      "sha256": "2f359bac936f60f125a1753e09b989b68eb7d57f5a2b8ca18d4868819235e839",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -622,6 +626,7 @@
         "packages/ui/src/v4/slash-commands/messages.ts",
         "packages/ui/src/v4/slash-commands/model-effort.ts",
         "packages/ui/src/v4/slash-commands/module.ts",
+        "packages/ui/src/v4/slash-commands/rename.ts",
         "packages/ui/src/v4/slash-commands/rows.ts",
         "packages/ui/src/v4/slash-commands/transcript.ts",
         "packages/ui/src/v4/slash-commands/types.ts",
@@ -687,6 +692,7 @@
         "packages/ui/test/providerModelDiscovery.test.ts",
         "packages/ui/test/providerTemplatePicker.test.ts",
         "packages/ui/test/readScopeToolCallBlock.test.ts",
+        "packages/ui/test/renameSlashCommand.test.ts",
         "packages/ui/test/replaceableConversationTransport.test.ts",
         "packages/ui/test/selectionSideChatLoading.test.ts",
         "packages/ui/test/sessionDiagnostics.test.ts",
@@ -696,6 +702,7 @@
         "packages/ui/test/settingsPageConfig.test.ts",
         "packages/ui/test/settingsPageIntegratedTerminalShell.test.ts",
         "packages/ui/test/sidebarBottomActivity.test.ts",
+        "packages/ui/test/slashCommandHelpers.test.ts",
         "packages/ui/test/specs/header-side-pane-close.md",
         "packages/ui/test/specs/header-subagent-directory.md",
         "packages/ui/test/subagentDirectoryButton.test.ts",
@@ -713,6 +720,7 @@
         "packages/ui/test/v4ConversationTurnGroup.test.ts",
         "packages/ui/test/v4ExploreRunSummary.test.ts",
         "packages/ui/test/v4SessionPaneLayoutParity.test.ts",
+        "packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts",
         "packages/ui/test/v4StatusCapsuleSidePane.test.ts",
         "packages/ui/test/workspaceHeaderActionSection.test.ts",
         "packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts"

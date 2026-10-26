@@ -732,6 +732,19 @@ index 45d0eafd4f1597be9271f85651113d2d8bd71afe..42f58b34b877006f5c111196f3005a25
 +    await expect(marker.$('[data-testid^="v4-compact-details-"]')).not.toExist();
    });
  });
+diff --git a/packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan-shortcut.test.ts b/packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan-shortcut.test.ts
+index 4c467dad8f34ded90a0ccb3cc9d56aac857a3c0e..6fca801b306554e9697a5bdd3c469e2b7b05d9bb 100644
+--- a/packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan-shortcut.test.ts
++++ b/packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan-shortcut.test.ts
+@@ -45,7 +45,7 @@ async function enterSearch(text = "/plan") {
+   });
+   await $(PLAN_OPTION).waitForDisplayed({ timeout: 15000 });
+   expect(await $(PLAN_OPTION).getText()).toMatch(/计划模式|Plan mode/);
+-  expect(await $(PLAN_OPTION).getText()).not.toContain("/plan");
++  expect(await $(PLAN_OPTION).getText()).toContain("/plan");
+ }
+ 
+ async function assertSelected(expectedText: string) {
 diff --git a/packages/desktop/test/e2e/e2ecase-regression.test.ts b/packages/desktop/test/e2e/e2ecase-regression.test.ts
 index 5faf7be268944945527662b5f3726b7203429656..71a9c1747684fea91141193df70b4c56b6d167f7 100644
 --- a/packages/desktop/test/e2e/e2ecase-regression.test.ts

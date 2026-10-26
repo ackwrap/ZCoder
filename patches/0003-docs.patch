@@ -182,6 +182,19 @@ index 0000000000000000000000000000000000000000..b5acdc2757bfb8d92710c58caef920af
 +## 验收
 +
 +主会话运行定向检查，不重复不变测试，不运行全量构建。核心覆盖默认 detailed、七节 prompt、附加指令、精简预算/超预算最新组/工具配对、活动压缩 policy 快照与下一次更新；shared/协议覆盖默认值、边界校验、活跃及创建恢复、旧方法降级和串行同步；UI 覆盖导航位置、两选项、数字合法性及保存失败。交互验证采用真实组件和可观察的下一次压缩请求；没有真实桌面/移动平台证据时明确报告，mock 不证明所有平台兼容。
+diff --git a/docs/conversation-session-case-catalog.md b/docs/conversation-session-case-catalog.md
+index 7325653d6ce87bcbfe53e0b67edd8530f398defd..78568724f18f7f991864227f4f79270953c96d30 100644
+--- a/docs/conversation-session-case-catalog.md
++++ b/docs/conversation-session-case-catalog.md
+@@ -3375,7 +3375,7 @@ slash 建议构建与门禁细节由 focused 单测覆盖；locale 只验证中
+ | PSC05 | running 或 queued                           | 选中计划模式后另行发送                      | planPickerUsesCanonicalInbox | 选中仅编辑草稿；发送复用既有 admission / FIFO，无第二队列            | accepted |
+ | PSC06 | 任意可编辑 Composer                         | Escape 关闭列表；或直接发送原始 `/plan ...` | planPickerExplicitSelection  | Escape 保留输入不切模式；原文发送不剥离、不改模式                    | accepted |
+ | PSC07 | Composer 有正文、附件或 context             | 选中计划模式                                | planPickerPreservesDraft     | 只删除当前 slash token，其余内容保留，不拒绝附件/context             | accepted |
+-| PSC08 | slash picker 打开，含旧 CLI Plan 目录       | 搜索并选中计划模式                          | planPickerLocalAction        | 本地化操作名称；Tab / Enter / 点击等价；旧目录不覆盖操作             | accepted |
++| PSC08 | slash picker 打开，含旧 CLI Plan 目录       | 搜索并选中计划模式                          | planPickerLocalAction        | 名称固定 `/plan`、描述本地化；Tab / Enter / 点击等价；旧目录不覆盖操作             | accepted |
+ 
+ PL 维护真实键盘和鼠标操作、draft/existing、重复选择、附件标准发送、窄屏退出和原始文本发送。
+ parser / SessionPane / catalog focused tests 补充只读、mobile props 和旧目录兼容；PSC05 复用标准
 diff --git a/docs/design/compact-result-details.md b/docs/design/compact-result-details.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..86519a1cb04e6e66f56ee702207d0bf93910f102
@@ -323,6 +336,19 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +## 回归证据
 +
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
+diff --git a/docs/plan-slash-command.md b/docs/plan-slash-command.md
+index 2638266d6d8d31311f5546ffbbd2d21d41721b49..473fbbfcfbbca2f0e5783775928ab9510383b28a 100644
+--- a/docs/plan-slash-command.md
++++ b/docs/plan-slash-command.md
+@@ -3,7 +3,7 @@
+ ## 目标与交互
+ 
+ `/plan` 是输入框列表中「计划模式」操作的搜索词。选中它等价于开启工具栏的标准 Plan 开关。
+-列表展示本地化名称「计划模式 / Plan mode」和描述「开启计划模式 / Enable Plan mode」，不展示命令参数语法。
++列表名称固定展示 `/plan`，描述保留本地化「开启计划模式 / Enable Plan mode」，不展示命令参数语法。
+ 
+ | 操作 | 结果 |
+ | --- | --- |
 diff --git a/docs/provider-codex-device.md b/docs/provider-codex-device.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..807ce77ca02b85004435fcb65012e78b9006bb9f
@@ -511,6 +537,54 @@ index 0000000000000000000000000000000000000000..7292634657b399eb668e6b2284727986
 +8. 获取模型和添加模型属于同一标题操作区；说明默认折叠，刷新功能、失败反馈、键盘提示和切换后单实例语义不变。
 +9. 已有 Codex 配置离线解析即可得到已知工作窗口；目录失败/缺字段不退回 API 的 1.05M。连续刷新窗口增大或减小均更新，个人覆盖与禁用保持，切回智能、重命名、删除和文件重读后来源仍正确。
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
+diff --git a/docs/rename-slash-command.md b/docs/rename-slash-command.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..334d36c3bddffca5398c05b3c1262731242d5f20
+--- /dev/null
++++ b/docs/rename-slash-command.md
+@@ -0,0 +1,42 @@
++# Composer `/rename` 会话重命名命令
++
++## 目标与交互
++
++`/rename` 是 Composer 本地操作：把当前会话标题改成用户指定文本；不写入会话消息、不发给模型、不产生 user row。命令形态参考 opencode 的 `/rename <title>`。
++
++| 操作 | 结果 |
++| --- | --- |
++| `/` 面板选中 `/rename`（已有会话） | 标题改为当前项目名（workspace 路径末段），提示已重命名。 |
++| 发送 `/rename 新标题` | 标题改为 `新标题`，输入框清空，零模型请求。 |
++| 发送 `/rename`（无标题） | 标题改为当前项目名；项目名为空时提示需要标题。 |
++| 大小写与多余空白 | `/RENAME 新标题` 等价；标题折叠多余空白。 |
++| 草稿态（无 session） | 面板不展示；发送时提示先开始会话，不发送文本。 |
++| 只读态 | 面板不展示；发送时不拦截，按普通文本处理。 |
++| 带附件、context、引用或队列编辑 | 不拦截，按普通消息发送。 |
++| CLI catalog 存在同名 `rename` | 本地命令让位，不注册也不拦截。 |
++
++重命名经既有 v4 命令 `renameSession { title }` 下发，core 写 `titleSource: "custom"`；此后自动标题生成永久跳过，用户显式命名不被覆盖。
++
++## 边界与执行链路
++
++```mermaid
++flowchart TD
++  A[/rename 新标题] --> B{本地命令命中?}
++  B -- 否 --> C[普通 sendText]
++  B -- 是 --> D{有 session?}
++  D -- 否 --> E[toast: 先开始会话]
++  D -- 是 --> F[renameSession 命令]
++  F --> G[core setCustomSessionTitle]
++  G --> H[SessionTitleUpdated custom]
++  H --> I[v4 meta 与侧栏标题更新]
++```
++
++命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。不新增协议字段、不修改 CLI 命令目录、不改 `SlashCommandPlugin`。
++
++项目名取 `workspacePath` 的最后一段（`basenameFromPath`）；远程 workspace 同样使用路径末段，不读取磁盘。
++
++## 验收
++
++- 纯解析测试覆盖有/无标题、大小写、空白、非命令文本和 CLI 同名让位。
++- SessionPane 测试覆盖面板命令、成功下发、无标题回退项目名、草稿提示、只读不注册、附件透传不拦截。
++- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为，不产生额外模型请求。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..c9b95885eaa845407b09725bcd8cce89e1f0cc1c

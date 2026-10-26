@@ -9084,7 +9084,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220324689cf 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..e57c142f520b0f6479c312d74620a2c99de65d15 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9124,15 +9124,21 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
  import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
  import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
  import type { ConversationLatestTurnSummary } from "@/v4/conversationTimelineLiveTail.js";
-@@ -295,6 +292,7 @@ import {
+@@ -295,6 +292,13 @@ import {
    type V4VisibleSlashCommand,
  } from "@/v4/slashCommands.js";
  import { useSlashCommands } from "@/hooks/useSlashCommands.js";
 +import { openComposerModelMenu, useAutoCompactCommand, useCompatSlashCommands } from "./slash-commands/contract.js";
++import {
++  createRenameCommand,
++  parseRenameCommand,
++  renameCommandCopy,
++  resolveRenameTitle,
++} from "./slash-commands/rename.js";
  import { useV4Conversation } from "@/v4/V4ConversationContext.js";
  import { useConversationProjection } from "@/v4/useConversationProjection.js";
  import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
-@@ -308,7 +306,6 @@ import {
+@@ -308,7 +312,6 @@ import {
  import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
  import type { ChatErrorBannerModelConfigTarget } from "@/ChatErrorBanner.js";
  import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
@@ -9140,7 +9146,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
  import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
  import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
  import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
-@@ -336,6 +333,7 @@ import {
+@@ -336,6 +339,7 @@ import {
    buildSelectionSideChatKey,
    clearSelectionSideChat,
    createSelectionSideChat,
@@ -9148,7 +9154,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    isSelectionSideChatBlocked,
    registerSelectionSideChatOpener,
    setSelectionSideChatBlocked,
-@@ -346,6 +344,8 @@ import {
+@@ -346,6 +350,8 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
@@ -9157,7 +9163,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -668,6 +668,7 @@ export function SessionPane({
+@@ -668,6 +674,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -9165,7 +9171,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1145,7 @@ export function SessionPane({
+@@ -1144,6 +1151,7 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -9173,7 +9179,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1902,6 @@ export function SessionPane({
+@@ -1900,7 +1908,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -9181,7 +9187,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2356,12 @@ export function SessionPane({
+@@ -2355,6 +2362,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -9194,7 +9200,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2711,7 @@ export function SessionPane({
+@@ -2704,7 +2717,7 @@ export function SessionPane({
            return;
          }
  
@@ -9203,7 +9209,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2726,11 @@ export function SessionPane({
+@@ -2719,9 +2732,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -9216,7 +9222,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2775,7 @@ export function SessionPane({
+@@ -2766,7 +2781,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -9225,7 +9231,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2797,10 @@ export function SessionPane({
+@@ -2788,8 +2803,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -9237,7 +9243,44 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        return true;
      },
      [
-@@ -2863,6 +2874,16 @@ export function SessionPane({
+@@ -2853,16 +2870,61 @@ export function SessionPane({
+     [cliSlashCommandNames],
+   );
+ 
++  // `/rename`：本地命令复用既有 renameSession 下发；core 写 titleSource=custom，
++  // 之后的自动标题不会覆盖用户显式命名。
++  const renameCopy = useMemo(() => renameCommandCopy(locale), [locale]);
++  const handleRenameSession = useCallback(
++    (requestedTitle: string) => {
++      if (!sessionId) {
++        toast(renameCopy.needsSession);
++        return;
++      }
++      const title = resolveRenameTitle(requestedTitle, workspacePath);
++      if (!title) {
++        toast(renameCopy.needsTitle);
++        return;
++      }
++      void dispatchCommand("renameSession", { title }, sessionId)
++        .then((ack) => {
++          if (ack.status === "accepted" || ack.status === "duplicate") {
++            toast(renameCopy.renamed(title));
++            return;
++          }
++          toast(renameCopy.failed);
++        })
++        .catch(() => toast(renameCopy.failed));
++    },
++    [dispatchCommand, renameCopy, sessionId, workspacePath],
++  );
++
+   // Plan 选中即开启标准 Composer 开关，不能等发送时解析文本；与 /side 共用本地操作入口。
+   const appSlashCommands = useMemo<AppSlashCommand[] | undefined>(() => {
+     if (readOnly) return undefined;
+     const planAction: AppSlashCommand = {
+       value: "plan",
+-      label: intl.formatMessage({ id: "chat.slash.app.plan.label" }),
+       description: intl.formatMessage({ id: "chat.slash.app.plan.description" }),
        keywords: ["plan", "计划", "计划模式"],
        run: () => handleDraftSwitchMode("plan"),
      };
@@ -9251,27 +9294,50 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
 +        run: () => setMcpStatusOpen(true),
 +      },
 +    ].filter((command) => !cliSlashCommandNames.has(command.value));
++    // 草稿态还没有可命名的会话；只读态已在上面整体不注册命令。
++    const renameActions: AppSlashCommand[] = sessionId
++      ? [
++          createRenameCommand({
++            description: renameCopy.description,
++            run: () => handleRenameSession(""),
++          }),
++        ].filter((command) => !cliSlashCommandNames.has(command.value))
++      : [];
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2894,7 @@ export function SessionPane({
+@@ -2873,7 +2935,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
 -      return [planAction];
-+      return [planAction, ...mcpStatusActions];
++      return [planAction, ...mcpStatusActions, ...renameActions];
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2905,7 @@ export function SessionPane({
+@@ -2884,6 +2946,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
 +      ...mcpStatusActions,
++      ...renameActions,
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2982,6 +3004,8 @@ export function SessionPane({
+@@ -2893,10 +2957,12 @@ export function SessionPane({
+     cliSlashCommandNames,
+     handleDraftSwitchMode,
+     handleOpenSelectionSideConversation,
++    handleRenameSession,
+     intl,
+     isMobileTextInputViewport,
+     onOpenSelectionSideChat,
+     readOnly,
++    renameCopy,
+     selectionSideChat,
+     sessionId,
+   ]);
+@@ -2982,6 +3048,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -9280,7 +9346,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3060,6 +3084,8 @@ export function SessionPane({
+@@ -3060,6 +3128,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -9289,7 +9355,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3891,6 +3917,27 @@ export function SessionPane({
+@@ -3891,6 +3961,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -9317,7 +9383,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +3945,23 @@ export function SessionPane({
+@@ -3898,6 +3989,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -9335,13 +9401,20 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
 +          options?.source
 +        )
 +      ) {
++        if (!readOnly) {
++          const renameCommand = parseRenameCommand(text, cliSlashCommandNames);
++          if (renameCommand) {
++            handleRenameSession(renameCommand.title);
++            return "sent";
++          }
++        }
 +        const localResult = await autoCompactCommand.run(text);
 +        if (localResult) return localResult;
 +      }
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +3997,14 @@ export function SessionPane({
+@@ -3933,7 +4048,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -9351,13 +9424,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
 +      cliSlashCommandNames,
 +      dispatchSendText,
 +      focusTimelineToLatest,
++      handleRenameSession,
 +      intl,
++      readOnly,
 +      sessionId,
 +    ],
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4775,24 @@ export function SessionPane({
+@@ -4704,6 +4828,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -9382,7 +9457,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5032,8 @@ export function SessionPane({
+@@ -4943,7 +5085,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -9392,7 +9467,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5104,6 @@ export function SessionPane({
+@@ -5014,42 +5157,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -9435,7 +9510,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5536,15 @@ export function SessionPane({
+@@ -5482,11 +5589,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -9453,7 +9528,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5628,6 @@ export function SessionPane({
+@@ -5570,12 +5681,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -9466,7 +9541,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5680,14 @@ export function SessionPane({
+@@ -5628,6 +5733,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -9481,7 +9556,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..b20e00b8632225fd9176029528163220
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5819,39 @@ export function SessionPane({
+@@ -5759,6 +5872,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -10636,6 +10711,83 @@ index 0000000000000000000000000000000000000000..aca72c132778f5b6fe5d14b2a0a15e8a
 +  provides: ["compat-slash-commands-ui"],
 +  publicEntrypoints: ["contract.ts", "index.ts", "useCompatSlashCommands.ts"],
 +} as const;
+diff --git a/packages/ui/src/v4/slash-commands/rename.ts b/packages/ui/src/v4/slash-commands/rename.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a7ae8cc3d
+--- /dev/null
++++ b/packages/ui/src/v4/slash-commands/rename.ts
+@@ -0,0 +1,71 @@
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++import { basenameFromPath } from "@/lib/chatAttachmentMetadata.js";
++
++const RENAME_COMMAND_PATTERN = /^\/rename(?:\s+([\s\S]*))?$/iu;
++const RENAME_COMMAND_NAME = "rename";
++
++export interface RenameCommandCopy {
++  description: string;
++  needsSession: string;
++  needsTitle: string;
++  renamed(title: string): string;
++  failed: string;
++}
++
++export function renameCommandCopy(locale: string): RenameCommandCopy {
++  if (locale === "zh-CN") {
++    return {
++      description: "重命名当前会话；不带标题时使用项目名",
++      needsSession: "请先开始会话再重命名。",
++      needsTitle: "请输入新的会话标题。",
++      renamed: (title) => `已重命名为「${title}」`,
++      failed: "重命名会话失败。",
++    };
++  }
++  return {
++    description: "Rename this session; uses the project name when no title is given",
++    needsSession: "Start a session before renaming it.",
++    needsTitle: "Enter a new session title.",
++    renamed: (title) => `Renamed to "${title}"`,
++    failed: "Failed to rename the session.",
++  };
++}
++
++/**
++ * `/rename [title]` 是 Composer 本地命令：与 `/mcp` 一样在发送前拦截，不写入会话。
++ * CLI catalog 已有同名命令时让位，避免和 CLI 语义抢入口。
++ */
++export function parseRenameCommand(
++  text: string,
++  cliSlashCommandNames: ReadonlySet<string> = new Set(),
++): { title: string } | null {
++  const match = RENAME_COMMAND_PATTERN.exec(text.trim());
++  if (!match || cliSlashCommandNames.has(RENAME_COMMAND_NAME)) return null;
++  return { title: normalizeRenameTitle(match[1] ?? "") };
++}
++
++export function normalizeRenameTitle(value: string): string {
++  return value.replace(/\s+/gu, " ").trim();
++}
++
++/** 显式标题优先；省略时回退项目名（workspace 路径末段）。 */
++export function resolveRenameTitle(requestedTitle: string, workspacePath: string): string {
++  const requested = normalizeRenameTitle(requestedTitle);
++  return requested || normalizeRenameTitle(projectNameFromWorkspacePath(workspacePath));
++}
++
++export function projectNameFromWorkspacePath(workspacePath: string): string {
++  return workspacePath ? basenameFromPath(workspacePath) : "";
++}
++
++export function createRenameCommand(options: {
++  description: string;
++  run: () => void;
++}): AppSlashCommand {
++  return {
++    value: RENAME_COMMAND_NAME,
++    description: options.description,
++    keywords: ["rename", "title", "重命名", "标题", "项目名"],
++    run: options.run,
++  };
++}
 diff --git a/packages/ui/src/v4/slash-commands/rows.ts b/packages/ui/src/v4/slash-commands/rows.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..ced06b53ff54105a020bd2e0b55337a064c25014
@@ -16979,6 +17131,69 @@ index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbb
 +    expect(screen.queryByTestId("read-scope-label")).toBeNull();
 +  });
 +});
+diff --git a/packages/ui/test/renameSlashCommand.test.ts b/packages/ui/test/renameSlashCommand.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2806a27c4a9cf367f46d54d32d9cef56887b46df
+--- /dev/null
++++ b/packages/ui/test/renameSlashCommand.test.ts
+@@ -0,0 +1,57 @@
++import { describe, expect, it } from "vitest";
++import {
++  createRenameCommand,
++  normalizeRenameTitle,
++  parseRenameCommand,
++  projectNameFromWorkspacePath,
++  renameCommandCopy,
++  resolveRenameTitle,
++} from "../src/v4/slash-commands/rename.js";
++
++describe("/rename command", () => {
++  it.each([
++    ["/rename 深度审计会话", "深度审计会话"],
++    ["/RENAME 深度审计会话", "深度审计会话"],
++    ["  /rename   多  空白  ", "多 空白"],
++    ["/rename 带/斜杠 的标题", "带/斜杠 的标题"],
++    ["/rename", ""],
++  ])("parses %j", (input, title) => {
++    expect(parseRenameCommand(input)).toEqual({ title });
++  });
++
++  it.each(["/renamed 标题", "/rename-x", "rename 标题"])("ignores non-command text %j", (input) => {
++    expect(parseRenameCommand(input)).toBeNull();
++  });
++
++  it("yields to a CLI command with the same name", () => {
++    expect(parseRenameCommand("/rename 标题", new Set(["rename"]))).toBeNull();
++  });
++
++  it("falls back to the project name when no title is given", () => {
++    expect(resolveRenameTitle("", "/workspace/ZCode-plus")).toBe("ZCode-plus");
++    expect(resolveRenameTitle("  指定标题 ", "/workspace/ZCode-plus")).toBe("指定标题");
++  });
++
++  it.each([
++    ["/workspace/ZCode-plus", "ZCode-plus"],
++    ["C:\\work\\repo", "repo"],
++    ["", ""],
++  ])("derives the project name from %j", (path, name) => {
++    expect(projectNameFromWorkspacePath(path)).toBe(name);
++  });
++
++  it("normalizes titles without leaving empty segments", () => {
++    expect(normalizeRenameTitle("  a \n b  ")).toBe("a b");
++  });
++
++  it("keeps the command name visible in the panel", () => {
++    const command = createRenameCommand({ description: "d", run: () => {} });
++    expect(command).toMatchObject({ value: "rename", description: "d" });
++    expect(command.label).toBeUndefined();
++  });
++
++  it("localizes copy and keeps the requested title", () => {
++    expect(renameCommandCopy("zh-CN").renamed("标题")).toBe("已重命名为「标题」");
++    expect(renameCommandCopy("en-US").renamed("Title")).toBe('Renamed to "Title"');
++  });
++});
 diff --git a/packages/ui/test/replaceableConversationTransport.test.ts b/packages/ui/test/replaceableConversationTransport.test.ts
 index ef3ebb3245765122250fe48bea48056fee4b7bb1..8a21edceef5cd6964115c48d90761010daba6b4b 100644
 --- a/packages/ui/test/replaceableConversationTransport.test.ts
@@ -17814,6 +18029,39 @@ index 66ec697ec6f65034a94862d01c8eff1fcfa53445..abc735fa0ed347e8704367e8d92c67ca
  
      act(() => {
        controller.store.setState({ banner: null } as never);
+diff --git a/packages/ui/test/slashCommandHelpers.test.ts b/packages/ui/test/slashCommandHelpers.test.ts
+index 1efa12df2e6cfa7e1d3b631718705c01abf80774..954c0a9fc81fa9ada36072a563ebdaee1513da38 100644
+--- a/packages/ui/test/slashCommandHelpers.test.ts
++++ b/packages/ui/test/slashCommandHelpers.test.ts
+@@ -11,13 +11,21 @@ import {
+ } from "../src/slashCommandHelpers.js";
+ 
+ describe("slashCommandHelpers", () => {
+-  it("计划模式使用本地化操作名称，旧 CLI Plan 命令不能覆盖它", () => {
+-    const [action] = buildAppSlashCommandSuggestions([
+-      { value: "plan", label: "计划模式", description: "开启计划模式", run: () => {} },
+-    ]);
+-    expect(action).toMatchObject({ id: "app-slash:plan", value: "plan", label: "计划模式" });
+-    expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
+-  });
++  it.each(["开启计划模式", "Enable Plan mode"])(
++    "/plan 保留命令名和本地化描述 %s，旧 CLI Plan 命令不能覆盖它",
++    (description) => {
++      const [action] = buildAppSlashCommandSuggestions([
++        { value: "plan", description, run: () => {} },
++      ]);
++      expect(action).toMatchObject({
++        id: "app-slash:plan",
++        value: "plan",
++        label: "/plan",
++        description,
++      });
++      expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
++    },
++  );
+ 
+   it("buildSlashSuggestions 逐项展示 CLI catalog，不在 UI 维护内建白名单", () => {
+     const commands: ZCodeSlashCommand[] = [
 diff --git a/packages/ui/test/specs/header-side-pane-close.md b/packages/ui/test/specs/header-side-pane-close.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..61d324434fa9269419f2968b82a66e7dc9c3164c
@@ -19480,6 +19728,139 @@ index 9bce67c57e8672fae6dedc6b5bc8630724f59266..0315dc4c9ec543ce6adea80a2088be49
    it("anchors the back-to-bottom control to the composer dock above input", () => {
      const html = renderPane();
  
+diff --git a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
+index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10a2799c58 100644
+--- a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
++++ b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
+@@ -16,6 +16,7 @@ import type {
+   SessionConfigState,
+ } from "@zcode/shared/zcode-protocol-v4";
+ import { SessionPane } from "@/v4/SessionPane.js";
++import { buildAppSlashCommandSuggestions } from "@/slashCommandHelpers.js";
+ import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
+ import type { ConversationComposer } from "@/v4/ConversationComposer.js";
+ import type { V4InteractionDialogsProps } from "@/v4/V4InteractionDialogs.js";
+@@ -3306,7 +3307,9 @@ describe("SessionPane Plan picker action", () => {
+     const root = await renderPane(props);
+     const callsBefore = mocks.sendCommand.mock.calls.length;
+     const action = captured.composerProps?.appSlashCommands?.find((item) => item.value === "plan");
+-    expect(action).toMatchObject({ label: "计划模式", description: "开启计划模式" });
++    expect(buildAppSlashCommandSuggestions(action ? [action] : [])).toMatchObject([
++      { value: "plan", label: "/plan", description: "开启计划模式" },
++    ]);
+     await act(async () => {
+       action?.run();
+       action?.run();
+@@ -3371,6 +3374,109 @@ describe("SessionPane Plan picker action", () => {
+   );
+ });
+ 
++describe("SessionPane rename command", () => {
++  function liveProjection(): void {
++    projectionState.current = {
++      status: "live",
++      snapshot: makeSnapshot(),
++      subscriptionId: "sub-1",
++      lastError: null,
++      optimisticCommands: [],
++      loadingOlder: false,
++    };
++  }
++
++  it("registers /rename and renames to the project name", async () => {
++    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, { status: "accepted" }),
++    );
++    const root = await renderPane();
++    const action = captured.composerProps?.appSlashCommands?.find(
++      (item) => item.value === "rename",
++    );
++    expect(action).toMatchObject({
++      description: "重命名当前会话；不带标题时使用项目名",
++    });
++    await act(async () => {
++      action?.run();
++      await flushMicrotasks();
++    });
++    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual([
++      "renameSession",
++    ]);
++    expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
++      payload: { title: "workspace" },
++    });
++    expect(mocks.toast).toHaveBeenCalledWith("已重命名为「workspace」");
++    await act(async () => root.unmount());
++  });
++
++  it.each([
++    ["/rename 深度审计", "深度审计"],
++    ["/RENAME 深度审计", "深度审计"],
++    ["/rename", "workspace"],
++  ])("intercepts %s without sending text", async (text, title) => {
++    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, { status: "accepted" }),
++    );
++    const root = await renderPane();
++    await act(async () => {
++      expect(await captured.composerProps?.onSendText(text)).toBe("sent");
++      await flushMicrotasks();
++    });
++    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual([
++      "renameSession",
++    ]);
++    expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({ payload: { title } });
++    expect(mocks.toast).toHaveBeenCalledWith(`已重命名为「${title}」`);
++    await act(async () => root.unmount());
++  });
++
++  it("keeps attachments on the normal send path", async () => {
++    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, { status: "accepted" }),
++    );
++    const attachments = [
++      { ref: "zcode-artifact://a", fileName: "a.txt", mime: "text/plain", bytes: 1 },
++    ];
++    const root = await renderPane();
++    await act(async () => {
++      await captured.composerProps?.onSendText("/rename 深度审计", { attachments });
++      await flushMicrotasks();
++    });
++    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual(["sendText"]);
++    await act(async () => root.unmount());
++  });
++
++  it.each([{ sessionId: null }, { readOnly: true }])(
++    "does not offer or intercept rename with %j",
++    async (props) => {
++      liveProjection();
++      mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++        ackFor(envelope, { status: "accepted" }),
++      );
++      const root = await renderPane(props);
++      expect(
++        captured.composerProps?.appSlashCommands?.some((item) => item.value === "rename"),
++      ).not.toBe(true);
++      if (props.readOnly) {
++        await act(async () => {
++          await captured.composerProps?.onSendText("/rename 深度审计");
++          await flushMicrotasks();
++        });
++        // 只读态不下发写命令：既不能出现本地拦截，也不能下发 renameSession。
++        expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).not.toContain(
++          "renameSession",
++        );
++      }
++      await act(async () => root.unmount());
++    },
++  );
++});
++
+ describe("SessionPane Plan mode goal guard", () => {
+   it.each(["/goal", "/goal 保留这段输入", "/target 保留别名输入", "/goal resume"])(
+     "blocks %s before any conversation command is dispatched",
 diff --git a/packages/ui/test/v4StatusCapsuleSidePane.test.ts b/packages/ui/test/v4StatusCapsuleSidePane.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..36cb9b0a29cb71d67c0bbee7d60c6b3dbd769c0f
