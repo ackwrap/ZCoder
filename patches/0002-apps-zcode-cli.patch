@@ -527,6 +527,43 @@ index 202f09710ecb3f7806a5db9ec5921c9a017f27ea..511c718967a0c8370ee7aa7452636857
  ```text
  原始包装调用 -> 公共准入 -> 同 callID 的目标调用 + modelCallWrapper 标记
                         -> 内部历史 / 普通调度执行 / 目标事件 / SQLite
+diff --git a/apps/zcode-cli/docs/design/v2/tool/read-range-guidance.md b/apps/zcode-cli/docs/design/v2/tool/read-range-guidance.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10995b8060e77da3b4337af4520dbdc561feae19
+--- /dev/null
++++ b/apps/zcode-cli/docs/design/v2/tool/read-range-guidance.md
+@@ -0,0 +1,31 @@
++# Read 按任务范围读取的模型提示
++
++## 目标与边界
++
++Read 的 provider-visible 工具描述不再默认推荐不传 `offset` / `limit` 读取全文；参数说明不再把范围读取限定为“文件太大时才使用”。本次只改提示文案，不新增配置、不改变参数校验、实际读取范围、默认预算、read cache、权限或媒体处理。
++
++## 提示契约
++
++- 使用 `offset` 和 `limit` 读取任务相关代码段，并保留足够的周边上下文。
++- 相比很多零碎的小片段，优先一次读取较大的相关片段；这不是推荐读取整个文件。
++- 查找具体内容时，先用当前可用的内容搜索能力定位。不写死独立 `Grep`，因为内嵌搜索分支会隐藏独立 `Grep` / `Glob`，由 Bash 搜索命令承担搜索。
++- `offset` 说明起始行和范围用途，`limit` 说明最多读取行数和范围用途；不能再包含“Only provide if the file is too large to read at once”。
++- 需要全文件上下文时仍允许省略范围。此次提示调整不是强制分段策略，不保证任何模型每次都选择最省 token 的范围。
++- direct / embedded search 的注册描述，以及普通 / PDF 能力下的 turn 级 Read 描述和参数 schema，都必须保留相同的范围读取引导。
++- 绝对路径、默认行数说明、行号格式、图片/视频/PDF 能力和避免重复读取刚编辑文件等现有文案保持不变。
++
++## 接入与回滚
++
++工具描述继续由 core 的 `READ_PROVIDER_DESCRIPTION` 拥有；参数描述继续由 contracts 的 Read provider schema 拥有。直接替换这两个稳定声明处的字符串，不增加包装器、注册分支或运行时依赖。既有工具描述快照只同步被替换的一行，新测试集中在独立测试文件。回滚这些文案与对应回归期望即可，不涉及数据迁移。
++
++## 验收
++
++新回归测试覆盖 direct / embedded 注册描述、PDF 能力 true / false / 未提供时的 turn 级描述、普通与 PDF schema 的参数文案，以及省略范围和显式范围仍能通过既有输入校验。运行相关 Read / PDF 测试、定向格式与 Lint、CLI 类型和 Lint、变更架构检查。不涉及 UI 交互，不做真实点击验收。
++
++2026-10-26 本轮结果：
++
++- 实现前新回归为 7 失败、4 通过，失败点均为旧工具描述或参数文案；实现后 11 项全部通过。
++- Windows 相关测试为 57 通过、13 原有 strict-contract 跳过、6 个 PDF 路径断言失败；使用临时测试转换加载 HEAD 原版 Read handler，仍复现同名 6 项失败。差异为固定 `/tmp/report.pdf` 与 Windows 规范化 `\\tmp\\report.pdf`，不在本轮顺带修改。
++- 复用 WSL Rocky 和现有依赖，通过 `--pool=threads` 运行相同 5 个测试文件，63 通过、13 原有跳过。WSL Node 为现有 24.18.0，未安装或切换系统工具；默认 fork 模式受现有 Node launcher 影响无法启动 worker，因此使用线程模式。
++- Windows 既有工具描述投影用例定向运行通过；其余 40 项因 `-t` 过滤未执行，不计入通过数。
++- Windows Node 24.14.0 下 CLI 类型检查 32 项任务成功；报告已有 turbo 定位和 lockfile workspace 警告。定向格式与 Lint 通过，CLI 总 Lint 为 0 错误、81 条存量警告，架构检查为 0 违规。
 diff --git a/apps/zcode-cli/docs/design/v2/usage-observability.md b/apps/zcode-cli/docs/design/v2/usage-observability.md
 index 9ba22c575e1d43c45a419f05ecd8103c3347dee4..076c4eeadd8b6e103c62ad576cbbbc8137afd311 100644
 --- a/apps/zcode-cli/docs/design/v2/usage-observability.md
@@ -14724,6 +14761,43 @@ index 9d2e2123d108b33acc3f3c55ce34c4c9eaf20974..9ee19c916a3daa8b333e6bb89e4a19f5
 +    },
 +  );
 +}
+diff --git a/apps/zcode-cli/packages/contracts/src/tools/read.ts b/apps/zcode-cli/packages/contracts/src/tools/read.ts
+index 5e4410ed2c182ce82a93c97657adcdeaa532aa25..0073ee744c5e3d9c1446c650528d1cfeba7f1798 100644
+--- a/apps/zcode-cli/packages/contracts/src/tools/read.ts
++++ b/apps/zcode-cli/packages/contracts/src/tools/read.ts
+@@ -68,7 +68,7 @@ const ReadProviderInputBaseSchema = z.object({
+    */
+   file_path: z.string().describe("The absolute path to the file to read"),
+   /**
+-   * The line number to start reading from. Only provide if the file is too large to read at once
++   * The line number to start reading from (1-based). Use with limit to read a relevant section.
+    */
+   offset: z
+     .number()
+@@ -77,10 +77,10 @@ const ReadProviderInputBaseSchema = z.object({
+     .max(Number.MAX_SAFE_INTEGER)
+     .optional()
+     .describe(
+-      "The line number to start reading from. Only provide if the file is too large to read at once",
++      "The line number to start reading from (1-based). Use with limit to read a relevant section.",
+     ),
+   /**
+-   * The number of lines to read. Only provide if the file is too large to read at once.
++   * The maximum number of lines to read. Use with offset to read a relevant section.
+    */
+   limit: z
+     .number()
+@@ -88,9 +88,7 @@ const ReadProviderInputBaseSchema = z.object({
+     .positive()
+     .max(Number.MAX_SAFE_INTEGER)
+     .optional()
+-    .describe(
+-      "The number of lines to read. Only provide if the file is too large to read at once.",
+-    ),
++    .describe("The maximum number of lines to read. Use with offset to read a relevant section."),
+ });
+ 
+ const ReadProviderPdfInputSchema = ReadProviderInputBaseSchema.extend({
 diff --git a/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts b/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts
 index 67d0172960598be5e26eab7008c26c059fd34f97..b08aa78440af4610c87cac3655378c8ae57b515d 100644
 --- a/apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts
@@ -21493,6 +21567,19 @@ index 3de2a0c9d9d09c8bb343bcab31b2e95ba3ed9cc3..76e03364991df0c8a36f33e8d685ae75
  const GLOB_TOOL_DESCRIPTION =
    'Fast file pattern matching. Supports glob patterns like "**/*.js" or "src/**/*.ts". Returns matching file paths sorted by modification time.';
  
+diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/read.ts b/apps/zcode-cli/packages/core/src/tool/handlers/read.ts
+index 77503758a2d8e0a621755a70245efc21a6208614..45c1fd6831482c166ddab921fda7d3d6de785e8a 100644
+--- a/apps/zcode-cli/packages/core/src/tool/handlers/read.ts
++++ b/apps/zcode-cli/packages/core/src/tool/handlers/read.ts
+@@ -59,7 +59,7 @@ const READ_PROVIDER_DESCRIPTION = [
+   "",
+   "- `file_path` must be an absolute path.",
+   `- Reads up to ${READ_DEFAULT_MAX_LINES} lines by default.`,
+-  "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters",
++  "- Use offset and limit to read relevant sections with enough surrounding context. Prefer one larger relevant read over many small slices, and use available content search to locate specific content before reading.",
+   "- Results are returned using cat -n format, with line numbers starting at 1",
+   "- Reads images (PNG, JPG, …) and presents them visually.",
+   "- Reads videos (MP4, MOV, WEBM, …) and presents them as video input (subject to ZCode's video input limit).",
 diff --git a/apps/zcode-cli/packages/core/src/tool/handlers/send-message.ts b/apps/zcode-cli/packages/core/src/tool/handlers/send-message.ts
 index ad2843c4497b9976870e66ea95f330ac9e52c74b..f67307b456767d73358ff6dca2f638d3c661f5c3 100644
 --- a/apps/zcode-cli/packages/core/src/tool/handlers/send-message.ts
@@ -24753,6 +24840,104 @@ index 0000000000000000000000000000000000000000..55928071921e78290075cac04afe197c
 +    }
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts b/apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..08d44a1e810ce721db953e796dab2059faf9b3a2
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts
+@@ -0,0 +1,92 @@
++import { describe, expect, it } from "vitest";
++import {
++  ReadInputJsonSchema,
++  ReadInputSchema,
++  ReadPdfInputJsonSchema,
++  type JsonSchema,
++} from "@zcode/contracts";
++import { registerBuiltInTools } from "../src/tool/handlers/index.js";
++import { readToolEntry } from "../src/tool/handlers/read.js";
++import { createToolRegistry } from "../src/tool/registry.js";
++import { createTestRuntimeModel } from "./test-runtime-model.js";
++
++const RANGE_GUIDANCE =
++  "Use offset and limit to read relevant sections with enough surrounding context. Prefer one larger relevant read over many small slices, and use available content search to locate specific content before reading.";
++const OFFSET_DESCRIPTION =
++  "The line number to start reading from (1-based). Use with limit to read a relevant section.";
++const LIMIT_DESCRIPTION =
++  "The maximum number of lines to read. Use with offset to read a relevant section.";
++
++function expectRangeGuidance(description: string | undefined): void {
++  expect(description).toContain(RANGE_GUIDANCE);
++  expect(description).not.toMatch(/recommended to read the whole file|Only provide if/iu);
++  expect(description).not.toContain("Grep");
++}
++
++function expectRangeParameters(schema: JsonSchema | undefined): void {
++  expect(schema).toMatchObject({
++    properties: {
++      offset: { description: OFFSET_DESCRIPTION },
++      limit: { description: LIMIT_DESCRIPTION },
++    },
++  });
++}
++
++describe("Read range guidance", () => {
++  it.each([false, true])(
++    "keeps registry guidance consistent with embedded search %s",
++    (embeddedSearchEnabled) => {
++      const registry = createToolRegistry();
++      registerBuiltInTools(registry, { embeddedSearchEnabled });
++      const contract = registry.toContracts().find((tool) => tool.name === "Read");
++
++      expectRangeGuidance(contract?.description);
++      expectRangeParameters(contract?.inputSchema);
++      expect(registry.has("Grep")).toBe(!embeddedSearchEnabled);
++    },
++  );
++
++  it.each([undefined, false, true])(
++    "preserves range guidance in turn-level contracts with supportsPdf %s",
++    (supportsPdf) => {
++      const context =
++        supportsPdf === undefined
++          ? {}
++          : {
++              model: createTestRuntimeModel({
++                inputFormat: { supportsPdf },
++                generateText: async () => {
++                  throw new Error("Descriptor checks must not invoke the model");
++                },
++              }),
++            };
++      const contract = readToolEntry.resolveModelContract?.(context);
++
++      expectRangeGuidance(contract?.description);
++      expectRangeParameters(contract?.inputSchema);
++      expect(Boolean(contract?.description?.includes("- Reads PDFs"))).toBe(supportsPdf === true);
++      if (supportsPdf === true) {
++        expect(contract?.inputSchema).toHaveProperty("properties.pages");
++      } else {
++        expect(contract?.inputSchema).not.toHaveProperty("properties.pages");
++      }
++    },
++  );
++
++  it.each([ReadInputJsonSchema, ReadPdfInputJsonSchema])(
++    "exposes neutral range parameter descriptions in provider schemas",
++    (schema) => {
++      expectRangeParameters(schema);
++      expect(JSON.stringify(schema)).not.toContain("Only provide if the file is too large");
++    },
++  );
++
++  it.each([
++    { file_path: "/work/example.ts" },
++    { file_path: "/work/example.ts", offset: 1, limit: 80 },
++    { file_path: "/work/example.ts", offset: 0, limit: 1 },
++    { file_path: "/work/example.ts", limit: 20 },
++  ])("preserves existing input validation for %j", (input) => {
++    expect(ReadInputSchema.parse(input)).toEqual(input);
++  });
++});
 diff --git a/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts b/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts
 index 01179f8f8ad8e6e4cf9354fc771ef059f45e704a..2d0d637d61874cb5b54b7ec882df094b340246ea 100644
 --- a/apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts
@@ -25618,9 +25803,18 @@ index 9648b088ce1149b91aa6fc003e7dd1d56871f3b4..3145800af3ace049c94a13e09be473e2
      vi.stubEnv("TASK_MAX_OUTPUT_LENGTH", "160000");
      const sessionId = createSessionId("task-output-persist-failure");
 diff --git a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts b/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
-index 943ff0b80cda36bce38ca3d36bf5e6a06aa5131f..fbf34e0ebc806a906e66a444abd10f1af13ddf49 100644
+index 943ff0b80cda36bce38ca3d36bf5e6a06aa5131f..469006fb4a265cc2395c5a04d4ad53134efcd260 100644
 --- a/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
 +++ b/apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
+@@ -94,7 +94,7 @@ const SOURCE_DERIVED_READ_SHORT_DESCRIPTION = [
+   "",
+   "- `file_path` must be an absolute path.",
+   "- Reads up to 2000 lines by default.",
+-  "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters",
++  "- Use offset and limit to read relevant sections with enough surrounding context. Prefer one larger relevant read over many small slices, and use available content search to locate specific content before reading.",
+   "- Results are returned using cat -n format, with line numbers starting at 1",
+   "- Reads images (PNG, JPG, …) and presents them visually.",
+   // video 输入一期新增能力行：Read 支持读取视频作为模型输入。
 @@ -107,6 +107,7 @@ const SOURCE_DERIVED_SEND_MESSAGE_DESCRIPTION = [
    "# SendMessage",
    "",

@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "1430e668ed29271fbcbc327143f137d5352e64b2",
-  "tree": "ef9fe24a86e62db03a67430ccdad8af65f7a0632",
+  "sourceHead": "a0f8d19b8fb5cdd1b1f7fb779bd27954ae7d2c14",
+  "tree": "fc05b8acdfe44a0050eb87bcdb417242bd51df9d",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -23,7 +23,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "0335ad3c3c7f68517283eb458651ecf87f3044533dac457ccc811efec50d742b",
+      "sha256": "ccd1af47cf1d045037225f40af46b8410c06fed59aa4989ef2a0d8717bfe2ef4",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -37,6 +37,7 @@
         "apps/zcode-cli/docs/design/v2/tool/08-glob.md",
         "apps/zcode-cli/docs/design/v2/tool/13-websearch.md",
         "apps/zcode-cli/docs/design/v2/tool/19-tool-search.md",
+        "apps/zcode-cli/docs/design/v2/tool/read-range-guidance.md",
         "apps/zcode-cli/docs/design/v2/usage-observability.md",
         "apps/zcode-cli/packages/adapters/package.json",
         "apps/zcode-cli/packages/adapters/src/context/index.ts",
@@ -136,6 +137,7 @@
         "apps/zcode-cli/packages/contracts/src/model/index.ts",
         "apps/zcode-cli/packages/contracts/src/model/invocation-context.ts",
         "apps/zcode-cli/packages/contracts/src/model/model.ts",
+        "apps/zcode-cli/packages/contracts/src/tools/read.ts",
         "apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts",
         "apps/zcode-cli/packages/contracts/tests/context-source-contracts/contract.test.ts",
         "apps/zcode-cli/packages/core/src/agent/agent-listing-metadata.ts",
@@ -221,6 +223,7 @@
         "apps/zcode-cli/packages/core/src/tool/handlers/agent.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/deferred-tool-call.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/glob.ts",
+        "apps/zcode-cli/packages/core/src/tool/handlers/read.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/send-message.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/websearch-results.ts",
@@ -236,6 +239,7 @@
         "apps/zcode-cli/packages/core/tests/defensive-security/contract.test.ts",
         "apps/zcode-cli/packages/core/tests/dynamic-context-sources.test.ts",
         "apps/zcode-cli/packages/core/tests/instruction-file-updates.test.ts",
+        "apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts",
         "apps/zcode-cli/packages/core/tests/read-tool-contract.test.ts",
         "apps/zcode-cli/packages/core/tests/runtime-compact.test.ts",
         "apps/zcode-cli/packages/core/tests/session-limit/session-limit.test.ts",
