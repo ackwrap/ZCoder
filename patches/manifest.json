@@ -5,14 +5,14 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "a0f8d19b8fb5cdd1b1f7fb779bd27954ae7d2c14",
-  "tree": "fc05b8acdfe44a0050eb87bcdb417242bd51df9d",
+  "sourceHead": "e3c13c793ad1c9d0d4fb777e3971d00ade97228c",
+  "tree": "98fa1c4f4e8f4f0a1b4f8093aba3264edc57203c",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "6485053453214bac650013112bfc47a28188a2288d7317a3d1e15b47c4ed01ad",
+      "sha256": "92c6633fab0d3a53621097b3b110024c9bbdb366d5e975c74954810386c9ac89",
       "paths": [
         ".oxlintrc.json",
         "architecture-policy.yaml",
@@ -466,7 +466,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "6027635fd277ade88c4ff2b59cada0bee0c47e550cee7744208f585acfa185e7",
+      "sha256": "e821e5803f220378c1936de47248acf9f8da5585dea96de09aa081777fcb54bc",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -478,6 +478,16 @@
         "packages/ui/src/ToolCallBlocks/renderers/edit.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/execute.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/explore.tsx",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/CONTRACT.md",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/ReadScopeLabel.tsx",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.example.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.test.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/messages.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/module.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/scope.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read-scope/types.ts",
+        "packages/ui/src/ToolCallBlocks/renderers/read.tsx",
         "packages/ui/src/ToolCallBlocks/renderers/task-output.tsx",
         "packages/ui/src/ToolCallBlocks/toolResultDisplay.ts",
         "packages/ui/src/WorkspaceHeader.tsx",
@@ -676,6 +686,7 @@
         "packages/ui/test/providerAvailabilityLoginEntryGuard.test.ts",
         "packages/ui/test/providerModelDiscovery.test.ts",
         "packages/ui/test/providerTemplatePicker.test.ts",
+        "packages/ui/test/readScopeToolCallBlock.test.ts",
         "packages/ui/test/replaceableConversationTransport.test.ts",
         "packages/ui/test/selectionSideChatLoading.test.ts",
         "packages/ui/test/sessionDiagnostics.test.ts",

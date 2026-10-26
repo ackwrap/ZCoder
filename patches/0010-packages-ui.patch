@@ -878,6 +878,444 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
          expandedTitle={toolCall.title}
          renderContent={renderContent}
        />
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/CONTRACT.md b/packages/ui/src/ToolCallBlocks/renderers/read-scope/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..38feaf6856ce0d526130857aec3553d8d16247cd
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/CONTRACT.md
+@@ -0,0 +1,20 @@
++# Read scope display
++
++## Scope
++
++Read 卡片的只读范围投影，位于现有 renderer 包内。状态唯一来源是工具行的 input/output/raw，不读磁盘、不发请求、不缓存或改写工具结果。公开入口为 `contract.ts`。既有 Read renderer 只新增 import 和一次摘要尾部组件接入；文件预览、失败提示、卡片展开规则、CLI 和协议不变。
++
++## Display contract
++
++- 成功返回完整文本且可确认从文件开头读到末尾时显示「全文」。不能只因省略 offset/limit 就把运行中或未知结果标成全文。
++- 显式范围显示 `offset 200 · 59 行`；优先显示实际返回行数，少于请求行数时不夸大。offset 保留工具可见语义，包括旧版 offset 0。
++- 尚无结果、失败、停止或结果不可解析时显示请求语义：「全文请求」或 `offset 200 · 最多 59 行（请求）`；只给 offset 时显示「至文件末尾（请求）」。
++- 工具级 partial view、结构化 truncated 和 v4 视图截断都不得标为全文；可用真实范围时显示真实范围并附「已截断」，否则回退带截断标记的请求范围。
++- 新版 Read 成功文本为连续带行号的纯文本，未指定 limit 且 offset 省略或为 0/1、从首行开始、无部分视图提醒及截断时，对应当前 handler 的完整读取；结构化旧结果以 startLine/numLines/totalLines 判断完整性。混杂未知内容或行号不连续时不推断实际范围。
++- 支持 v4 的 output.text 适配后字符串、旧版结构化 output，以及 raw.rawInput/raw.rawOutput；不从 shell parsed_cmd 猜范围。不完整的流式 input 不显示标识。
++- 图片、视频、PDF、Notebook 和目录不显示文本行范围。空文件或无法证明范围的历史输出只展示请求语义，不虚构实际行数。
++- 中英双语文案放在本模块新文件中；使用现有语义颜色和 text-ui-xs，标识为不可交互文本，文件名按钮仍独立可用。
++
++## Verification
++
++纯投影测试覆盖完整/范围/EOF/截断/流式/失败/媒体/legacy；真实 Read renderer 和 v4 row adapter 的 DOM 测试覆盖可见文案、流式更新、两种语言及预览回调不变。不做真实点击验收，不修改真实会话或日志。类型、定向 Lint/格式、架构检查和完整补丁队列重放按本轮范围执行。
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/ReadScopeLabel.tsx b/packages/ui/src/ToolCallBlocks/renderers/read-scope/ReadScopeLabel.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb32a1465307fb3ad3b78407ea8b257e311fb6f3
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/ReadScopeLabel.tsx
+@@ -0,0 +1,20 @@
++import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++import type { ReadScopeSource } from "./types.js";
++import { formatReadScope } from "./messages.js";
++import { resolveReadScope } from "./scope.js";
++
++export function ReadScopeLabel({ toolCall }: { toolCall: ReadScopeSource }) {
++  const { locale } = useZCodeIntl();
++  const scope = resolveReadScope(toolCall);
++  if (!scope) return null;
++  const label = formatReadScope(scope, locale);
++  return (
++    <span
++      data-testid="read-scope-label"
++      className="shrink-0 whitespace-nowrap text-ui-xs text-foreground-subtle"
++      title={label}
++    >
++      {label}
++    </span>
++  );
++}
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.example.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b174eac8463dd344b2883ff1bcc00dd8456c3c8e
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.example.ts
+@@ -0,0 +1,7 @@
++import { resolveReadScope } from "./contract.js";
++
++export const readRangeExample = resolveReadScope({
++  input: { file_path: "/workspace/example.ts", offset: 200, limit: 59 },
++  output: "200\tfirst\n201\tsecond",
++  status: "completed",
++});
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.test.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ad78ca4a1ca99a09a4d064e894a76bc02713e0a
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.test.ts
+@@ -0,0 +1,160 @@
++import { describe, expect, it } from "vitest";
++import { resolveReadScope, type ReadScopeSource } from "./contract.js";
++import { readScopeUiModule } from "./module.js";
++
++const base: ReadScopeSource = {
++  input: { file_path: "/workspace/example.ts" },
++  output: "1\tfirst\n2\tsecond",
++  status: "completed",
++};
++
++describe("read-scope-ui contract", () => {
++  it("declares its module manifest", () => {
++    expect(readScopeUiModule.id).toBe("read-scope-ui");
++  });
++
++  it("marks confirmed unbounded text as full", () => {
++    expect(resolveReadScope(base)).toEqual({ kind: "full", truncated: false });
++  });
++
++  it.each([
++    [0, "0\tfirst", 0, 1],
++    [200, "200\tfirst\n201\tsecond", 200, 2],
++  ] as const)(
++    "preserves offset %s and actual line count",
++    (offset, output, expectedOffset, lines) => {
++      expect(
++        resolveReadScope({
++          ...base,
++          input: { file_path: "/workspace/example.ts", offset, limit: 59 },
++          output,
++        }),
++      ).toEqual({ kind: "range", offset: expectedOffset, lines, truncated: false });
++    },
++  );
++
++  it("recognizes full coverage from structured counts even with explicit limit", () => {
++    expect(
++      resolveReadScope({
++        ...base,
++        input: { file_path: "/workspace/example.ts", limit: 100 },
++        output: { type: "text", startLine: 1, numLines: 2, totalLines: 2 },
++      }),
++    ).toEqual({ kind: "full", truncated: false });
++  });
++
++  it.each([true, false])(
++    "does not equate a structured range with full coverage (truncated=%s)",
++    (truncated) => {
++      expect(
++        resolveReadScope({
++          ...base,
++          output: { type: "text", startLine: 1, numLines: 2, totalLines: 8, truncated },
++        }),
++      ).toEqual({ kind: "range", offset: 1, lines: 2, truncated });
++    },
++  );
++
++  it("recognizes serialized structured results", () => {
++    expect(
++      resolveReadScope({
++        ...base,
++        output: JSON.stringify({ type: "text", startLine: 200, numLines: 0, totalLines: 100 }),
++      }),
++    ).toEqual({ kind: "range", offset: 200, lines: 0, truncated: false });
++  });
++
++  it("supports legacy raw input and structured raw output", () => {
++    expect(
++      resolveReadScope({
++        input: undefined,
++        status: "completed",
++        raw: {
++          rawInput: { filePath: "/workspace/example.ts", offset: 3, limit: 8 },
++          rawOutput: { type: "text", startLine: 3, numLines: 4, totalLines: 6 },
++        },
++      }),
++    ).toEqual({ kind: "range", offset: 3, lines: 4, truncated: false });
++  });
++
++  it("retains requested ranges for unchanged results without actual counts", () => {
++    expect(
++      resolveReadScope({
++        ...base,
++        input: { file_path: "/workspace/example.ts", offset: 3 },
++        output: "Wasted call — file unchanged since your last Read.",
++      }),
++    ).toEqual({ kind: "request-range", offset: 3, truncated: false });
++  });
++
++  it.each(["pending", "in_progress", "failed", "stopped"])(
++    "never claims actual coverage for %s",
++    (status) => {
++      expect(resolveReadScope({ ...base, status })).toEqual({
++        kind: "request-full",
++        truncated: false,
++      });
++    },
++  );
++
++  it("does not label incomplete input previews", () => {
++    expect(resolveReadScope({ ...base, raw: { inputPreviewComplete: false } })).toBeNull();
++  });
++
++  it("does not infer complete coverage from discontinuous text", () => {
++    expect(resolveReadScope({ ...base, output: "1\tfirst\n800\tlast" })).toEqual({
++      kind: "request-full",
++      truncated: false,
++    });
++  });
++
++  it.each(["1\tfirst\n…", "Read stopped\n1\tfirst", "1\tfirst\nunknown tail"])(
++    "does not infer actual coverage from mixed or cut-off text %s",
++    (output) => {
++      expect(resolveReadScope({ ...base, output })).toEqual({
++        kind: "request-full",
++        truncated: false,
++      });
++    },
++  );
++
++  it.each([0, 1])("recognizes an unbounded read from offset %s as full", (offset) => {
++    expect(
++      resolveReadScope({ ...base, input: { file_path: "/workspace/example.ts", offset } }),
++    ).toEqual({ kind: "full", truncated: false });
++  });
++
++  it.each([
++    "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>",
++    "<system-reminder>Warning: the file exists but is shorter than the provided offset (200). The file has 100 lines.</system-reminder>",
++  ])("keeps warning-only output conservative", (output) => {
++    expect(resolveReadScope({ ...base, output })).toEqual({
++      kind: "request-full",
++      truncated: false,
++    });
++  });
++
++  it.each(["image.png", "report.pdf", "video.mp4", "book.ipynb"])(
++    "excludes media path %s",
++    (name) => {
++      expect(resolveReadScope({ ...base, input: { file_path: `/workspace/${name}` } })).toBeNull();
++    },
++  );
++
++  it.each([
++    { output: { type: "directory" } },
++    { output: "<path>/workspace</path>\n<type>directory</type>\n<content>example.ts</content>" },
++    { input: { file_path: "/workspace", fileType: "directory" } },
++  ])("does not label directory projections %j", (overrides) => {
++    expect(resolveReadScope({ ...base, ...overrides })).toBeNull();
++  });
++
++  it.each([
++    { file_path: "/workspace", type: "directory" },
++    { file_path: "/workspace/example.ts", offset: -1 },
++    { file_path: "/workspace/example.ts", limit: 0 },
++    { parsed_cmd: [{ type: "read", path: "example.ts" }] },
++  ])("omits unsupported or invalid inputs %j", (input) => {
++    expect(resolveReadScope({ ...base, input })).toBeNull();
++  });
++});
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..40784c4907ec77b450f70769e5eabbc7843ea086
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/contract.ts
+@@ -0,0 +1,3 @@
++export type { ReadScope, ReadScopeSource } from "./types.js";
++export { resolveReadScope } from "./scope.js";
++export { ReadScopeLabel } from "./ReadScopeLabel.js";
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/messages.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/messages.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..220006786969424ae7d98558fc55453e77f0c22c
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/messages.ts
+@@ -0,0 +1,31 @@
++import type { ReadScope } from "./types.js";
++
++export function formatReadScope(scope: ReadScope, locale: string): string {
++  const chinese = locale === "zh-CN";
++  const lineCount = (count: number) =>
++    chinese ? `${count} 行` : `${count} ${count === 1 ? "line" : "lines"}`;
++  let label: string;
++  switch (scope.kind) {
++    case "full":
++      label = chinese ? "全文" : "Full file";
++      break;
++    case "range":
++      label = `offset ${scope.offset} · ${lineCount(scope.lines)}`;
++      break;
++    case "request-full":
++      label = chinese ? "全文请求" : "Full file requested";
++      break;
++    case "request-range":
++      label = `offset ${scope.offset} · ${
++        scope.limit === undefined
++          ? chinese
++            ? "至文件末尾（请求）"
++            : "to end of file (requested)"
++          : chinese
++            ? `最多 ${lineCount(scope.limit)}（请求）`
++            : `up to ${lineCount(scope.limit)} (requested)`
++      }`;
++      break;
++  }
++  return scope.truncated ? `${label} · ${chinese ? "已截断" : "truncated"}` : label;
++}
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/module.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4161b1a3425469084fd86f505cafcd4ff77f2635
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/module.ts
+@@ -0,0 +1,6 @@
++export const readScopeUiModule = {
++  id: "read-scope-ui",
++  requires: ["ui"],
++  provides: ["read-scope-ui"],
++  publicEntrypoints: ["contract.ts"],
++} as const;
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/scope.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/scope.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..86cb243ff2e72642e98b78e3eedf2c178efc2d6f
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/scope.ts
+@@ -0,0 +1,105 @@
++import type { ReadScope, ReadScopeSource } from "./types.js";
++
++function record(value: unknown): Record<string, unknown> | undefined {
++  return typeof value === "object" && value !== null && !Array.isArray(value)
++    ? (value as Record<string, unknown>)
++    : undefined;
++}
++
++function integer(value: unknown): number | undefined {
++  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
++}
++
++function parseOutput(value: unknown): unknown {
++  if (typeof value !== "string" || !value.trimStart().startsWith("{")) return value;
++  try {
++    return JSON.parse(value);
++  } catch {
++    return value;
++  }
++}
++
++function numberedRange(text: string): { offset: number; lines: number } | undefined {
++  let offset: number | undefined;
++  let lines = 0;
++  const content = text.replace(/^<system-reminder>[^]*?<\/system-reminder>\r?\n\r?\n/u, "");
++  for (const line of content.split(/\r?\n/u)) {
++    const match = /^\s*(\d+)\t/u.exec(line);
++    if (!match) return undefined;
++    const number = Number(match[1]);
++    if (!Number.isSafeInteger(number)) return undefined;
++    offset ??= number;
++    if (number !== offset + lines) return undefined;
++    lines += 1;
++  }
++  return offset === undefined ? undefined : { offset, lines };
++}
++
++export function resolveReadScope(source: ReadScopeSource): ReadScope | null {
++  const raw = record(source.raw);
++  if (raw?.inputPreviewComplete === false) return null;
++  const input = record(source.input) ?? record(raw?.rawInput);
++  if (!input || Array.isArray(input.parsed_cmd)) return null;
++  const path = input.file_path ?? input.filePath ?? input.path ?? input.filename;
++  if (typeof path !== "string") return null;
++  if (/\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|m4v|mov|webm|mkv|avi|ipynb)$/iu.test(path)) return null;
++  if (
++    input.pages !== undefined ||
++    /^(?:dir|directory|folder)$/iu.test(
++      String(input.entryType ?? input.fileType ?? input.type ?? ""),
++    )
++  )
++    return null;
++
++  const offset = integer(input.offset);
++  const limit = integer(input.limit);
++  if ((input.offset !== undefined && offset === undefined) || (input.limit !== undefined && !limit))
++    return null;
++  const ranged = input.offset !== undefined || limit !== undefined;
++  const requested = (truncated: boolean): ReadScope =>
++    ranged
++      ? {
++          kind: "request-range",
++          offset: offset ?? 1,
++          ...(limit === undefined ? {} : { limit }),
++          truncated,
++        }
++      : { kind: "request-full", truncated };
++  if (!/^(?:completed|success)$/u.test(source.status)) return requested(false);
++
++  const output = parseOutput(source.output ?? raw?.rawOutput);
++  const structured = record(output);
++  if (structured && /^(?:image|video|pdf|parts|notebook|directory)$/u.test(String(structured.type)))
++    return null;
++  const text =
++    typeof output === "string"
++      ? output
++      : typeof structured?.content === "string"
++        ? structured.content
++        : typeof structured?.text === "string"
++          ? structured.text
++          : "";
++  if (/(?:^|\n)<type>\s*(?:dir|directory|folder)\s*<\/type>/iu.test(text)) return null;
++  const transportTruncated = Boolean(raw?.outputTruncated);
++  const truncated =
++    transportTruncated ||
++    structured?.truncated === true ||
++    structured?.truncatedByTokenCap === true ||
++    Boolean(structured?.partialViewNotice) ||
++    /(?:^|\n)(?:<|&lt;)system-reminder>[^\n]*(?:partial view|truncat)/iu.test(text);
++  if (transportTruncated) return requested(true);
++
++  const start = integer(structured?.startLine);
++  const count = integer(structured?.numLines);
++  const total = integer(structured?.totalLines);
++  if (start !== undefined && count !== undefined) {
++    if (!truncated && start <= 1 && total !== undefined && count >= total)
++      return { kind: "full", truncated: false };
++    return { kind: "range", offset: start, lines: count, truncated };
++  }
++  const returned = numberedRange(text);
++  if (!returned) return requested(truncated);
++  if (limit === undefined && (offset ?? 1) <= 1 && !truncated && returned.offset <= 1)
++    return { kind: "full", truncated: false };
++  return { kind: "range", ...returned, truncated };
++}
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read-scope/types.ts b/packages/ui/src/ToolCallBlocks/renderers/read-scope/types.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0843481c3d73f3845e31709826f0d17f1bc2d1a2
+--- /dev/null
++++ b/packages/ui/src/ToolCallBlocks/renderers/read-scope/types.ts
+@@ -0,0 +1,12 @@
++export interface ReadScopeSource {
++  input: unknown;
++  output?: unknown;
++  raw?: unknown;
++  status: string;
++}
++
++export type ReadScope =
++  | { kind: "full"; truncated: false }
++  | { kind: "range"; offset: number; lines: number; truncated: boolean }
++  | { kind: "request-full"; truncated: boolean }
++  | { kind: "request-range"; offset: number; limit?: number; truncated: boolean };
+diff --git a/packages/ui/src/ToolCallBlocks/renderers/read.tsx b/packages/ui/src/ToolCallBlocks/renderers/read.tsx
+index 461b7c13daaaea1944fbff1fa4abf23023be18d0..3480ca2fa38f848c1146ebfa6c158fe103c9bfac 100644
+--- a/packages/ui/src/ToolCallBlocks/renderers/read.tsx
++++ b/packages/ui/src/ToolCallBlocks/renderers/read.tsx
+@@ -7,6 +7,7 @@ import {
+ } from "@/lib/fileDisplay.js";
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ import { ToolLayout } from "../ToolLayout.js";
++import { ReadScopeLabel } from "./read-scope/contract.js";
+ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+ import type { ToolCallBlockRenderContext } from "../shared.js";
+ import { renderFilePath } from "../shared.js";
+@@ -292,6 +293,7 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
+         primaryText={primaryText}
+         prioritizePrimaryText
+         secondaryText={summary ? renderFilePath(summary.filePath) : undefined}
++        diffCount={<ReadScopeLabel toolCall={toolCall} />}
+         statusLabel={statusLabel}
+         statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+         showFailureStatus={toolCall.status === "failed"}
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx b/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx
 index 6d7c206c6d5a537e37823701053111ed33c3ffba..6a96c106a4f9df926b69b1a2f9a448e587555845 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/task-output.tsx
@@ -16356,6 +16794,191 @@ index 66b2c366ecd358a73f5540a58ab9b45b6cd89f39..b4db0b9ae965713dae4ff3cacf8513da
      expect(html).toContain("深度求索");
      expect(html).toContain("Alibaba Model Studio (International)");
      expect(html.indexOf("深度求索")).toBeLessThan(
+diff --git a/packages/ui/test/readScopeToolCallBlock.test.ts b/packages/ui/test/readScopeToolCallBlock.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbbc1881551
+--- /dev/null
++++ b/packages/ui/test/readScopeToolCallBlock.test.ts
+@@ -0,0 +1,179 @@
++// @vitest-environment jsdom
++
++import { createElement } from "react";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { ToolCallBlock } from "../src/ToolCallBlocks.js";
++import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
++
++afterEach(cleanup);
++
++function row(overrides: Partial<ToolCallRow> = {}): ToolCallRow {
++  return {
++    rowId: 1,
++    turnId: "turn-read-scope",
++    createdAt: 1,
++    createdAtSeq: 1,
++    kind: "toolCall",
++    toolCallId: "read-scope",
++    toolName: "Read",
++    status: "success",
++    inputText: '{"file_path":"/workspace/example.ts"}',
++    input: { file_path: "/workspace/example.ts" },
++    output: { text: "1\tfirst\n2\tsecond" },
++    ...overrides,
++  };
++}
++
++function card(value: ToolCallRow, locale: "zh-CN" | "en-US" = "zh-CN", onOpenCodeViewer = vi.fn()) {
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: locale },
++    createElement(ToolCallBlock, {
++      toolCallNode: toolCallRowToLegacyNode(value),
++      workspacePath: "/workspace",
++      onOpenCodeViewer,
++    }),
++  );
++}
++
++describe("Read scope in actual tool cards", () => {
++  it("marks a completed whole text read beside the file name", () => {
++    render(card(row()));
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("全文");
++    expect(screen.getByRole("button", { name: "example.ts" })).toBeTruthy();
++  });
++
++  it("shows the actual returned range instead of the requested maximum", () => {
++    render(
++      card(
++        row({
++          input: { file_path: "/workspace/example.ts", offset: 200, limit: 59 },
++          output: { text: "200\tfirst\n201\tsecond" },
++        }),
++      ),
++    );
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("offset 200 · 2 行");
++  });
++
++  it("updates a requested whole read to a truncated actual range", () => {
++    const view = render(card(row({ status: "running", output: undefined })));
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("全文请求");
++    view.rerender(
++      card(
++        row({
++          output: {
++            text: "<system-reminder>Showing a partial view of lines 1-2 of 800.</system-reminder>\n\n1\tfirst\n2\tsecond",
++          },
++        }),
++      ),
++    );
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("offset 1 · 2 行 · 已截断");
++  });
++
++  it("does not mistake a transport-truncated preview for a full file", () => {
++    render(
++      card(
++        row({
++          output: {
++            text: "1\tfirst\n…\n800\tlast",
++            truncated: { totalBytes: 90_000, ref: "tool-output/read-scope" },
++          },
++        }),
++      ),
++    );
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("全文请求 · 已截断");
++  });
++
++  it("uses request wording for failed range reads", () => {
++    render(
++      card(
++        row({
++          status: "error",
++          input: { file_path: "/workspace/example.ts", offset: 60, limit: 60 },
++          output: undefined,
++          error: { code: "read_failed", message: "File does not exist" },
++        }),
++      ),
++    );
++    expect(screen.getByTestId("read-scope-label").textContent).toBe(
++      "offset 60 · 最多 60 行（请求）",
++    );
++  });
++
++  it("keeps range metadata visible in English", () => {
++    render(
++      card(
++        row({
++          input: { file_path: "/workspace/example.ts", limit: 60 },
++          output: { text: "1\tfirst" },
++        }),
++        "en-US",
++      ),
++    );
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("offset 1 · 1 line");
++  });
++
++  it.each([
++    [{ status: "running", output: undefined }, "Full file requested"],
++    [
++      {
++        input: { file_path: "/workspace/example.ts", offset: 4 },
++        status: "running",
++        output: undefined,
++      },
++      "offset 4 · to end of file (requested)",
++    ],
++    [
++      {
++        input: { file_path: "/workspace/example.ts", limit: 4 },
++        status: "running",
++        output: undefined,
++      },
++      "offset 1 · up to 4 lines (requested)",
++    ],
++    [{}, "Full file"],
++  ] satisfies [Partial<ToolCallRow>, string][])(
++    "localizes request and full-file labels %j",
++    (overrides, label) => {
++      render(card(row(overrides), "en-US"));
++      expect(screen.getByTestId("read-scope-label").textContent).toBe(label);
++    },
++  );
++
++  it("waits for complete input before showing scope during streaming", () => {
++    const view = render(
++      card(
++        row({
++          status: "running",
++          input: undefined,
++          inputText: '{"file_path":"/workspace/ex',
++          output: undefined,
++        }),
++      ),
++    );
++    expect(screen.queryByTestId("read-scope-label")).toBeNull();
++    view.rerender(card(row({ status: "running", output: undefined })));
++    expect(screen.getByTestId("read-scope-label").textContent).toBe("全文请求");
++  });
++
++  it("keeps the existing file preview callback", () => {
++    const open = vi.fn();
++    render(card(row(), "zh-CN", open));
++    fireEvent.click(screen.getByRole("button", { name: "example.ts" }));
++    expect(open).toHaveBeenCalledWith({
++      type: "file",
++      title: "example.ts",
++      path: "/workspace/example.ts",
++    });
++  });
++
++  it("does not attach text range labels to image reads", () => {
++    render(
++      card(row({ input: { file_path: "/workspace/example.png" }, output: { text: "Read image" } })),
++    );
++    expect(screen.queryByTestId("read-scope-label")).toBeNull();
++  });
++});
 diff --git a/packages/ui/test/replaceableConversationTransport.test.ts b/packages/ui/test/replaceableConversationTransport.test.ts
 index ef3ebb3245765122250fe48bea48056fee4b7bb1..8a21edceef5cd6964115c48d90761010daba6b4b 100644
 --- a/packages/ui/test/replaceableConversationTransport.test.ts
