@@ -569,52 +569,63 @@ index 0000000000000000000000000000000000000000..7292634657b399eb668e6b2284727986
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/rename-slash-command.md b/docs/rename-slash-command.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..334d36c3bddffca5398c05b3c1262731242d5f20
+index 0000000000000000000000000000000000000000..03ec9d5165b0bc68f1221c3ca649815dda6eb64c
 --- /dev/null
 +++ b/docs/rename-slash-command.md
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,53 @@
 +# Composer `/rename` 会话重命名命令
 +
 +## 目标与交互
 +
-+`/rename` 是 Composer 本地操作：把当前会话标题改成用户指定文本；不写入会话消息、不发给模型、不产生 user row。命令形态参考 opencode 的 `/rename <title>`。
++`/rename` 是 Composer 本地操作：不写入会话消息、不发给模型主链路。命令形态参考 opencode 的 `/rename` 与 title regenerate。
 +
 +| 操作 | 结果 |
 +| --- | --- |
-+| `/` 面板选中 `/rename`（已有会话） | 标题改为当前项目名（workspace 路径末段），提示已重命名。 |
 +| 发送 `/rename 新标题` | 标题改为 `新标题`，输入框清空，零模型请求。 |
-+| 发送 `/rename`（无标题） | 标题改为当前项目名；项目名为空时提示需要标题。 |
++| 发送 `/rename`（无标题） | 由标题 sidecar 让模型总结当前对话后重命名；输入框清空，不产生 user row。 |
++| `/` 面板选中 `/rename` | 同上：按对话让模型生成标题。 |
 +| 大小写与多余空白 | `/RENAME 新标题` 等价；标题折叠多余空白。 |
++| 模型生成失败、超时或空结果 | 保持原标题，toast 提示失败；不写空标题。 |
 +| 草稿态（无 session） | 面板不展示；发送时提示先开始会话，不发送文本。 |
 +| 只读态 | 面板不展示；发送时不拦截，按普通文本处理。 |
 +| 带附件、context、引用或队列编辑 | 不拦截，按普通消息发送。 |
 +| CLI catalog 存在同名 `rename` | 本地命令让位，不注册也不拦截。 |
 +
-+重命名经既有 v4 命令 `renameSession { title }` 下发，core 写 `titleSource: "custom"`；此后自动标题生成永久跳过，用户显式命名不被覆盖。
++两种重命名都写 `titleSource: "custom"`：这是用户显式动作，后续自动标题生成不再覆盖。
++
++## 模型总结的输入
++
++复用现有标题 sidecar（独立模型请求、无工具、60s 超时、`querySource: session_title`），只替换输入与提示词：
++
++- 首条真实用户请求（截 2000 字符）保原意；最近对话按 `User:` / `Assistant:` 拼接，整体上限 8000 字符，取末尾预算。
++- 跳过 synthetic、`model-only`、ignored part 与空文本；没有可总结内容时直接失败。
++- 使用独立的会话摘要提示词，要求 3–7 个词、跟随用户语言、只输出 `{"title":"..."}`。
++- 生成结果不走首轮门槛（`turnNumber`/短输入/`sessionTitleGenerationAttempted` 不参与），因为这是用户显式请求。
 +
 +## 边界与执行链路
 +
 +```mermaid
 +flowchart TD
-+  A[/rename 新标题] --> B{本地命令命中?}
-+  B -- 否 --> C[普通 sendText]
-+  B -- 是 --> D{有 session?}
-+  D -- 否 --> E[toast: 先开始会话]
-+  D -- 是 --> F[renameSession 命令]
-+  F --> G[core setCustomSessionTitle]
-+  G --> H[SessionTitleUpdated custom]
++  A[/rename 新标题] --> B{有标题?}
++  B -- 是 --> C[renameSession]
++  B -- 否 --> D[regenerateSessionTitle]
++  D --> E[core 读取对话并请求标题模型]
++  E --> F{生成成功?}
++  F -- 否 --> G[toast 失败，保留原标题]
++  F -- 是 --> H[写 custom + SessionTitleUpdated]
++  C --> H
 +  H --> I[v4 meta 与侧栏标题更新]
 +```
 +
-+命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。不新增协议字段、不修改 CLI 命令目录、不改 `SlashCommandPlugin`。
-+
-+项目名取 `workspacePath` 的最后一段（`basenameFromPath`）；远程 workspace 同样使用路径末段，不读取磁盘。
++命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。core 侧新增的方法挂在既有 `session-title.ts` 与标题 sidecar 上，不新增第二套标题状态或缓存。
 +
 +## 验收
 +
 +- 纯解析测试覆盖有/无标题、大小写、空白、非命令文本和 CLI 同名让位。
-+- SessionPane 测试覆盖面板命令、成功下发、无标题回退项目名、草稿提示、只读不注册、附件透传不拦截。
-+- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为，不产生额外模型请求。
++- core 测试覆盖对话摘要的首条请求、过滤规则、2000/8000 字符边界与空内容。
++- v4 命令测试覆盖透传 traceContext、生成失败不静默成功。
++- SessionPane 测试覆盖面板命令、手动标题、无标题触发生成、失败 toast、草稿与只读门禁、附件透传。
++- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..c9b95885eaa845407b09725bcd8cce89e1f0cc1c
@@ -818,6 +829,37 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 +OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 +SOFTWARE.
+diff --git a/docs/title-generation-settings.md b/docs/title-generation-settings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a684cbccdebdfbe8d891714045c1659207cef050
+--- /dev/null
++++ b/docs/title-generation-settings.md
+@@ -0,0 +1,25 @@
++# 标题生成模型设置
++
++## 目标
++
++高级设置新增「标题生成模型」，默认「继承会话模型」。会话标题与 `/rename` 的模型总结使用该选择；用户不选时不新增第二份模型配置。
++
++## 行为
++
++- 默认值继承：`AppSettings.titleGenerationModel` 缺席 = 跟随会话当前模型，行为与旧版一致。
++- 选择某个 provider/model 后，会话创建/冷恢复经既有运行时偏好请求把 `titleGenerationModelSelection` 注入 `runtimeConfig.titleGeneration.modelSelection`；标题 sidecar 使用该模型。
++- 选回「继承会话模型」写入空引用 `{providerId:"", modelId:""}`，Host 的 `normalizeSettingsPatch` 归一成删除，避免 RPC 吞掉 `undefined` 后旧值残留。
++- 只影响标题 sidecar（首轮标题、`/goal` 摘要标题、`/rename` 总结），不改变主对话模型、思考档位或 provider 配置。
++- 远程 workspace 仍由该会话 Host 的运行时偏好回答；设置读写固定走本机 Host 的 `settingService`。
++
++## 边界
++
++- 设置字段与校验在 `packages/shared`，归一边界在 `packages/services/src/setting/normalizeSettingsPatch.ts`，偏好下发在 `packages/services/src/node.ts` 与 CLI `createRecord`。
++- UI 控件属于既有 `ui-compaction-settings` 模块（高级设置页），通过本机服务上下文读取模型目录；不新增模型注册、缓存或第二套选择状态。
++- 模型目录只在高级设置页挂载时读取一次；失败时只显示「继承会话模型」，保存失败保留旧选择并显示重试提示。
++
++## 验收
++
++- 设置 schema 测试覆盖合法选择、空引用哨兵与不完整引用拒绝。
++- 高级设置组件测试覆盖默认继承、选择模型下发补丁、选回继承。
++- 运行时偏好与 bootstrap 复用既有 `titleGeneration.modelSelection` 透传测试；本次不新增协议方法。
 diff --git a/docs/ui/autocompact-command.md b/docs/ui/autocompact-command.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..a319624b68f7c048cc742da438f9d33cca21b026

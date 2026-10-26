@@ -326,7 +326,7 @@ index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..0310ec81a8c9a102a6b2e05c89e8cf60
        isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
        providerFamilyDomain: appSettings?.providerFamilyDomain,
 diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
-index 65a4df026b94fdd76b012875ca94faa95fb6271e..10ec82c00ddb54023ce5e61779df4fa4f53d1cad 100644
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..d50bbb7d611ec7a05bd9468271827f1f2bbcd935 100644
 --- a/packages/ui/src/SettingsPage.tsx
 +++ b/packages/ui/src/SettingsPage.tsx
 @@ -1,3 +1,4 @@
@@ -401,15 +401,17 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..10ec82c00ddb54023ce5e61779df4fa4
                    // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
                    // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
                    isDesktop={isDesktop}
-@@ -2081,6 +2062,11 @@ export function SettingsPage({
+@@ -2081,6 +2062,13 @@ export function SettingsPage({
                              />
                            ) : activeSection === "shortcuts" ? (
                              <ShortcutSettingsSection isDesktop={Boolean(isDesktop)} />
 +                          ) : activeSection === "advanced" ? (
-+                            <CompactionSettingsSection
-+                              settings={sharedSettings}
-+                              onUpdateSettings={updateSharedSettings}
-+                            />
++                            <ServiceProvider services={localHostServices}>
++                              <CompactionSettingsSection
++                                settings={sharedSettings}
++                                onUpdateSettings={updateSharedSettings}
++                              />
++                            </ServiceProvider>
                            ) : activeSection === "modelProvider" ? (
                              <ServiceProvider services={localHostServices}>
                                {/* 模型配置属于本机全局事实源；激活远端 workspace 时也不能注入远端 Host。 */}
@@ -3851,10 +3853,10 @@ index 0000000000000000000000000000000000000000..9f17685aae8639a9f0ca5f65188072e7
 +export { editionMessagesZhCN } from "./zh-CN.js";
 diff --git a/packages/ui/src/i18n/edition-messages/en-US.ts b/packages/ui/src/i18n/edition-messages/en-US.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..467062eabaae5b76225fa67670459c5f42d1149e
+index 0000000000000000000000000000000000000000..53a4d3d100169317a229be0e24b275b58f7e7385
 --- /dev/null
 +++ b/packages/ui/src/i18n/edition-messages/en-US.ts
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,159 @@
 +export const editionMessagesEnUS = {
 +  "chat.inspector.environment": "Environment",
 +  "chat.inspector.title": "Session info",
@@ -3929,6 +3931,10 @@ index 0000000000000000000000000000000000000000..467062eabaae5b76225fa67670459c5f
 +  "settings.advanced.compactionSummaryMaxOutputTokensDescription":
 +    "Maximum tokens for the compact summary (1,000–20,000), still bounded by the model.",
 +  "settings.advanced.tokenRangeError": "Enter an integer from {min} to {max}.",
++  "settings.advanced.titleGenerationModel": "Title generation model",
++  "settings.advanced.titleGenerationModelDescription":
++    "Model used for session titles and /rename; inherits the session model by default.",
++  "settings.advanced.titleGenerationModelInherit": "Inherit session model",
 +  "settings.advanced.saveFailed": "Failed to save. Try again.",
 +  "chat.message.tokensPerSecond": "{rate} tok/s",
 +  "chat.contextCompaction.cancelled": "Context compression cancelled",
@@ -4034,10 +4040,10 @@ index 0000000000000000000000000000000000000000..d45a84216040801969768f30c91a894f
 +} as const;
 diff --git a/packages/ui/src/i18n/edition-messages/zh-CN.ts b/packages/ui/src/i18n/edition-messages/zh-CN.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ef2e4aefa3284ab2217eacc30e95dbbbd6a35cfb
+index 0000000000000000000000000000000000000000..33edcd0313bf9a003616a976fc7e34fb7a7a6f8b
 --- /dev/null
 +++ b/packages/ui/src/i18n/edition-messages/zh-CN.ts
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,149 @@
 +export const editionMessagesZhCN = {
 +  "chat.inspector.environment": "环境",
 +  "chat.inspector.title": "会话信息",
@@ -4105,6 +4111,10 @@ index 0000000000000000000000000000000000000000..ef2e4aefa3284ab2217eacc30e95dbbb
 +  "settings.advanced.compactionSummaryMaxOutputTokensDescription":
 +    "精简摘要的最大输出 token（1,000–20,000），仍受模型能力限制。",
 +  "settings.advanced.tokenRangeError": "请输入 {min}–{max} 之间的整数。",
++  "settings.advanced.titleGenerationModel": "标题生成模型",
++  "settings.advanced.titleGenerationModelDescription":
++    "会话标题生成与 /rename 使用的模型；默认继承会话当前模型。",
++  "settings.advanced.titleGenerationModelInherit": "继承会话模型",
 +  "settings.advanced.saveFailed": "保存失败，请重试。",
 +  "chat.message.tokensPerSecond": "{rate} tok/s",
 +  "chat.contextCompaction.cancelled": "上下文压缩已取消",
@@ -6476,10 +6486,10 @@ index 0000000000000000000000000000000000000000..f1c2eae9e6d1a6938326ae0422baba06
 +`AdvancedSection` preserves the existing callback contract for compatibility. The page uses `CompactionSettingsSection` once, rather than creating three forwarding callbacks. Regression evidence is in `contract.test.ts` and the existing compaction settings and policy hook tests. See `docs/design/settings-compaction-minimal-integration.md`.
 diff --git a/packages/ui/src/settings/compaction-settings/CompactionSettingsSection.tsx b/packages/ui/src/settings/compaction-settings/CompactionSettingsSection.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb54fa8d155
+index 0000000000000000000000000000000000000000..2c13be2ee257ba43746cf7333cf952b8dda507d4
 --- /dev/null
 +++ b/packages/ui/src/settings/compaction-settings/CompactionSettingsSection.tsx
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,421 @@
 +import type { CompactionProfile } from "@zcode/shared";
 +import { useState, useCallback, useEffect, useRef } from "react";
 +import { Input } from "@/components/ui/input.js";
@@ -6487,7 +6497,10 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 +import { cn } from "@/components/lib/utils.js";
 +import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-+import type { CompactionSettingsSectionProps } from "./types.js";
++import { useServices } from "@/hooks/useServices.js";
++import type { CompactionSettingsSectionProps, TitleGenerationModelRef } from "./types.js";
++
++const TITLE_MODEL_VALUE_SEPARATOR = "|";
 +
 +const COMPACTION_PROFILE_OPTIONS: readonly CompactionProfile[] = ["detailed", "compact"];
 +const COMPACTION_TAIL_BUDGET_RANGE = { min: 1_000, max: 100_000 } as const;
@@ -6614,6 +6627,111 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +  );
 +}
 +
++function TitleGenerationModelRow({
++  value,
++  onChange,
++}: {
++  value?: TitleGenerationModelRef;
++  onChange: (next: TitleGenerationModelRef) => Promise<void>;
++}) {
++  const { intl } = useZCodeIntl();
++  const services = useServices();
++  const [providers, setProviders] = useState<
++    ReadonlyArray<{
++      providerId: string;
++      providerName?: string | null;
++      models: ReadonlyArray<{ modelId: string }>;
++    }>
++  >([]);
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const pendingRef = useRef(false);
++  useEffect(() => {
++    let cancelled = false;
++    void services.modelSelectionService
++      .getView()
++      .then((view) => {
++        if (!cancelled) setProviders(view.providers);
++      })
++      .catch(() => {});
++    return () => {
++      cancelled = true;
++    };
++  }, [services.modelSelectionService]);
++  const modelValue = (providerId: string, modelId: string) =>
++    `${encodeURIComponent(providerId)}${TITLE_MODEL_VALUE_SEPARATOR}${encodeURIComponent(modelId)}`;
++  const current = value ? modelValue(value.providerId, value.modelId) : "";
++
++  const handleChange = useCallback(
++    async (raw: string) => {
++      if (pendingRef.current) return;
++      const separatorIndex = raw.indexOf(TITLE_MODEL_VALUE_SEPARATOR);
++      let next: TitleGenerationModelRef = { providerId: "", modelId: "" };
++      if (separatorIndex > 0) {
++        try {
++          next = {
++            providerId: decodeURIComponent(raw.slice(0, separatorIndex)),
++            modelId: decodeURIComponent(raw.slice(separatorIndex + 1)),
++          };
++        } catch {
++          next = { providerId: "", modelId: "" };
++        }
++      }
++      pendingRef.current = true;
++      setPending(true);
++      setError(null);
++      try {
++        await onChange(next);
++      } catch {
++        setError(intl.formatMessage({ id: "settings.advanced.saveFailed" }));
++      } finally {
++        pendingRef.current = false;
++        setPending(false);
++      }
++    },
++    [intl, onChange],
++  );
++
++  return (
++    <div className="px-4 py-3">
++      <div className="text-ui-base font-medium text-foreground">
++        {intl.formatMessage({ id: "settings.advanced.titleGenerationModel" })}
++      </div>
++      <div className="mt-1 text-ui-sm leading-5 text-foreground-subtle">
++        {intl.formatMessage({ id: "settings.advanced.titleGenerationModelDescription" })}
++      </div>
++      <select
++        data-testid="title-generation-model-select"
++        aria-label={intl.formatMessage({ id: "settings.advanced.titleGenerationModel" })}
++        className="mt-3 h-9 w-full rounded-md border border-input-border bg-input px-2 text-ui-base text-foreground"
++        value={current}
++        disabled={pending}
++        onChange={(event) => {
++          void handleChange(event.currentTarget.value);
++        }}
++      >
++        <option value="">
++          {intl.formatMessage({ id: "settings.advanced.titleGenerationModelInherit" })}
++        </option>
++        {providers.map((provider) => (
++          <optgroup key={provider.providerId} label={provider.providerName ?? provider.providerId}>
++            {provider.models.map((model) => (
++              <option key={model.modelId} value={modelValue(provider.providerId, model.modelId)}>
++                {`${provider.providerName ?? provider.providerId} · ${model.modelId}`}
++              </option>
++            ))}
++          </optgroup>
++        ))}
++      </select>
++      {error ? (
++        <p role="alert" className="mt-2 text-ui-sm text-destructive">
++          {error}
++        </p>
++      ) : null}
++    </div>
++  );
++}
++
 +export function AdvancedSection({
 +  compactionProfile,
 +  compactionTailBudgetTokens,
@@ -6621,6 +6739,8 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +  onCompactionProfileChange,
 +  onCompactionTailBudgetTokensChange,
 +  onCompactionSummaryMaxOutputTokensChange,
++  titleGenerationModel,
++  onTitleGenerationModelChange,
 +}: {
 +  compactionProfile: CompactionProfile;
 +  compactionTailBudgetTokens: number;
@@ -6628,6 +6748,8 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +  onCompactionProfileChange: (profile: CompactionProfile) => Promise<void>;
 +  onCompactionTailBudgetTokensChange: (tokens: number) => Promise<void>;
 +  onCompactionSummaryMaxOutputTokensChange: (tokens: number) => Promise<void>;
++  titleGenerationModel?: TitleGenerationModelRef;
++  onTitleGenerationModelChange?: (next: TitleGenerationModelRef) => Promise<void>;
 +}) {
 +  const { intl } = useZCodeIntl();
 +  const [profilePending, setProfilePending] = useState(false);
@@ -6754,6 +6876,14 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +          onSave={onCompactionSummaryMaxOutputTokensChange}
 +        />
 +      </SettingsGroupCard>
++      {onTitleGenerationModelChange ? (
++        <SettingsGroupCard>
++          <TitleGenerationModelRow
++            value={titleGenerationModel}
++            onChange={onTitleGenerationModelChange}
++          />
++        </SettingsGroupCard>
++      ) : null}
 +    </div>
 +  );
 +}
@@ -6767,12 +6897,16 @@ index 0000000000000000000000000000000000000000..4dc2871a1a7c1a2fad080a9c8bf90eb5
 +      compactionProfile={settings?.compactionProfile ?? "detailed"}
 +      compactionTailBudgetTokens={settings?.compactionTailBudgetTokens ?? 15_000}
 +      compactionSummaryMaxOutputTokens={settings?.compactionSummaryMaxOutputTokens ?? 8_000}
++      titleGenerationModel={settings?.titleGenerationModel}
 +      onCompactionProfileChange={(compactionProfile) => onUpdateSettings({ compactionProfile })}
 +      onCompactionTailBudgetTokensChange={(compactionTailBudgetTokens) =>
 +        onUpdateSettings({ compactionTailBudgetTokens })
 +      }
 +      onCompactionSummaryMaxOutputTokensChange={(compactionSummaryMaxOutputTokens) =>
 +        onUpdateSettings({ compactionSummaryMaxOutputTokens })
++      }
++      onTitleGenerationModelChange={(titleGenerationModel) =>
++        onUpdateSettings({ titleGenerationModel })
 +      }
 +    />
 +  );
@@ -6792,10 +6926,10 @@ index 0000000000000000000000000000000000000000..4b1829581179b8db94e94fd2761d1035
 +};
 diff --git a/packages/ui/src/settings/compaction-settings/contract.test.ts b/packages/ui/src/settings/compaction-settings/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..cd99c65122064abd9bdd0b7b406777bf1cc1772f
+index 0000000000000000000000000000000000000000..6f2ff654f2e4cea0d3b75115126422f994b3ee33
 --- /dev/null
 +++ b/packages/ui/src/settings/compaction-settings/contract.test.ts
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,141 @@
 +// @vitest-environment jsdom
 +import { createElement, type ReactNode } from "react";
 +import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6810,6 +6944,24 @@ index 0000000000000000000000000000000000000000..cd99c65122064abd9bdd0b7b406777bf
 +    createElement("section", null, children),
 +  SettingsRow: ({ control, detail }: { control?: ReactNode; detail?: ReactNode }) =>
 +    createElement("div", null, control, detail),
++}));
++const servicesMock = vi.hoisted(() => ({
++  modelSelectionService: {
++    getView: async () => ({
++      revision: 1,
++      providers: [
++        {
++          providerId: "provider-a",
++          providerName: "Provider A",
++          models: [{ modelId: "model-a", config: {} }],
++        },
++      ],
++    }),
++  },
++}));
++vi.mock("@/hooks/useServices.js", () => ({
++  useServices: () => servicesMock,
++  ServiceProvider: ({ children }: { children?: ReactNode }) => children,
 +}));
 +afterEach(cleanup);
 +
@@ -6855,6 +7007,41 @@ index 0000000000000000000000000000000000000000..cd99c65122064abd9bdd0b7b406777bf
 +      }),
 +    );
 +    expect(input.value).toBe("13000");
++  });
++
++  it("defaults the title model to inherit and sends explicit selections", async () => {
++    const update = vi.fn(async () => {});
++    render(createElement(CompactionSettingsSection, { onUpdateSettings: update }));
++    const select = screen.getByTestId("title-generation-model-select") as HTMLSelectElement;
++    expect(select.value).toBe("");
++    expect(select.options[0]?.textContent).toBe("settings.advanced.titleGenerationModelInherit");
++    await screen.findByText("Provider A · model-a");
++    expect(select.options).toHaveLength(2);
++    await act(async () => {
++      fireEvent.change(select, { target: { value: "provider-a|model-a" } });
++    });
++    expect(update).toHaveBeenCalledExactlyOnceWith({
++      titleGenerationModel: { providerId: "provider-a", modelId: "model-a" },
++    });
++  });
++
++  it("clears the title model back to inherit", async () => {
++    const update = vi.fn(async () => {});
++    render(
++      createElement(CompactionSettingsSection, {
++        settings: { titleGenerationModel: { providerId: "provider-a", modelId: "model-a" } },
++        onUpdateSettings: update,
++      }),
++    );
++    const select = screen.getByTestId("title-generation-model-select") as HTMLSelectElement;
++    await screen.findByText("Provider A · model-a");
++    expect(select.value).toBe("provider-a|model-a");
++    await act(async () => {
++      fireEvent.change(select, { target: { value: "" } });
++    });
++    expect(update).toHaveBeenCalledExactlyOnceWith({
++      titleGenerationModel: { providerId: "", modelId: "" },
++    });
 +  });
 +
 +  it("deduplicates Enter and blur while an injected save is pending", async () => {
@@ -6909,19 +7096,29 @@ index 0000000000000000000000000000000000000000..fe92f0ee1c562d0cacef4fd033598bd9
 +} as const;
 diff --git a/packages/ui/src/settings/compaction-settings/types.ts b/packages/ui/src/settings/compaction-settings/types.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7ce388e32352c6a4dc32200e7d3cb098cd84acbd
+index 0000000000000000000000000000000000000000..88383207f9a38881ef92d9b2d4a3645d4f144cef
 --- /dev/null
 +++ b/packages/ui/src/settings/compaction-settings/types.ts
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,24 @@
 +import type { CompactionProfile } from "@zcode/shared";
++
++export interface TitleGenerationModelRef {
++  providerId: string;
++  modelId: string;
++}
 +
 +/** Accepted values belong to the injected settings owner, never to this UI. */
 +export interface CompactionSettings {
 +  compactionProfile?: CompactionProfile;
 +  compactionTailBudgetTokens?: number;
 +  compactionSummaryMaxOutputTokens?: number;
++  /** 缺席 = 继承会话当前模型。 */
++  titleGenerationModel?: TitleGenerationModelRef;
 +}
-+export type CompactionSettingsPatch = Partial<CompactionSettings>;
++export type CompactionSettingsPatch = Omit<Partial<CompactionSettings>, "titleGenerationModel"> & {
++  /** 两个字段都为空 = 「继承会话模型」，由 Host 的 normalizeSettingsPatch 归一成删除。 */
++  titleGenerationModel?: TitleGenerationModelRef;
++};
 +export interface CompactionSettingsSectionProps {
 +  settings?: CompactionSettings | null;
 +  /** Resolve after the existing save/sync/broadcast path; reject to show a retryable error. */
@@ -9202,7 +9399,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..e57c142f520b0f6479c312d74620a2c99de65d15 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..4f01115ae7809853863e0ca586d4e1bc5ff52d9c 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9249,9 +9446,9 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..e57c142f520b0f6479c312d74620a2c9
 +import { openComposerModelMenu, useAutoCompactCommand, useCompatSlashCommands } from "./slash-commands/contract.js";
 +import {
 +  createRenameCommand,
++  normalizeRenameTitle,
 +  parseRenameCommand,
 +  renameCommandCopy,
-+  resolveRenameTitle,
 +} from "./slash-commands/rename.js";
  import { useV4Conversation } from "@/v4/V4ConversationContext.js";
  import { useConversationProjection } from "@/v4/useConversationProjection.js";
@@ -9374,22 +9571,22 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..e57c142f520b0f6479c312d74620a2c9
 +        toast(renameCopy.needsSession);
 +        return;
 +      }
-+      const title = resolveRenameTitle(requestedTitle, workspacePath);
-+      if (!title) {
-+        toast(renameCopy.needsTitle);
-+        return;
-+      }
-+      void dispatchCommand("renameSession", { title }, sessionId)
++      const title = normalizeRenameTitle(requestedTitle);
++      // 不带标题时由 core 用对话摘要请求模型生成；标题自定义仍走 renameSession。
++      const rename = title
++        ? dispatchCommand("renameSession", { title }, sessionId)
++        : dispatchCommand("regenerateSessionTitle", {}, sessionId);
++      void rename
 +        .then((ack) => {
-+          if (ack.status === "accepted" || ack.status === "duplicate") {
-+            toast(renameCopy.renamed(title));
++          if (ack.status !== "accepted" && ack.status !== "duplicate") {
++            toast(renameCopy.failed);
 +            return;
 +          }
-+          toast(renameCopy.failed);
++          toast(title ? renameCopy.renamed(title) : renameCopy.regenerated);
 +        })
 +        .catch(() => toast(renameCopy.failed));
 +    },
-+    [dispatchCommand, renameCopy, sessionId, workspacePath],
++    [dispatchCommand, renameCopy, sessionId],
 +  );
 +
    // Plan 选中即开启标准 Composer 开关，不能等发送时解析文本；与 /side 共用本地操作入口。
@@ -10831,12 +11028,11 @@ index 0000000000000000000000000000000000000000..aca72c132778f5b6fe5d14b2a0a15e8a
 +} as const;
 diff --git a/packages/ui/src/v4/slash-commands/rename.ts b/packages/ui/src/v4/slash-commands/rename.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a7ae8cc3d
+index 0000000000000000000000000000000000000000..482e454b5a86550c3018fdc15aef6bcea3c6f667
 --- /dev/null
 +++ b/packages/ui/src/v4/slash-commands/rename.ts
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,61 @@
 +import type { AppSlashCommand } from "@/slashCommandHelpers.js";
-+import { basenameFromPath } from "@/lib/chatAttachmentMetadata.js";
 +
 +const RENAME_COMMAND_PATTERN = /^\/rename(?:\s+([\s\S]*))?$/iu;
 +const RENAME_COMMAND_NAME = "rename";
@@ -10844,7 +11040,7 @@ index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a
 +export interface RenameCommandCopy {
 +  description: string;
 +  needsSession: string;
-+  needsTitle: string;
++  regenerated: string;
 +  renamed(title: string): string;
 +  failed: string;
 +}
@@ -10852,17 +11048,17 @@ index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a
 +export function renameCommandCopy(locale: string): RenameCommandCopy {
 +  if (locale === "zh-CN") {
 +    return {
-+      description: "重命名当前会话；不带标题时使用项目名",
++      description: "重命名当前会话；不带标题时由模型总结对话生成",
 +      needsSession: "请先开始会话再重命名。",
-+      needsTitle: "请输入新的会话标题。",
++      regenerated: "已根据对话重命名",
 +      renamed: (title) => `已重命名为「${title}」`,
 +      failed: "重命名会话失败。",
 +    };
 +  }
 +  return {
-+    description: "Rename this session; uses the project name when no title is given",
++    description: "Rename this session; without a title the model summarizes the conversation",
 +    needsSession: "Start a session before renaming it.",
-+    needsTitle: "Enter a new session title.",
++    regenerated: "Renamed from the conversation",
 +    renamed: (title) => `Renamed to "${title}"`,
 +    failed: "Failed to rename the session.",
 +  };
@@ -10870,6 +11066,7 @@ index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a
 +
 +/**
 + * `/rename [title]` 是 Composer 本地命令：与 `/mcp` 一样在发送前拦截，不写入会话。
++ * 不带标题时由模型总结对话生成标题（与 opencode 的 title regenerate 同形）。
 + * CLI catalog 已有同名命令时让位，避免和 CLI 语义抢入口。
 + */
 +export function parseRenameCommand(
@@ -10885,16 +11082,6 @@ index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a
 +  return value.replace(/\s+/gu, " ").trim();
 +}
 +
-+/** 显式标题优先；省略时回退项目名（workspace 路径末段）。 */
-+export function resolveRenameTitle(requestedTitle: string, workspacePath: string): string {
-+  const requested = normalizeRenameTitle(requestedTitle);
-+  return requested || normalizeRenameTitle(projectNameFromWorkspacePath(workspacePath));
-+}
-+
-+export function projectNameFromWorkspacePath(workspacePath: string): string {
-+  return workspacePath ? basenameFromPath(workspacePath) : "";
-+}
-+
 +export function createRenameCommand(options: {
 +  description: string;
 +  run: () => void;
@@ -10902,7 +11089,7 @@ index 0000000000000000000000000000000000000000..0ac4bf11cb2260c87f027abafa19357a
 +  return {
 +    value: RENAME_COMMAND_NAME,
 +    description: options.description,
-+    keywords: ["rename", "title", "重命名", "标题", "项目名"],
++    keywords: ["rename", "title", "重命名", "标题"],
 +    run: options.run,
 +  };
 +}
@@ -17388,18 +17575,16 @@ index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbb
 +});
 diff --git a/packages/ui/test/renameSlashCommand.test.ts b/packages/ui/test/renameSlashCommand.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2806a27c4a9cf367f46d54d32d9cef56887b46df
+index 0000000000000000000000000000000000000000..e20d2862377f7b2a559bbd846ac8752465586e50
 --- /dev/null
 +++ b/packages/ui/test/renameSlashCommand.test.ts
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,49 @@
 +import { describe, expect, it } from "vitest";
 +import {
 +  createRenameCommand,
 +  normalizeRenameTitle,
 +  parseRenameCommand,
-+  projectNameFromWorkspacePath,
 +  renameCommandCopy,
-+  resolveRenameTitle,
 +} from "../src/v4/slash-commands/rename.js";
 +
 +describe("/rename command", () => {
@@ -17421,17 +17606,9 @@ index 0000000000000000000000000000000000000000..2806a27c4a9cf367f46d54d32d9cef56
 +    expect(parseRenameCommand("/rename 标题", new Set(["rename"]))).toBeNull();
 +  });
 +
-+  it("falls back to the project name when no title is given", () => {
-+    expect(resolveRenameTitle("", "/workspace/ZCode-plus")).toBe("ZCode-plus");
-+    expect(resolveRenameTitle("  指定标题 ", "/workspace/ZCode-plus")).toBe("指定标题");
-+  });
-+
-+  it.each([
-+    ["/workspace/ZCode-plus", "ZCode-plus"],
-+    ["C:\\work\\repo", "repo"],
-+    ["", ""],
-+  ])("derives the project name from %j", (path, name) => {
-+    expect(projectNameFromWorkspacePath(path)).toBe(name);
++  it("keeps an empty title for model-assisted regeneration", () => {
++    expect(parseRenameCommand("/rename")).toEqual({ title: "" });
++    expect(parseRenameCommand("/rename   ")).toEqual({ title: "" });
 +  });
 +
 +  it("normalizes titles without leaving empty segments", () => {
@@ -17447,6 +17624,8 @@ index 0000000000000000000000000000000000000000..2806a27c4a9cf367f46d54d32d9cef56
 +  it("localizes copy and keeps the requested title", () => {
 +    expect(renameCommandCopy("zh-CN").renamed("标题")).toBe("已重命名为「标题」");
 +    expect(renameCommandCopy("en-US").renamed("Title")).toBe('Renamed to "Title"');
++    expect(renameCommandCopy("zh-CN").regenerated).toBe("已根据对话重命名");
++    expect(renameCommandCopy("en-US").regenerated).toBe("Renamed from the conversation");
 +  });
 +});
 diff --git a/packages/ui/test/replaceableConversationTransport.test.ts b/packages/ui/test/replaceableConversationTransport.test.ts
@@ -19984,7 +20163,7 @@ index 9bce67c57e8672fae6dedc6b5bc8630724f59266..0315dc4c9ec543ce6adea80a2088be49
      const html = renderPane();
  
 diff --git a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
-index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10a2799c58 100644
+index 3caf20ed47c9a441da78b15530022e2f6ba01e15..5fcc50afa2e83ee128c5d7a32eb3d641b454187a 100644
 --- a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 +++ b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 @@ -16,6 +16,7 @@ import type {
@@ -20006,7 +20185,7 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10
      await act(async () => {
        action?.run();
        action?.run();
-@@ -3371,6 +3374,109 @@ describe("SessionPane Plan picker action", () => {
+@@ -3371,6 +3374,122 @@ describe("SessionPane Plan picker action", () => {
    );
  });
  
@@ -20022,7 +20201,7 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10
 +    };
 +  }
 +
-+  it("registers /rename and renames to the project name", async () => {
++  it("registers /rename and lets the model regenerate the title", async () => {
 +    liveProjection();
 +    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
 +      ackFor(envelope, { status: "accepted" }),
@@ -20032,27 +20211,24 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10
 +      (item) => item.value === "rename",
 +    );
 +    expect(action).toMatchObject({
-+      description: "重命名当前会话；不带标题时使用项目名",
++      description: "重命名当前会话；不带标题时由模型总结对话生成",
 +    });
 +    await act(async () => {
 +      action?.run();
 +      await flushMicrotasks();
 +    });
 +    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual([
-+      "renameSession",
++      "regenerateSessionTitle",
 +    ]);
-+    expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
-+      payload: { title: "workspace" },
-+    });
-+    expect(mocks.toast).toHaveBeenCalledWith("已重命名为「workspace」");
++    expect(mocks.toast).toHaveBeenCalledWith("已根据对话重命名");
 +    await act(async () => root.unmount());
 +  });
 +
 +  it.each([
-+    ["/rename 深度审计", "深度审计"],
-+    ["/RENAME 深度审计", "深度审计"],
-+    ["/rename", "workspace"],
-+  ])("intercepts %s without sending text", async (text, title) => {
++    ["/rename 深度审计", "renameSession", "已重命名为「深度审计」"],
++    ["/RENAME 深度审计", "renameSession", "已重命名为「深度审计」"],
++    ["/rename", "regenerateSessionTitle", "已根据对话重命名"],
++  ])("intercepts %s without sending text", async (text, type, toastText) => {
 +    liveProjection();
 +    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
 +      ackFor(envelope, { status: "accepted" }),
@@ -20062,11 +20238,27 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..28a1366aa15e1f408f805ddb24132d10
 +      expect(await captured.composerProps?.onSendText(text)).toBe("sent");
 +      await flushMicrotasks();
 +    });
-+    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual([
-+      "renameSession",
-+    ]);
-+    expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({ payload: { title } });
-+    expect(mocks.toast).toHaveBeenCalledWith(`已重命名为「${title}」`);
++    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual([type]);
++    expect(mocks.toast).toHaveBeenCalledWith(toastText);
++    if (type === "renameSession") {
++      expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
++        payload: { title: "深度审计" },
++      });
++    }
++    await act(async () => root.unmount());
++  });
++
++  it("reports a failed regeneration without changing the title", async () => {
++    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, { status: "failed" }),
++    );
++    const root = await renderPane();
++    await act(async () => {
++      await captured.composerProps?.onSendText("/rename");
++      await flushMicrotasks();
++    });
++    expect(mocks.toast).toHaveBeenCalledWith("重命名会话失败。");
 +    await act(async () => root.unmount());
 +  });
 +

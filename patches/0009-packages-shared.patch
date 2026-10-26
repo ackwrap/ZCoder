@@ -125,7 +125,7 @@ index 69eff10f3fd802a5a6fc8ad6a82be877fb0acfcb..65d1b5236082c1b8fbae12429d9adb2a
    IntegratedTerminalShellDialect,
    IntegratedTerminalShellOption,
 diff --git a/packages/shared/src/protocol.ts b/packages/shared/src/protocol.ts
-index 79057e7e3954d431b9edc3d09c68d2639983007c..ab9f2c0afa51739dfaa026e4c34575387080d6f7 100644
+index 79057e7e3954d431b9edc3d09c68d2639983007c..97b5ea81187c5613c769b17ba73025b1665fa322 100644
 --- a/packages/shared/src/protocol.ts
 +++ b/packages/shared/src/protocol.ts
 @@ -252,6 +252,9 @@ export interface ResourceUsageSnapshot {
@@ -138,7 +138,7 @@ index 79057e7e3954d431b9edc3d09c68d2639983007c..ab9f2c0afa51739dfaa026e4c3457538
  export interface AppSettings {
    /** 当前 App/Host 不再显示提交前体验套餐推荐；不改变任何入口的模型选择。 */
    startPlanRecommendationDismissed?: boolean;
-@@ -337,6 +340,12 @@ export interface AppSettings {
+@@ -337,6 +340,14 @@ export interface AppSettings {
    askUserQuestionAutoResolutionEnabled?: boolean;
    /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
    modelIoFullRetentionEnabled?: boolean;
@@ -148,24 +148,32 @@ index 79057e7e3954d431b9edc3d09c68d2639983007c..ab9f2c0afa51739dfaa026e4c3457538
 +  compactionTailBudgetTokens?: number;
 +  /** 精简模式摘要输出 token 上限；详细模式固定 20000，最终仍受模型能力限制。 */
 +  compactionSummaryMaxOutputTokens?: number;
++  /** 标题生成使用的模型；缺席表示继承会话当前模型。 */
++  titleGenerationModel?: { providerId: string; modelId: string };
    /**
     * 用户选的动态工作流模式（docs/dynamic-workflow/launch.md「The user's choice」）。缺席 = 跟随服务端
     * 提供的模式；只在功能已提供时生效。选回提供的模式时删除该字段，未改动的安装继续跟随服务端翻转。
 diff --git a/packages/shared/src/validationAppSettings.ts b/packages/shared/src/validationAppSettings.ts
-index e35baf7d861aaf467d3aba5c785823dfe4626920..4e26aaaff4b44c938397454d9563ddfd98ca21bb 100644
+index e35baf7d861aaf467d3aba5c785823dfe4626920..473d825abb7027a39b952fec883c61ad00908ec0 100644
 --- a/packages/shared/src/validationAppSettings.ts
 +++ b/packages/shared/src/validationAppSettings.ts
-@@ -43,6 +43,9 @@ const nonEmptyStringSchema = z.string().trim().min(1);
+@@ -43,6 +43,15 @@ const nonEmptyStringSchema = z.string().trim().min(1);
  export const localeSchema = z.enum(["zh-CN", "en-US"]);
  export const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
  const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
 +const compactionProfileSchema = z.enum(["detailed", "compact"]);
 +const compactionTailBudgetTokensSchema = z.number().int().min(1_000).max(100_000);
 +const compactionSummaryMaxOutputTokensSchema = z.number().int().min(1_000).max(20_000);
++const titleGenerationModelSchema = z
++  .object({
++    providerId: z.string().trim().min(1),
++    modelId: z.string().trim().min(1),
++  })
++  .strict();
  // launch.md「The user's choice」：读文件时未知取值（降级后读到新版本写的值）按「跟随」处理，
  // 不能让一个偏好字段把整份设置读坏。
  const dynamicWorkflowModeSettingSchema = z.enum(DYNAMIC_WORKFLOW_MODES).optional().catch(undefined);
-@@ -540,6 +543,11 @@ const appSettingsObjectSchema = z.object({
+@@ -540,6 +549,12 @@ const appSettingsObjectSchema = z.object({
    zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
    askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
    modelIoFullRetentionEnabled: z.boolean().default(false),
@@ -174,16 +182,28 @@ index e35baf7d861aaf467d3aba5c785823dfe4626920..4e26aaaff4b44c938397454d9563ddfd
 +  compactionProfile: compactionProfileSchema.catch("detailed"),
 +  compactionTailBudgetTokens: compactionTailBudgetTokensSchema.catch(15_000),
 +  compactionSummaryMaxOutputTokens: compactionSummaryMaxOutputTokensSchema.catch(8_000),
++  titleGenerationModel: titleGenerationModelSchema.optional().catch(undefined),
    dynamicWorkflowMode: dynamicWorkflowModeSettingSchema,
    enabledBuiltinAgentCliProviders: enabledBuiltinAgentCliProvidersSchema.default([
      ...ZCODE_ENABLED_AGENT_PROVIDERS,
-@@ -636,6 +644,9 @@ export const appSettingsPatchSchema = z.object({
+@@ -636,6 +651,20 @@ export const appSettingsPatchSchema = z.object({
    zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
    askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
    modelIoFullRetentionEnabled: z.boolean().optional(),
 +  compactionProfile: compactionProfileSchema.optional(),
 +  compactionTailBudgetTokens: compactionTailBudgetTokensSchema.optional(),
 +  compactionSummaryMaxOutputTokens: compactionSummaryMaxOutputTokensSchema.optional(),
++  // 两个字段都为空 = 「回到继承会话模型」；RPC 会吞掉 undefined，normalizeSettingsPatch 归一成删除。
++  titleGenerationModel: z
++    .object({ providerId: z.string(), modelId: z.string() })
++    .strict()
++    .refine(
++      (value) =>
++        (value.providerId === "" && value.modelId === "") ||
++        (value.providerId !== "" && value.modelId !== ""),
++      { message: "titleGenerationModel requires both providerId and modelId" },
++    )
++    .optional(),
    // 空串是「删除选择、回到跟随」的哨兵：RPC 会吞掉 undefined，normalizeSettingsPatch 把它归一成删除。
    dynamicWorkflowMode: z.union([z.enum(DYNAMIC_WORKFLOW_MODES), z.literal("")]).optional(),
    enabledBuiltinAgentCliProviders: enabledBuiltinAgentCliProvidersSchema.optional(),
@@ -215,7 +235,7 @@ index 0000000000000000000000000000000000000000..0d34381a98d50ea7bd46f199da01f76e
 +  effectiveThresholdTokens: z.number().nonnegative(),
 +});
 diff --git a/packages/shared/src/zcode-protocol-v4/command.ts b/packages/shared/src/zcode-protocol-v4/command.ts
-index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..24eb3defbd875fbc96f22dd293d2514450162af0 100644
+index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..b65fb178d3f7a77e8d4769b5b6549acf0600a5ef 100644
 --- a/packages/shared/src/zcode-protocol-v4/command.ts
 +++ b/packages/shared/src/zcode-protocol-v4/command.ts
 @@ -1,3 +1,7 @@
@@ -270,7 +290,16 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..24eb3defbd875fbc96f22dd293d25144
    pauseGoal: z.object({}),
    resumeGoal: z.object({}),
    cancelBackgroundWork: z.object({ workId: z.string() }),
-@@ -388,6 +399,7 @@ export function parseCommandEnvelope(
+@@ -288,6 +299,8 @@ export const commandPayloadSchemas = {
+   // 词表见 workflow-run-settings-command.ts；能力缺席 → V4CapabilityUnsupportedError。
+   amendWorkflowRunSettings: amendWorkflowRunSettingsPayloadSchema,
+   renameSession: z.object({ title: z.string() }),
++  // /rename 无标题：由模型总结对话后重命名；与 renameSession 一样写 titleSource=custom。
++  regenerateSessionTitle: z.object({}),
+   deleteSession: z.object({}),
+   discardSharedContext: z.object({ contextId: z.string().trim().min(1) }).strict(),
+ } as const;
+@@ -388,6 +401,7 @@ export function parseCommandEnvelope(
  
  // ── ACK ──
  export const commandResultSchema = z.discriminatedUnion("type", [
@@ -587,10 +616,24 @@ index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..25ff20bad3ac795735ec71d0e6084466
    backgroundBashOutput: "v4/conversation/backgroundBashOutput",
    offPeakControl: "v4/conversation/offPeakControl",
 diff --git a/packages/shared/src/zcode-protocol/index.ts b/packages/shared/src/zcode-protocol/index.ts
-index e606fa59fa5992bc11d4b92d63dc20fb291910c4..fce4fec6bfb508b9e0df4c9776e5da0c152c9b3e 100644
+index e606fa59fa5992bc11d4b92d63dc20fb291910c4..5bad1f69289aa344a644bb1655c7dff61c22c151 100644
 --- a/packages/shared/src/zcode-protocol/index.ts
 +++ b/packages/shared/src/zcode-protocol/index.ts
-@@ -2678,6 +2678,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
+@@ -2089,6 +2089,13 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
+     memoryEnabled: z.boolean().default(false),
+     askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
+     integratedTerminalShell: integratedTerminalShellSelectionSchema.optional(),
++    // Advanced 设置里显式选的标题生成模型；缺席 = 继承会话当前模型。
++    titleGenerationModelSelection: z
++      .object({
++        providerId: z.string().trim().min(1),
++        modelId: z.string().trim().min(1),
++      })
++      .optional(),
+     // 兼容旧 Host：缺少字段时在协议解析边界使用当前默认策略。
+     modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
+       DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+@@ -2678,6 +2685,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
    typeof zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema
  >;
  
@@ -630,7 +673,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..fce4fec6bfb508b9e0df4c9776e5da0c
  export const zcodePermissionRequestParamsSchema = z
    .object({
      requestId: nonEmptyString,
-@@ -2790,6 +2823,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
+@@ -2790,6 +2830,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
      modelSelection: modelSelectionSchema,
      providerId: nonEmptyString,
      accountAccess: zcodeProviderAccountAccessSchema.optional(),
@@ -638,7 +681,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..fce4fec6bfb508b9e0df4c9776e5da0c
      expectedAccountScope: z
        .string()
        .regex(/^[a-f0-9]{64}$/)
-@@ -2826,6 +2860,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
+@@ -2826,6 +2867,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
          .object({
            apiKey: nonEmptyString.optional(),
            apiKeyId: z.string().trim().min(1).optional(),
@@ -646,7 +689,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..fce4fec6bfb508b9e0df4c9776e5da0c
            accountScope: z
              .string()
              .regex(/^[a-f0-9]{64}$/)
-@@ -4156,6 +4191,8 @@ export const zcodeProtocolMethods = {
+@@ -4156,6 +4198,8 @@ export const zcodeProtocolMethods = {
    workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",
    // 动态工作流灰度门禁：同 Off-Peak 的同步模式。
    workspaceUpdateDynamicWorkflowPolicy: "workspace/updateDynamicWorkflowPolicy",
@@ -726,10 +769,10 @@ index 0000000000000000000000000000000000000000..658e723fede20161d13dcb5df41ccc24
 +  });
 +});
 diff --git a/packages/shared/test/appSettings.test.ts b/packages/shared/test/appSettings.test.ts
-index 6bccae6bcd60a4ec7dfb3563f2a76ddb0f64adbd..a44d1cc0022a53b69156b188767478008c6bb51d 100644
+index 6bccae6bcd60a4ec7dfb3563f2a76ddb0f64adbd..efc0192adf2b44bf6a3bb1efb31eea619195d914 100644
 --- a/packages/shared/test/appSettings.test.ts
 +++ b/packages/shared/test/appSettings.test.ts
-@@ -390,6 +390,71 @@ describe("app settings", () => {
+@@ -390,6 +390,98 @@ describe("app settings", () => {
    });
  });
  
@@ -795,6 +838,33 @@ index 6bccae6bcd60a4ec7dfb3563f2a76ddb0f64adbd..a44d1cc0022a53b69156b18876747800
 +        false,
 +      );
 +    }
++  });
++});
++
++describe("titleGenerationModel 设置", () => {
++  it("补丁接受模型引用与空串哨兵，拒绝不完整引用", () => {
++    expect(
++      appSettingsPatchSchema.parse({
++        titleGenerationModel: { providerId: "p", modelId: "m" },
++      }),
++    ).toEqual({ titleGenerationModel: { providerId: "p", modelId: "m" } });
++    expect(
++      appSettingsPatchSchema.parse({ titleGenerationModel: { providerId: "", modelId: "" } }),
++    ).toEqual({ titleGenerationModel: { providerId: "", modelId: "" } });
++    expect(
++      appSettingsPatchSchema.safeParse({ titleGenerationModel: { providerId: "p" } }).success,
++    ).toBe(false);
++  });
++
++  it("缺席表示继承会话模型，未知值按继承读取", () => {
++    expect(appSettingsSchema.parse({}).titleGenerationModel).toBeUndefined();
++    expect(
++      appSettingsSchema.parse({ titleGenerationModel: { providerId: "p", modelId: "m" } })
++        .titleGenerationModel,
++    ).toEqual({ providerId: "p", modelId: "m" });
++    expect(
++      appSettingsSchema.parse({ titleGenerationModel: { providerId: "" } }).titleGenerationModel,
++    ).toBeUndefined();
 +  });
 +});
 +

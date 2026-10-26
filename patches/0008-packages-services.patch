@@ -1403,7 +1403,7 @@ index 1880a104e6cc19f29b9f88b472360b6901367e66..276314cba652adae282efae6fe7b19b3
        configService.renamePersonalModel(providerId, currentModelId, nextModelId, membership),
      deletePersonalModel: (providerId, modelId, membership) =>
 diff --git a/packages/services/src/node.ts b/packages/services/src/node.ts
-index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943f2f1bba9 100644
+index 15378333506ce196ac272bdc0306b62e87d299b9..071b5d95284ae0c6d337df78f591628eed6c4ffc 100644
 --- a/packages/services/src/node.ts
 +++ b/packages/services/src/node.ts
 @@ -1,3 +1,6 @@
@@ -1530,7 +1530,18 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943
      commandResolver: options?.zcodeAgentCommandResolver,
      presentationSurface: resolveZCodeAgentPresentationSurface({
        runtimeSurface: options?.agentTelemetry?.runtimeSurface,
-@@ -2536,11 +2600,22 @@ export function createLocalServices(options: {
+@@ -2428,6 +2492,10 @@ export function createLocalServices(options: {
+               ...(scope === "user-execution" && settings.integratedTerminalShell
+                 ? { integratedTerminalShell: settings.integratedTerminalShell }
+                 : {}),
++              // 高级设置「标题生成模型」；缺席 = 继承会话模型。
++              ...(settings.titleGenerationModel
++                ? { titleGenerationModelSelection: settings.titleGenerationModel }
++                : {}),
+             };
+           },
+         }),
+@@ -2536,11 +2604,22 @@ export function createLocalServices(options: {
                : [],
            ),
          readRuntimePreferences: async () => {
@@ -1553,7 +1564,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943
            };
          },
          warn: (message) => botLog.warn(message),
-@@ -2964,6 +3039,7 @@ export function createLocalServices(options: {
+@@ -2964,6 +3043,7 @@ export function createLocalServices(options: {
    offPeakRequestAuthBuilders.set(services, buildOffPeakRequestAuthForTicket);
  
    providerRuntimes.set(services, providerRuntime);
@@ -1561,7 +1572,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943
    providerProvisioningSources.set(services, providerProvisioningSource);
    providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
    // desktop-attached-remote 的组织态在远端 Host 库里，由远端自己的扫描器归档；本机不扫。
-@@ -2980,6 +3056,14 @@ export function createLocalServices(options: {
+@@ -2980,6 +3060,14 @@ export function createLocalServices(options: {
      });
    }
    services
@@ -1576,7 +1587,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943
      .register(IProviderSettingsService, providerRuntime.providerSettings)
      .register(IModelSelectionService, providerRuntime.modelSelection);
    if (isDesktopAttachedRemote || options.providerProvisioningTargetEnabled === true) {
-@@ -3130,6 +3214,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
+@@ -3130,6 +3218,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
    // 关闭共享 tasks-index sqlite 句柄（Windows 上悬着句柄会让后续目录清理撞 EBUSY）
    for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
    sharedSqliteRepos.delete(services);
@@ -1584,7 +1595,7 @@ index 15378333506ce196ac272bdc0306b62e87d299b9..0195bf5bfe53c0c39b0e1adf21cb1943
    providerRuntimes.get(services)?.dispose();
    for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
    providerProvisioningTriggerDisposers.delete(services);
-@@ -3174,6 +3259,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
+@@ -3174,6 +3263,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
    // 关闭共享 tasks-index sqlite 句柄（同 disposeServiceResources，异步收口路径也要释放）
    for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
    sharedSqliteRepos.delete(services);
@@ -2101,6 +2112,25 @@ index 0000000000000000000000000000000000000000..ae722dea0fce471fdbbc691619f61028
 +  provides: ["provider-model-discovery"],
 +  publicEntrypoints: ["index.ts", "contract.ts"],
 +} as const;
+diff --git a/packages/services/src/setting/normalizeSettingsPatch.ts b/packages/services/src/setting/normalizeSettingsPatch.ts
+index 99e38d30789607dab5ba02d8f685c33edcea4e9e..eada318486c5238d836b677b86e60226cc168c22 100644
+--- a/packages/services/src/setting/normalizeSettingsPatch.ts
++++ b/packages/services/src/setting/normalizeSettingsPatch.ts
+@@ -98,5 +98,14 @@ export function normalizeSettingsPatch(patch: Partial<AppSettings>): Partial<App
+     normalizedPatch.dynamicWorkflowMode = undefined;
+   }
+ 
++  if (
++    "titleGenerationModel" in normalizedPatch &&
++    normalizedPatch.titleGenerationModel?.providerId === "" &&
++    normalizedPatch.titleGenerationModel?.modelId === ""
++  ) {
++    // 设置页选回「继承会话模型」= 删除覆盖；RPC 会吞掉 undefined，这里归一成删除。
++    normalizedPatch.titleGenerationModel = undefined;
++  }
++
+   return normalizedPatch;
+ }
 diff --git a/packages/services/src/zcode-agent/zcodeAgent.ts b/packages/services/src/zcode-agent/zcodeAgent.ts
 index ea141344ff174c265a41925eaea7b90de18cf6e5..06d7175a691ef52fb312c297b7cf540dbae394d0 100644
 --- a/packages/services/src/zcode-agent/zcodeAgent.ts

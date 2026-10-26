@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "b8aba44b9ae4d1602500038dd140e13d948c999a",
-  "tree": "4673d66e8b2fbd75cbde7b4b8874d78292fd6781",
+  "sourceHead": "5ab80f8e2a4f73750c53008f2a2d325f5dd45f73",
+  "tree": "a4b0dfe6c50e0fc0dd33b581904c4819cbfe8c10",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -23,7 +23,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "ccd1af47cf1d045037225f40af46b8410c06fed59aa4989ef2a0d8717bfe2ef4",
+      "sha256": "83515e235a421ebc26011261e3d17bfca39d58a8d64f13f91075601a13e60b47",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -125,6 +125,7 @@
         "apps/zcode-cli/packages/bootstrap/tests/v4-cold-resume.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/v4-compact-summary.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts",
+        "apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts",
         "apps/zcode-cli/packages/contracts/src/context-source-contracts/CONTRACT.md",
         "apps/zcode-cli/packages/contracts/src/context-source-contracts/contract.example.ts",
         "apps/zcode-cli/packages/contracts/src/context-source-contracts/contract.ts",
@@ -201,9 +202,11 @@
         "apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/session-fork.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/target-completion-verification.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step-usage.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/turn.ts",
@@ -245,6 +248,7 @@
         "apps/zcode-cli/packages/core/tests/session-limit/session-limit.test.ts",
         "apps/zcode-cli/packages/core/tests/session-resources/contract.test.ts",
         "apps/zcode-cli/packages/core/tests/session-resources/runtime.test.ts",
+        "apps/zcode-cli/packages/core/tests/session-title-conversation.test.ts",
         "apps/zcode-cli/packages/core/tests/skill-catalog-runtime.test.ts",
         "apps/zcode-cli/packages/core/tests/subagent-background.test.ts",
         "apps/zcode-cli/packages/core/tests/subagent-explore.test.ts",
@@ -261,7 +265,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "9e0da23fb549c70051accab85b371491ccf721b8a64b3b0c670aa04fc091eed9",
+      "sha256": "2997eac7bbc211ea722c85bdc44651c56e9ad4e95a62ea95cac81911648dbc20",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -285,6 +289,7 @@
         "docs/status-panel-header-layout.md",
         "docs/task-output-contract.md",
         "docs/third-party/opencode-codex-MIT.txt",
+        "docs/title-generation-settings.md",
         "docs/ui/autocompact-command.md",
         "docs/ui/chat-summary-panel.md",
         "docs/ui/conversation-selection-side-chat.md",
@@ -388,7 +393,7 @@
     {
       "file": "0008-packages-services.patch",
       "directory": "packages/services",
-      "sha256": "c06dd7b66edc05bffe8280ff4e837c15a89cf1e342e87294732e2b2499fba48b",
+      "sha256": "95c4c9aa5ddd4838ed43be4d9dc21f6abdb3bd5610e1afb8ce47265a0e7ac8ae",
       "paths": [
         "packages/services/package.json",
         "packages/services/src/accessor.ts",
@@ -420,6 +425,7 @@
         "packages/services/src/provider-model-discovery/discovery.ts",
         "packages/services/src/provider-model-discovery/index.ts",
         "packages/services/src/provider-model-discovery/module.ts",
+        "packages/services/src/setting/normalizeSettingsPatch.ts",
         "packages/services/src/zcode-agent/zcodeAgent.ts",
         "packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts",
         "packages/services/src/zcode-agent/zcodeAgentService.ts",
@@ -435,7 +441,7 @@
     {
       "file": "0009-packages-shared.patch",
       "directory": "packages/shared",
-      "sha256": "95af8881888ac026863954f73c2da2b4e3f499acaba30257951cb295329eab0d",
+      "sha256": "a36dfae2e82979a5d5530bf379fc45298cd8c85c38a87e6b0ea820d9ede9e17d",
       "paths": [
         "packages/shared/src/app-runtime-preferences.ts",
         "packages/shared/src/channels.ts",
@@ -471,7 +477,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "9507073b48aa7619e66e11e58dac38f55a562cc1dbc4ad77f11eb9eaba4748d4",
+      "sha256": "7ca6e1f9cddac9555fe2feb0907e2a39debb9b375e89e4e669124f572aab9ada",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
