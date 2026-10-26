@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "bb8211263c483ff93f59f049414819c9901124f4",
-  "tree": "b59a854d84a44d652c88a2cccea4fbc48def17ba",
+  "sourceHead": "b8aba44b9ae4d1602500038dd140e13d948c999a",
+  "tree": "4673d66e8b2fbd75cbde7b4b8874d78292fd6781",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -261,10 +261,11 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "7fa05ccb23337f52d7735c164afd9d6f08143dde17a4839fc2f2660d9a419bcf",
+      "sha256": "9e0da23fb549c70051accab85b371491ccf721b8a64b3b0c670aa04fc091eed9",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
+        "docs/background-bash-display.md",
         "docs/chat/assistant-latest-part-actions.md",
         "docs/chat/conversation-turn-view-model.md",
         "docs/compaction-profiles.md",
@@ -470,7 +471,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "2f359bac936f60f125a1753e09b989b68eb7d57f5a2b8ca18d4868819235e839",
+      "sha256": "9507073b48aa7619e66e11e58dac38f55a562cc1dbc4ad77f11eb9eaba4748d4",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -645,6 +646,7 @@
         "packages/ui/src/v4/workspaceConnectionRegistry.ts",
         "packages/ui/test/agentV4ConnectionTransports.test.ts",
         "packages/ui/test/autocompact.test.ts",
+        "packages/ui/test/backgroundBashNotice.test.ts",
         "packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx",
         "packages/ui/test/browser/manual-review/pending/autocompact.test.mjs",
         "packages/ui/test/browser/manual-review/pending/codex-device.fixture.tsx",

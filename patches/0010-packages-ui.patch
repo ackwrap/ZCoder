@@ -671,10 +671,128 @@ index 69a3da030d2537cf09d2e433ae44d8872db9f329..507333d9330bb42b2fd664ace544566b
          forceOpen={!context.isOfficeMode && layoutConfig.forceOpen}
          kindLabel={context.kindLabelOverride ?? kindLabel}
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-index 37ac09799834fcfdb8d0c29853166af7f8a30046..90b276a94c7199c133537da98139cd1516500df9 100644
+index 37ac09799834fcfdb8d0c29853166af7f8a30046..0b67a07590ced784a029a454582f117fcbfa642e 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
 +++ b/packages/ui/src/ToolCallBlocks/renderers/execute.tsx
-@@ -347,6 +347,7 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -266,8 +266,38 @@ function extractExecuteResultText(output: unknown): string | null {
+   return null;
+ }
+ 
++const BACKGROUND_RUN_NOTICE_START =
++  /(?:^|\n)Command (?:(?:running in background)|(?:was manually backgrounded by user)|(?:exceeded the assistant-mode blocking budget))/u;
++
++export interface BackgroundRunNotice {
++  body: string;
++  taskId: string;
++  outputPath?: string;
++}
++
++/**
++ * Bash 后台结果正文是给模型的任务 ID/输出路径提示；卡片只展示「后台运行」摘要，
++ * 避免把模型指令当命令输出铺在前端。正文里的真实 stdout 仍保留。
++ */
++export function splitBackgroundRunNotice(text: string): BackgroundRunNotice | null {
++  const match = BACKGROUND_RUN_NOTICE_START.exec(text);
++  if (!match) return null;
++  const noticeStart = match[0].startsWith("\n") ? match.index + 1 : match.index;
++  const noticeSegment = text.slice(noticeStart);
++  const taskId = /with ID: ([A-Za-z0-9_-]+)/u.exec(noticeSegment)?.[1];
++  if (!taskId) return null;
++  const outputPath = /Output is being written to: (.+?)\.(?:\s|$)/u
++    .exec(noticeSegment)?.[1]
++    ?.trim();
++  return {
++    body: text.slice(0, match.index).trimEnd(),
++    taskId,
++    ...(outputPath ? { outputPath } : {}),
++  };
++}
++
+ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+-  const { intl } = useZCodeIntl();
++  const { intl, locale } = useZCodeIntl();
+   const { toolCallNode, isRunning, statusLabel, errorText, isOfficeMode = false } = context;
+   const { toolCall } = toolCallNode;
+   const secondaryText = getExecuteSecondaryText(toolCall.input);
+@@ -289,6 +319,15 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+   }, [isRunning, toolCall.raw]);
+   const failureVisibleText =
+     toolCall.status === "failed" ? (errorText ?? resultText ?? undefined) : undefined;
++  const visibleText = outputPreview?.fullText ?? failureVisibleText ?? resultText ?? "";
++  const backgroundRun = useMemo(() => splitBackgroundRunNotice(visibleText), [visibleText]);
++  const backgroundLabel = backgroundRun
++    ? locale === "zh-CN"
++      ? `已转入后台运行 · ${backgroundRun.taskId}`
++      : `Moved to background · ${backgroundRun.taskId}`
++    : null;
++  const outputBodyText = backgroundRun ? backgroundRun.body : visibleText;
++  const hasOutput = Boolean(outputPreview || failureVisibleText || resultText);
+   const secondaryTextNode = useMemo(
+     // 收起态 command 属于摘要正文，使用 UI sans 与同一行文案保持一致；
+     // 展开后的完整命令仍保留 font-mono，便于阅读和复制技术内容。
+@@ -310,32 +349,44 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
+           </div>
+         </div>
+ 
+-        {context.isPermissionPreview ? null : outputPreview || failureVisibleText || resultText ? (
+-          <ExecuteOutput
+-            text={outputPreview?.fullText ?? failureVisibleText ?? resultText ?? ""}
+-            running={isRunning}
+-          />
+-        ) : (
+-          !isRunning && (
+-            <div className="space-y-1">
+-              <p className="font-mono text-ui-base text-foreground-subtle">
+-                {intl.formatMessage({
+-                  id: "chat.toolCall.execute.noOutput",
+-                })}
++        {context.isPermissionPreview ? null : (
++          <>
++            {backgroundLabel ? (
++              <p
++                data-testid="execute-background-run"
++                className="font-mono text-ui-base text-foreground-subtle"
++                title={backgroundRun?.outputPath}
++              >
++                {backgroundLabel}
+               </p>
+-            </div>
+-          )
++            ) : null}
++            {hasOutput && (outputBodyText || !backgroundRun) ? (
++              <ExecuteOutput text={outputBodyText} running={isRunning} />
++            ) : (
++              !isRunning &&
++              !backgroundLabel && (
++                <div className="space-y-1">
++                  <p className="font-mono text-ui-base text-foreground-subtle">
++                    {intl.formatMessage({
++                      id: "chat.toolCall.execute.noOutput",
++                    })}
++                  </p>
++                </div>
++              )
++            )}
++          </>
+         )}
+       </div>
+     ),
+     [
++      backgroundLabel,
++      backgroundRun,
+       contentParts.executionCommand,
+       context.isPermissionPreview,
+-      failureVisibleText,
++      hasOutput,
+       intl,
+       isRunning,
+-      resultText,
+-      outputPreview,
++      outputBodyText,
+     ],
+   );
+ 
+@@ -347,6 +398,7 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
          showIcon={context.showIcon !== false}
          canToggle={!isOfficeMode && (context.canToggle ?? true)}
          forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
@@ -11436,6 +11554,143 @@ index 0000000000000000000000000000000000000000..9d3606c4b2c241e09dd70996ad0629b5
 +      expect(() => parseAutoCompactInput(`/autocompact ${arg}`)).toThrow();
 +    },
 +  );
++});
+diff --git a/packages/ui/test/backgroundBashNotice.test.ts b/packages/ui/test/backgroundBashNotice.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e889d3645d84b03c654cf95d76bdd619b0878844
+--- /dev/null
++++ b/packages/ui/test/backgroundBashNotice.test.ts
+@@ -0,0 +1,131 @@
++// @vitest-environment jsdom
++
++import { createElement } from "react";
++import { cleanup, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it } from "vitest";
++import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import {
++  ExecuteToolCallBlock,
++  splitBackgroundRunNotice,
++} from "../src/ToolCallBlocks/renderers/execute.js";
++import { buildToolDisplayModel } from "../src/lib/toolDisplay.js";
++import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
++
++afterEach(cleanup);
++
++// ExecuteCommand 用 ResizeObserver 判断命令行是否溢出；jsdom 不提供该 API。
++class ResizeObserverStub {
++  observe(): void {}
++  unobserve(): void {}
++  disconnect(): void {}
++}
++globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
++
++const BACKGROUND_NOTICE =
++  "Command running in background with ID: exec_bg. Output is being written to: /tmp/exec_bg.output. You will be notified when it completes. To check interim output, use Read on that file path.";
++
++function row(outputText: string): ToolCallRow {
++  return {
++    rowId: 1,
++    turnId: "turn-bg",
++    createdAt: 1,
++    createdAtSeq: 1,
++    kind: "toolCall",
++    toolCallId: "call-bg",
++    toolName: "Bash",
++    status: "success",
++    inputText: '{"command":"npm run watch"}',
++    input: { command: "npm run watch" },
++    output: { text: outputText },
++  };
++}
++
++function body(value: ToolCallRow, locale: "zh-CN" | "en-US" = "zh-CN") {
++  const node = toolCallRowToLegacyNode(value);
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: locale },
++    createElement(ExecuteToolCallBlock, {
++      nestedToolRenderer: () => null,
++      toolCallNode: node,
++      workspacePath: "/workspace",
++      displayModel: buildToolDisplayModel(node.toolCall),
++      viewerSource: null,
++      rawFileSummaries: [],
++      isRunning: false,
++      statusLabel: "完成",
++      childToolList: null,
++      forceOpen: true,
++    }),
++  );
++}
++
++describe("splitBackgroundRunNotice", () => {
++  it.each([
++    [BACKGROUND_NOTICE, "exec_bg"],
++    [
++      "Command was manually backgrounded by user with ID: exec_user. Output is being written to: C:\\tmp\\a.log",
++      "exec_user",
++    ],
++    [
++      "Command exceeded the assistant-mode blocking budget (15s) and was moved to the background with ID: exec_auto. It is still running — you will be notified when it completes. Output is being written to: /tmp/a.log. In assistant mode, delegate long-running work to a subagent or use run_in_background to keep this conversation responsive.",
++      "exec_auto",
++    ],
++  ])("extracts the background task id %#", (text, taskId) => {
++    expect(splitBackgroundRunNotice(text)).toMatchObject({ body: "", taskId });
++  });
++
++  it("keeps preceding stdout as the body", () => {
++    expect(splitBackgroundRunNotice(`partial output\n${BACKGROUND_NOTICE}`)).toMatchObject({
++      body: "partial output",
++      taskId: "exec_bg",
++      outputPath: "/tmp/exec_bg.output",
++    });
++  });
++
++  it.each(["ok", "log: Command running in background without a task id", ""])(
++    "ignores non-notice text %j",
++    (text) => {
++      expect(splitBackgroundRunNotice(text)).toBeNull();
++    },
++  );
++});
++
++describe("background Bash card", () => {
++  it("shows a compact background label instead of the model hint text", () => {
++    render(body(row(BACKGROUND_NOTICE)));
++    expect(screen.getByTestId("execute-background-run").textContent).toBe(
++      "已转入后台运行 · exec_bg",
++    );
++    expect(screen.queryByText(/You will be notified/)).toBeNull();
++    expect(screen.queryByText(/To check interim output/)).toBeNull();
++  });
++
++  it("keeps real output that precedes the notice", () => {
++    render(
++      body(
++        row(
++          "watching for changes\nCommand was manually backgrounded by user with ID: exec_bg2. Output is being written to: /tmp/watch.log",
++        ),
++      ),
++    );
++    expect(screen.getByTestId("execute-background-run").textContent).toBe(
++      "已转入后台运行 · exec_bg2",
++    );
++    expect(screen.getByTestId("bash-result-output").textContent).toBe("watching for changes");
++  });
++
++  it("localizes the label", () => {
++    render(body(row(BACKGROUND_NOTICE), "en-US"));
++    expect(screen.getByTestId("execute-background-run").textContent).toBe(
++      "Moved to background · exec_bg",
++    );
++  });
++
++  it("leaves ordinary command output untouched", () => {
++    render(body(row("ok")));
++    expect(screen.queryByTestId("execute-background-run")).toBeNull();
++    expect(screen.getByTestId("bash-result-output").textContent).toBe("ok");
++  });
 +});
 diff --git a/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx b/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx
 new file mode 100644

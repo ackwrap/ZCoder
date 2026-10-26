@@ -65,6 +65,36 @@ index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80
  
  ## Implementation Contract
  
+diff --git a/docs/background-bash-display.md b/docs/background-bash-display.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..eaa7b016ee1d1c44b237a8a83313842fc2953b12
+--- /dev/null
++++ b/docs/background-bash-display.md
+@@ -0,0 +1,24 @@
++# 后台 Bash 卡片的显示
++
++## 目标
++
++Bash 后台运行结果对模型必须保留完整提示（task id、输出路径、TaskOutput/Read 用法）；前端只展示「已转入后台运行」摘要，不把这段模型指令当作命令输出铺在卡片里。真实 stdout/stderr 仍原样显示。
++
++## 行为
++
++- 命中 `Command running in background with ID:`、`Command was manually backgrounded by user with ID:` 或 `Command exceeded the assistant-mode blocking budget` 且能解析出 `with ID: <taskId>` 时：
++  - 卡片显示 `已转入后台运行 · <taskId>`（英文 `Moved to background · <taskId>`），输出路径放进 tooltip。
++  - 提示句本身（含 “You will be notified…”/“To check interim output…”）不再显示。
++  - 提示之前的真实输出继续显示；提示一般位于结果末尾，从提示起到结尾按模型提示处理。
++- 未命中、缺少 task id，或只是普通输出里出现 “running in background” 时保持原样。
++- 不改工具结果、协议字段或 CLI 文案；模型仍收到完整正文，TaskOutput/Read 指引不受影响。
++
++## 边界
++
++实现位于既有 Bash 渲染器 `packages/ui/src/ToolCallBlocks/renderers/execute.tsx` 的一个纯函数与展示分支：`splitBackgroundRunNotice` 只做文本切分，不读取磁盘、不发请求、不缓存。后台任务的运行状态、取消与输出仍由既有 `backgroundWorks` 投影和后台任务面板负责，本卡片不新增第二份状态。
++
++## 验收
++
++- 纯函数覆盖三种提示、前置输出、无 task id 与普通文本。
++- DOM 回归覆盖提示隐藏、task id 展示、前置 stdout 保留、中英文案与普通输出不受影响。
++- 既有 Bash 预览/结果测试保持原状；`bashOutputPreview` 的 collapsed 断言在本次改动前后同样失败，属存量问题，不归因于本改动。
 diff --git a/docs/chat/assistant-latest-part-actions.md b/docs/chat/assistant-latest-part-actions.md
 index e21952d2888511b00b92b43f552a8dd06708d471..8106d6bcd5b28dab91b888ee51054cac86495bde 100644
 --- a/docs/chat/assistant-latest-part-actions.md
