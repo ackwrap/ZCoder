@@ -9490,7 +9490,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f65cd47461 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139ee746082c 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9530,11 +9530,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
  import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
  import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
  import type { ConversationLatestTurnSummary } from "@/v4/conversationTimelineLiveTail.js";
-@@ -295,6 +292,13 @@ import {
+@@ -295,6 +292,17 @@ import {
    type V4VisibleSlashCommand,
  } from "@/v4/slashCommands.js";
  import { useSlashCommands } from "@/hooks/useSlashCommands.js";
-+import { openComposerModelMenu, useAutoCompactCommand, useCompatSlashCommands } from "./slash-commands/contract.js";
++import {
++  openComposerModelMenu,
++  useAutoCompactCommand,
++  useCompatSlashCommands,
++} from "./slash-commands/contract.js";
 +import {
 +  createRenameCommand,
 +  normalizeRenameTitle,
@@ -9544,7 +9548,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
  import { useV4Conversation } from "@/v4/V4ConversationContext.js";
  import { useConversationProjection } from "@/v4/useConversationProjection.js";
  import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
-@@ -308,7 +312,6 @@ import {
+@@ -308,7 +316,6 @@ import {
  import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
  import type { ChatErrorBannerModelConfigTarget } from "@/ChatErrorBanner.js";
  import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
@@ -9552,7 +9556,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
  import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
  import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
  import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
-@@ -336,6 +339,7 @@ import {
+@@ -327,6 +334,7 @@ import type {
+   OpenWorkflowWorkspaceSideTabRequest,
+   OpenScopedSubagentSideTabRequest,
+   OpenBackgroundBashSideTabRequest,
++  BackgroundBashSidePaneTab,
+   OpenScopedSubagentDirectorySideTabRequest,
+   OpenSelectionSideChatRequest,
+   SyncSubagentSessionTabsRequest,
+@@ -336,6 +344,7 @@ import {
    buildSelectionSideChatKey,
    clearSelectionSideChat,
    createSelectionSideChat,
@@ -9560,16 +9572,26 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    isSelectionSideChatBlocked,
    registerSelectionSideChatOpener,
    setSelectionSideChatBlocked,
-@@ -346,6 +350,8 @@ import {
+@@ -346,6 +355,10 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
 +import { McpStatusDialog } from "@/McpStatusDialog.js";
++import { BackgroundBashOutputSidePane } from "@/app-shell/BackgroundBashOutputSidePane.js";
++import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
 +import { isMcpStatusCommand } from "@/lib/mcpStatusCommand.js";
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -668,6 +674,7 @@ export function SessionPane({
+@@ -641,7 +654,6 @@ export function SessionPane({
+   onAutoOpenAssistantPptx,
+   onOpenFileLink,
+   onOpenSubagentSession,
+-  onOpenBackgroundBash,
+   onOpenSubagentDirectory,
+   onSyncSubagentSessionTabs,
+   onOpenSelectionSideChat,
+@@ -668,6 +680,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -9577,15 +9599,18 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1151,7 @@ export function SessionPane({
+@@ -1144,6 +1157,10 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
 +  const [mcpStatusOpen, setMcpStatusOpen] = useState(false);
++  // 后台 Bash 详情改为弹窗：侧栏 tab 会挤占聊天区，用户要求点击任务卡就地查看。
++  const [backgroundBashDialogTab, setBackgroundBashDialogTab] =
++    useState<BackgroundBashSidePaneTab | null>(null);
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1908,6 @@ export function SessionPane({
+@@ -1900,7 +1917,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -9593,7 +9618,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2362,12 @@ export function SessionPane({
+@@ -2355,6 +2371,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -9606,7 +9631,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2717,7 @@ export function SessionPane({
+@@ -2704,7 +2726,7 @@ export function SessionPane({
            return;
          }
  
@@ -9615,7 +9640,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2732,11 @@ export function SessionPane({
+@@ -2719,9 +2741,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -9628,7 +9653,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2781,7 @@ export function SessionPane({
+@@ -2766,7 +2790,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -9637,7 +9662,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2803,10 @@ export function SessionPane({
+@@ -2788,8 +2812,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -9649,7 +9674,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        return true;
      },
      [
-@@ -2853,16 +2870,61 @@ export function SessionPane({
+@@ -2853,16 +2879,75 @@ export function SessionPane({
      [cliSlashCommandNames],
    );
  
@@ -9678,6 +9703,20 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
 +        .catch(() => toast(renameCopy.failed));
 +    },
 +    [dispatchCommand, renameCopy, sessionId],
++  );
++
++  const handleOpenBackgroundBashDialog = useCallback(
++    (request: OpenBackgroundBashSideTabRequest) => {
++      setBackgroundBashDialogTab({
++        ...request,
++        id: `bash-output:${request.sessionId}:${request.workId}`,
++        type: "bash-output",
++        workspaceKey: request.workspaceIdentity?.trim() || request.workspacePath,
++        ownerTaskId: request.sessionId,
++        openedAt: Date.now(),
++      });
++    },
++    [],
 +  );
 +
    // Plan 选中即开启标准 Composer 开关，不能等发送时解析文本；与 /side 共用本地操作入口。
@@ -9712,7 +9751,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2935,7 @@ export function SessionPane({
+@@ -2873,7 +2958,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -9721,7 +9760,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2946,8 @@ export function SessionPane({
+@@ -2884,6 +2969,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -9730,7 +9769,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2893,10 +2957,12 @@ export function SessionPane({
+@@ -2893,10 +2980,12 @@ export function SessionPane({
      cliSlashCommandNames,
      handleDraftSwitchMode,
      handleOpenSelectionSideConversation,
@@ -9743,7 +9782,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
      selectionSideChat,
      sessionId,
    ]);
-@@ -2982,6 +3048,8 @@ export function SessionPane({
+@@ -2982,6 +3071,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -9752,7 +9791,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3060,6 +3128,8 @@ export function SessionPane({
+@@ -3060,6 +3151,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -9761,7 +9800,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3891,6 +3961,27 @@ export function SessionPane({
+@@ -3891,6 +3984,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -9789,7 +9828,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +3989,30 @@ export function SessionPane({
+@@ -3898,6 +4012,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -9820,7 +9859,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +4048,16 @@ export function SessionPane({
+@@ -3933,7 +4071,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -9838,7 +9877,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4828,24 @@ export function SessionPane({
+@@ -4704,6 +4851,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -9863,7 +9902,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5085,8 @@ export function SessionPane({
+@@ -4943,7 +5108,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -9873,7 +9912,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5157,6 @@ export function SessionPane({
+@@ -5014,42 +5180,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -9916,7 +9955,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5589,15 @@ export function SessionPane({
+@@ -5482,11 +5612,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -9934,7 +9973,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5681,6 @@ export function SessionPane({
+@@ -5570,12 +5704,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -9947,7 +9986,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5733,14 @@ export function SessionPane({
+@@ -5628,6 +5756,37 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -9959,10 +9998,33 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
 +          workspaceIdentity={workspaceIdentity}
 +        />
 +      ) : null}
++      <Dialog
++        open={backgroundBashDialogTab !== null}
++        onOpenChange={(open) => {
++          if (!open) setBackgroundBashDialogTab(null);
++        }}
++      >
++        <DialogContent className="flex h-[min(70vh,640px)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
++          <DialogHeader className="border-b border-border px-4 py-3 pr-12 text-left">
++            <DialogTitle className="truncate text-ui-base">
++              {backgroundBashDialogTab?.title ?? ""}
++            </DialogTitle>
++          </DialogHeader>
++          <div className="min-h-0 flex-1">
++            {backgroundBashDialogTab ? (
++              <BackgroundBashOutputSidePane
++                tab={backgroundBashDialogTab}
++                visible
++                onOpenCodeViewer={onOpenCodeViewer}
++              />
++            ) : null}
++          </div>
++        </DialogContent>
++      </Dialog>
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5872,39 @@ export function SessionPane({
+@@ -5759,6 +5918,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -10002,6 +10064,18 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f6
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
+@@ -5800,9 +5992,9 @@ export function SessionPane({
+               }
+               onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
+               onOpenBackgroundBash={
+-                onOpenBackgroundBash && sessionId
++                sessionId
+                   ? (work) =>
+-                      onOpenBackgroundBash({
++                      handleOpenBackgroundBashDialog({
+                         workspacePath,
+                         workspaceIdentity: workspaceIdentity ?? undefined,
+                         remoteSessionId: remoteSessionId ?? undefined,
 diff --git a/packages/ui/src/v4/V4ConversationContext.tsx b/packages/ui/src/v4/V4ConversationContext.tsx
 index 84d2e2e51aff36b20444a86decca3db00c266aff..7374fa9af3a409614e7dc4c6c6a0b38ba564c4fb 100644
 --- a/packages/ui/src/v4/V4ConversationContext.tsx

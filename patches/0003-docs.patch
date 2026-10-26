@@ -67,10 +67,10 @@ index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80
  
 diff --git a/docs/background-bash-display.md b/docs/background-bash-display.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..eaa7b016ee1d1c44b237a8a83313842fc2953b12
+index 0000000000000000000000000000000000000000..974af4ce9769da3525ce8384868ef2ad77bf036f
 --- /dev/null
 +++ b/docs/background-bash-display.md
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,28 @@
 +# 后台 Bash 卡片的显示
 +
 +## 目标
@@ -85,6 +85,10 @@ index 0000000000000000000000000000000000000000..eaa7b016ee1d1c44b237a8a83313842f
 +  - 提示之前的真实输出继续显示；提示一般位于结果末尾，从提示起到结尾按模型提示处理。
 +- 未命中、缺少 task id，或只是普通输出里出现 “running in background” 时保持原样。
 +- 不改工具结果、协议字段或 CLI 文案；模型仍收到完整正文，TaskOutput/Read 指引不受影响。
++
++## 打开方式
++
++状态面板里的后台 Bash 行点击后在模态弹窗中查看输出，不再打开右侧面板 tab：弹窗复用既有 `BackgroundBashOutputSidePane`（运行状态、跟随滚动、输出文件入口），关闭即卸载。聊天区与状态面板共用同一点击入口。
 +
 +## 边界
 +
