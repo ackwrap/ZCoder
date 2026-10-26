@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "10089eca7005cb5a8be652544f46757ffec60c3a",
-  "tree": "9475a3d335b3203fb28237ad90edcb63b622b487",
+  "sourceHead": "0ea4722bc84a78f292280bb8fe02fc2491b37979",
+  "tree": "15dc6ce2c9bc7389196f772110b24088bc7d35d2",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -265,7 +265,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "bbc476e46df9b94c204e9232633c62561f8fc7b379887336acac859d89645351",
+      "sha256": "fc35d07bc6a47907eb9c105ae5f1af4a47161e72cb573f2e559a162a40ea71a2",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -477,11 +477,12 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "14835f18cce56fdfbd225decef5b79f9f6c12f16e22ebe8f6722be60ccc01018",
+      "sha256": "25df90a56c03bb0232ef4d022ade8a38279626a6f47655be1f591507b51ea476",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
         "packages/ui/src/SettingsPage.tsx",
+        "packages/ui/src/SlashCommandPlugin.tsx",
         "packages/ui/src/ToolCallBlocks.tsx",
         "packages/ui/src/ToolCallBlocks/ToolLayout.tsx",
         "packages/ui/src/ToolCallBlocks/ToolPresentation.tsx",
@@ -541,6 +542,7 @@
         "packages/ui/src/i18n/locales/en-US.ts",
         "packages/ui/src/i18n/locales/zh-CN.ts",
         "packages/ui/src/lib/mcpStatusCommand.ts",
+        "packages/ui/src/lib/promptInputTriggers.ts",
         "packages/ui/src/lib/selectionSideChatRuntime.ts",
         "packages/ui/src/lib/settingsNavigation.ts",
         "packages/ui/src/lib/workspaceSidePane.ts",
@@ -591,6 +593,7 @@
         "packages/ui/src/settings/settingsPageConfig.ts",
         "packages/ui/src/settingsPageHelpers.tsx",
         "packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx",
+        "packages/ui/src/slashCommandHelpers.ts",
         "packages/ui/src/task-output-copy/CONTRACT.md",
         "packages/ui/src/task-output-copy/contract.example.ts",
         "packages/ui/src/task-output-copy/contract.test.ts",

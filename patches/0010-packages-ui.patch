@@ -415,6 +415,42 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..d50bbb7d611ec7a05bd9468271827f1f
                            ) : activeSection === "modelProvider" ? (
                              <ServiceProvider services={localHostServices}>
                                {/* 模型配置属于本机全局事实源；激活远端 workspace 时也不能注入远端 Host。 */}
+diff --git a/packages/ui/src/SlashCommandPlugin.tsx b/packages/ui/src/SlashCommandPlugin.tsx
+index 4b8d21bd3ba0a44398583d9a8039617e37216573..e2580cf56c5edefe50aca0a4d24ae889894754ca 100644
+--- a/packages/ui/src/SlashCommandPlugin.tsx
++++ b/packages/ui/src/SlashCommandPlugin.tsx
+@@ -281,8 +281,13 @@ export function SlashCommandPlugin({
+         );
+ 
+         if (isAppCommand) {
+-          // App 层命令"选中即执行"：只移除输入中的 `/xxx` token，不插入 mention、不发送。
+-          selectionState.selection.removeText();
++          // 需要继续输入参数的命令（如 `/rename 新标题`）把命令文本留在输入框，
++          // 由发送前拦截处理；其余 app 命令仍是"选中即执行"，只移除 `/xxx` token。
++          if (suggestion.insertText) {
++            selectionState.selection.insertText(suggestion.insertText);
++          } else {
++            selectionState.selection.removeText();
++          }
+           return;
+         }
+ 
+@@ -299,9 +304,12 @@ export function SlashCommandPlugin({
+       if (isAppCommand) {
+         // 本地操作也要保留输入焦点；在执行回调前恢复，避免抢走回调新开的辅助对话焦点。
+         editor.focus();
+-        appCommands
+-          ?.find((command) => normalizeSlashCommandValue(command.value) === suggestion.value)
+-          ?.run();
++        // insertText 把命令留在输入框等待参数，不能顺手执行 run()。
++        if (!suggestion.insertText) {
++          appCommands
++            ?.find((command) => normalizeSlashCommandValue(command.value) === suggestion.value)
++            ?.run();
++        }
+         return;
+       }
+       requestAnimationFrame(() => {
 diff --git a/packages/ui/src/ToolCallBlocks.tsx b/packages/ui/src/ToolCallBlocks.tsx
 index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fdd11869b2 100644
 --- a/packages/ui/src/ToolCallBlocks.tsx
@@ -4256,6 +4292,40 @@ index 0000000000000000000000000000000000000000..e08faa11c53666c0ae69553df260f991
 +  const match = MCP_STATUS_COMMAND_PATTERN.exec(text.trim());
 +  return Boolean(match && !cliSlashCommandNames.has(match[1]!.toLowerCase()));
 +}
+diff --git a/packages/ui/src/lib/promptInputTriggers.ts b/packages/ui/src/lib/promptInputTriggers.ts
+index 0631c9813fb64b53d9301ddcaa4deecc2ff0a7cb..715cbd0160a324bbd287c9323d4de81768e41575 100644
+--- a/packages/ui/src/lib/promptInputTriggers.ts
++++ b/packages/ui/src/lib/promptInputTriggers.ts
+@@ -8,9 +8,7 @@ export interface ActivePromptInputTrigger {
+ export function getPromptInputTriggerSignature(
+   activeTrigger: ActivePromptInputTrigger | null,
+ ): string | null {
+-  return activeTrigger
+-    ? `${activeTrigger.trigger}:${activeTrigger.query}`
+-    : null;
++  return activeTrigger ? `${activeTrigger.trigger}:${activeTrigger.query}` : null;
+ }
+ 
+ export interface PromptInputSuggestionItem {
+@@ -20,6 +18,8 @@ export interface PromptInputSuggestionItem {
+   label: string;
+   description: string;
+   keywords?: string[];
++  /** 选中后只把该文本插入输入框（不立即执行），供需要继续输入参数的命令使用。 */
++  insertText?: string;
+   data?: {
+     path?: string;
+     scope?: "built-in" | "workspace" | "user" | "plugin";
+@@ -121,8 +121,7 @@ export function extractActivePromptInputTrigger(
+   textBeforeCursor: string,
+ ): ActivePromptInputTrigger | null {
+   const match =
+-    ACTIVE_MENTION_TRIGGER_RE.exec(textBeforeCursor) ??
+-    ACTIVE_TRIGGER_RE.exec(textBeforeCursor);
++    ACTIVE_MENTION_TRIGGER_RE.exec(textBeforeCursor) ?? ACTIVE_TRIGGER_RE.exec(textBeforeCursor);
+   if (!match) {
+     return null;
+   }
 diff --git a/packages/ui/src/lib/selectionSideChatRuntime.ts b/packages/ui/src/lib/selectionSideChatRuntime.ts
 index cd9673fba0915597ef780a080bf6cdde7484925e..d749ae49bb4005061923b7df34a9698c15aa93e8 100644
 --- a/packages/ui/src/lib/selectionSideChatRuntime.ts
@@ -7504,6 +7574,27 @@ index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1b
    // 未注入时走 GlobalNoticeSurface 默认的 browserGlobalNoticeStore。
    return <GlobalNoticeSurface store={noticeStore ?? undefined} />;
  }
+diff --git a/packages/ui/src/slashCommandHelpers.ts b/packages/ui/src/slashCommandHelpers.ts
+index 494db27ab724102344b67ab65750c4415f25eda6..f14db850be940be7194bf2b59667bbf35800a7bd 100644
+--- a/packages/ui/src/slashCommandHelpers.ts
++++ b/packages/ui/src/slashCommandHelpers.ts
+@@ -37,6 +37,8 @@ export interface AppSlashCommand {
+   description: string;
+   /** 额外搜索关键词；应同时包含中英文别名，保证两种输入习惯都能搜到。 */
+   keywords?: readonly string[];
++  /** 选中后把该文本插入输入框而不是立即执行（供需要继续输入参数的命令使用）。 */
++  insertText?: string;
+   /** 选中命令后立即执行的 UI 行为。 */
+   run: () => void;
+ }
+@@ -59,6 +61,7 @@ export function buildAppSlashCommandSuggestions(
+         label: command.label ?? `/${value}`,
+         description: command.description,
+         keywords: [...new Set([value, command.description, ...(command.keywords ?? [])])],
++        ...(command.insertText ? { insertText: command.insertText } : {}),
+       },
+     ];
+   });
 diff --git a/packages/ui/src/task-output-copy/CONTRACT.md b/packages/ui/src/task-output-copy/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..1af739df66589ae698dbf4012a4134ec92a2465c
@@ -9399,7 +9490,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fac79337d7 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..bc5b825effcdcf46b8b1fcc64aa070f65cd47461 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9439,12 +9530,13 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
  import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
  import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
  import type { ConversationLatestTurnSummary } from "@/v4/conversationTimelineLiveTail.js";
-@@ -295,6 +292,12 @@ import {
+@@ -295,6 +292,13 @@ import {
    type V4VisibleSlashCommand,
  } from "@/v4/slashCommands.js";
  import { useSlashCommands } from "@/hooks/useSlashCommands.js";
 +import { openComposerModelMenu, useAutoCompactCommand, useCompatSlashCommands } from "./slash-commands/contract.js";
 +import {
++  createRenameCommand,
 +  normalizeRenameTitle,
 +  parseRenameCommand,
 +  renameCommandCopy,
@@ -9452,7 +9544,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
  import { useV4Conversation } from "@/v4/V4ConversationContext.js";
  import { useConversationProjection } from "@/v4/useConversationProjection.js";
  import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
-@@ -308,7 +311,6 @@ import {
+@@ -308,7 +312,6 @@ import {
  import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
  import type { ChatErrorBannerModelConfigTarget } from "@/ChatErrorBanner.js";
  import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
@@ -9460,7 +9552,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
  import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
  import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
  import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
-@@ -336,6 +338,7 @@ import {
+@@ -336,6 +339,7 @@ import {
    buildSelectionSideChatKey,
    clearSelectionSideChat,
    createSelectionSideChat,
@@ -9468,7 +9560,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    isSelectionSideChatBlocked,
    registerSelectionSideChatOpener,
    setSelectionSideChatBlocked,
-@@ -346,6 +349,8 @@ import {
+@@ -346,6 +350,8 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
@@ -9477,7 +9569,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -668,6 +673,7 @@ export function SessionPane({
+@@ -668,6 +674,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -9485,7 +9577,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1150,7 @@ export function SessionPane({
+@@ -1144,6 +1151,7 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -9493,7 +9585,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1907,6 @@ export function SessionPane({
+@@ -1900,7 +1908,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -9501,7 +9593,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2361,12 @@ export function SessionPane({
+@@ -2355,6 +2362,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -9514,7 +9606,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2716,7 @@ export function SessionPane({
+@@ -2704,7 +2717,7 @@ export function SessionPane({
            return;
          }
  
@@ -9523,7 +9615,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2731,11 @@ export function SessionPane({
+@@ -2719,9 +2732,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -9536,7 +9628,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2780,7 @@ export function SessionPane({
+@@ -2766,7 +2781,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -9545,7 +9637,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2802,10 @@ export function SessionPane({
+@@ -2788,8 +2803,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -9557,7 +9649,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        return true;
      },
      [
-@@ -2853,16 +2869,52 @@ export function SessionPane({
+@@ -2853,16 +2870,61 @@ export function SessionPane({
      [cliSlashCommandNames],
    );
  
@@ -9598,6 +9690,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        keywords: ["plan", "计划", "计划模式"],
        run: () => handleDraftSwitchMode("plan"),
      };
++    // `/rename`：面板只插入命令文本，由用户继续输入标题后按发送前拦截处理。
++    const renameActions: AppSlashCommand[] = sessionId
++      ? [
++          createRenameCommand({
++            description: renameCopy.description,
++            run: () => handleRenameSession(""),
++          }),
++        ].filter((command) => !cliSlashCommandNames.has(command.value))
++      : [];
 +    // `/mcps`：本地状态面板，不进入 CLI 命令目录；与 CLI 同名命令冲突时让位。
 +    const mcpStatusActions: AppSlashCommand[] = [
 +      {
@@ -9611,24 +9712,25 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2925,7 @@ export function SessionPane({
+@@ -2873,7 +2935,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
 -      return [planAction];
-+      return [planAction, ...mcpStatusActions];
++      return [planAction, ...mcpStatusActions, ...renameActions];
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2936,7 @@ export function SessionPane({
+@@ -2884,6 +2946,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
 +      ...mcpStatusActions,
++      ...renameActions,
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2893,10 +2946,12 @@ export function SessionPane({
+@@ -2893,10 +2957,12 @@ export function SessionPane({
      cliSlashCommandNames,
      handleDraftSwitchMode,
      handleOpenSelectionSideConversation,
@@ -9641,7 +9743,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
      selectionSideChat,
      sessionId,
    ]);
-@@ -2982,6 +3037,8 @@ export function SessionPane({
+@@ -2982,6 +3048,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -9650,7 +9752,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3060,6 +3117,8 @@ export function SessionPane({
+@@ -3060,6 +3128,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -9659,7 +9761,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3891,6 +3950,27 @@ export function SessionPane({
+@@ -3891,6 +3961,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -9687,7 +9789,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +3978,30 @@ export function SessionPane({
+@@ -3898,6 +3989,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -9718,7 +9820,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +4037,16 @@ export function SessionPane({
+@@ -3933,7 +4048,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -9736,7 +9838,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4817,24 @@ export function SessionPane({
+@@ -4704,6 +4828,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -9761,7 +9863,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5074,8 @@ export function SessionPane({
+@@ -4943,7 +5085,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -9771,7 +9873,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5146,6 @@ export function SessionPane({
+@@ -5014,42 +5157,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -9814,7 +9916,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5578,15 @@ export function SessionPane({
+@@ -5482,11 +5589,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -9832,7 +9934,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5670,6 @@ export function SessionPane({
+@@ -5570,12 +5681,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -9845,7 +9947,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5722,14 @@ export function SessionPane({
+@@ -5628,6 +5733,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -9860,7 +9962,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..f0e53e39bfb866bbc433e519e1d8b7fa
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5861,39 @@ export function SessionPane({
+@@ -5759,6 +5872,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -11017,10 +11119,12 @@ index 0000000000000000000000000000000000000000..aca72c132778f5b6fe5d14b2a0a15e8a
 +} as const;
 diff --git a/packages/ui/src/v4/slash-commands/rename.ts b/packages/ui/src/v4/slash-commands/rename.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..068706721a762652e3933a15a78738205b1118cd
+index 0000000000000000000000000000000000000000..454194e20e7b1b6f8c6b124beed6edff513aaef3
 --- /dev/null
 +++ b/packages/ui/src/v4/slash-commands/rename.ts
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,66 @@
++import type { AppSlashCommand } from "@/slashCommandHelpers.js";
++
 +const RENAME_COMMAND_PATTERN = /^\/rename(?:\s+([\s\S]*))?$/iu;
 +const RENAME_COMMAND_NAME = "rename";
 +
@@ -11067,6 +11171,23 @@ index 0000000000000000000000000000000000000000..068706721a762652e3933a15a7873820
 +
 +export function normalizeRenameTitle(value: string): string {
 +  return value.replace(/\s+/gu, " ").trim();
++}
++
++/**
++ * 面板条目只把 `/rename ` 填进输入框：app 命令默认"选中即执行"，
++ * 直接跑会抢在用户输入标题之前按对话重命名。
++ */
++export function createRenameCommand(options: {
++  description: string;
++  run: () => void;
++}): AppSlashCommand {
++  return {
++    value: RENAME_COMMAND_NAME,
++    description: options.description,
++    keywords: ["rename", "title", "重命名", "标题"],
++    insertText: "/rename ",
++    run: options.run,
++  };
 +}
 diff --git a/packages/ui/src/v4/slash-commands/rows.ts b/packages/ui/src/v4/slash-commands/rows.ts
 new file mode 100644
@@ -17550,12 +17671,13 @@ index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbb
 +});
 diff --git a/packages/ui/test/renameSlashCommand.test.ts b/packages/ui/test/renameSlashCommand.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c5c86088b447d5aba2bd5fb4f66320a7cabc5d63
+index 0000000000000000000000000000000000000000..47013cc71abb5a27f4479ba83d209ad3ff793332
 --- /dev/null
 +++ b/packages/ui/test/renameSlashCommand.test.ts
-@@ -0,0 +1,42 @@
-+import { describe, expect, it } from "vitest";
+@@ -0,0 +1,51 @@
++import { describe, expect, it, vi } from "vitest";
 +import {
++  createRenameCommand,
 +  normalizeRenameTitle,
 +  parseRenameCommand,
 +  renameCommandCopy,
@@ -17583,6 +17705,14 @@ index 0000000000000000000000000000000000000000..c5c86088b447d5aba2bd5fb4f66320a7
 +  it("keeps an empty title for model-assisted regeneration", () => {
 +    expect(parseRenameCommand("/rename")).toEqual({ title: "" });
 +    expect(parseRenameCommand("/rename   ")).toEqual({ title: "" });
++  });
++
++  it("inserts the command text from the picker instead of running it", () => {
++    const run = vi.fn();
++    const command = createRenameCommand({ description: "d", run });
++    expect(command).toMatchObject({ value: "rename", insertText: "/rename " });
++    expect(command.label).toBeUndefined();
++    expect(run).not.toHaveBeenCalled();
 +  });
 +
 +  it("normalizes titles without leaving empty segments", () => {
@@ -18432,20 +18562,16 @@ index 66ec697ec6f65034a94862d01c8eff1fcfa53445..abc735fa0ed347e8704367e8d92c67ca
      act(() => {
        controller.store.setState({ banner: null } as never);
 diff --git a/packages/ui/test/slashCommandHelpers.test.ts b/packages/ui/test/slashCommandHelpers.test.ts
-index 1efa12df2e6cfa7e1d3b631718705c01abf80774..954c0a9fc81fa9ada36072a563ebdaee1513da38 100644
+index 1efa12df2e6cfa7e1d3b631718705c01abf80774..18ce3e2b8e6a8415094bdb3523dbbdfffbee6d44 100644
 --- a/packages/ui/test/slashCommandHelpers.test.ts
 +++ b/packages/ui/test/slashCommandHelpers.test.ts
-@@ -11,13 +11,21 @@ import {
+@@ -11,12 +11,27 @@ import {
  } from "../src/slashCommandHelpers.js";
  
  describe("slashCommandHelpers", () => {
 -  it("计划模式使用本地化操作名称，旧 CLI Plan 命令不能覆盖它", () => {
 -    const [action] = buildAppSlashCommandSuggestions([
 -      { value: "plan", label: "计划模式", description: "开启计划模式", run: () => {} },
--    ]);
--    expect(action).toMatchObject({ id: "app-slash:plan", value: "plan", label: "计划模式" });
--    expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
--  });
 +  it.each(["开启计划模式", "Enable Plan mode"])(
 +    "/plan 保留命令名和本地化描述 %s，旧 CLI Plan 命令不能覆盖它",
 +    (description) => {
@@ -18461,9 +18587,17 @@ index 1efa12df2e6cfa7e1d3b631718705c01abf80774..954c0a9fc81fa9ada36072a563ebdaee
 +      expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
 +    },
 +  );
++
++  it("carries insertText for commands that keep the input editable", () => {
++    const [suggestion] = buildAppSlashCommandSuggestions([
++      { value: "rename", description: "d", insertText: "/rename ", run: () => {} },
+     ]);
+-    expect(action).toMatchObject({ id: "app-slash:plan", value: "plan", label: "计划模式" });
+-    expect(buildSlashSuggestions([{ name: "/PLAN", description: "legacy plan" }])).toEqual([]);
++    expect(suggestion).toMatchObject({ id: "app-slash:rename", insertText: "/rename " });
+   });
  
    it("buildSlashSuggestions 逐项展示 CLI catalog，不在 UI 维护内建白名单", () => {
-     const commands: ZCodeSlashCommand[] = [
 diff --git a/packages/ui/test/specs/header-side-pane-close.md b/packages/ui/test/specs/header-side-pane-close.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..61d324434fa9269419f2968b82a66e7dc9c3164c
@@ -20131,7 +20265,7 @@ index 9bce67c57e8672fae6dedc6b5bc8630724f59266..0315dc4c9ec543ce6adea80a2088be49
      const html = renderPane();
  
 diff --git a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
-index 3caf20ed47c9a441da78b15530022e2f6ba01e15..21d99d2531a690bc989f7ca40388b0bc06af6da8 100644
+index 3caf20ed47c9a441da78b15530022e2f6ba01e15..778e0b0d5315c87e1ce3bdf50a529a5e5ab08634 100644
 --- a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 +++ b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 @@ -16,6 +16,7 @@ import type {
@@ -20153,7 +20287,7 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..21d99d2531a690bc989f7ca40388b0bc
      await act(async () => {
        action?.run();
        action?.run();
-@@ -3371,6 +3374,108 @@ describe("SessionPane Plan picker action", () => {
+@@ -3371,6 +3374,115 @@ describe("SessionPane Plan picker action", () => {
    );
  });
  
@@ -20169,12 +20303,19 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..21d99d2531a690bc989f7ca40388b0bc
 +    };
 +  }
 +
-+  it("does not register /rename in the picker so Enter can send the typed title", async () => {
++  it("registers /rename as an insert command so the user can type a title", async () => {
 +    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, { status: "accepted" }),
++    );
 +    const root = await renderPane();
-+    expect(
-+      captured.composerProps?.appSlashCommands?.some((item) => item.value === "rename"),
-+    ).not.toBe(true);
++    const action = captured.composerProps?.appSlashCommands?.find(
++      (item) => item.value === "rename",
++    );
++    expect(action).toMatchObject({
++      description: "重命名当前会话；不带标题时由模型总结对话生成",
++      insertText: "/rename ",
++    });
 +    await act(async () => root.unmount());
 +  });
 +

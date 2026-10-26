@@ -569,10 +569,10 @@ index 0000000000000000000000000000000000000000..7292634657b399eb668e6b2284727986
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/rename-slash-command.md b/docs/rename-slash-command.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..b4d591d38038bf74fcf1c99ef71ee54fe0d05f84
+index 0000000000000000000000000000000000000000..546bacd80621aa425084107c45feeabea2956c1d
 --- /dev/null
 +++ b/docs/rename-slash-command.md
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,55 @@
 +# Composer `/rename` 会话重命名命令
 +
 +## 目标与交互
@@ -582,6 +582,7 @@ index 0000000000000000000000000000000000000000..b4d591d38038bf74fcf1c99ef71ee54f
 +| 操作 | 结果 |
 +| --- | --- |
 +| 发送 `/rename 新标题` | 标题改为 `新标题`，输入框清空，零模型请求。 |
++| `/` 面板选中 `/rename` | 只把 `/rename ` 填进输入框，不立即执行；继续输入标题后回车发送。 |
 +| 发送 `/rename`（无标题） | 由标题 sidecar 让模型总结当前对话后重命名；输入框清空，不产生 user row。 |
 +| 大小写与多余空白 | `/RENAME 新标题` 等价；标题折叠多余空白。 |
 +| 模型生成失败、超时或空结果 | 保持原标题，toast 提示失败；不写空标题。 |
@@ -592,7 +593,7 @@ index 0000000000000000000000000000000000000000..b4d591d38038bf74fcf1c99ef71ee54f
 +
 +两种重命名都写 `titleSource: "custom"`：这是用户显式动作，后续自动标题生成不再覆盖。
 +
-+`/rename` 不注册进 `/` 面板：app 命令是「选中即执行」，注册后用户在面板按回车会直接按对话重命名，抢走输入新标题的机会。命令只走手动输入 + 回车发送。
++面板条目通过 `insertText` 插入 `/rename ` 而不是走 app 命令默认的「选中即执行」，否则用户按回车会直接触发按对话重命名，抢走输入标题的机会。插入后由发送前拦截统一处理两种形态。
 +
 +## 模型总结的输入
 +
@@ -618,14 +619,14 @@ index 0000000000000000000000000000000000000000..b4d591d38038bf74fcf1c99ef71ee54f
 +  H --> I[v4 meta 与侧栏标题更新]
 +```
 +
-+命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。core 侧新增的方法挂在既有 `session-title.ts` 与标题 sidecar 上，不新增第二套标题状态或缓存。
++命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。`SlashCommandPlugin` 只新增一个 `insertText` 分支（选中后插入文本、不执行 `run()`），不改变面板渲染与键盘选择逻辑。core 侧新增的方法挂在既有 `session-title.ts` 与标题 sidecar 上，不新增第二套标题状态或缓存。
 +
 +## 验收
 +
 +- 纯解析测试覆盖有/无标题、大小写、空白、非命令文本和 CLI 同名让位。
 +- core 测试覆盖对话摘要的首条请求、过滤规则、2000/8000 字符边界与空内容。
 +- v4 命令测试覆盖透传 traceContext、生成失败不静默成功。
-+- SessionPane 测试覆盖手动标题、无标题触发生成、失败 toast、面板不注册、草稿与只读门禁、附件透传。
++- SessionPane 测试覆盖面板 `insertText`、手动标题、无标题触发生成、失败 toast、草稿与只读门禁、附件透传。
 +- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
