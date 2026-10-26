@@ -452,7 +452,7 @@ index 4b8d21bd3ba0a44398583d9a8039617e37216573..e2580cf56c5edefe50aca0a4d24ae889
        }
        requestAnimationFrame(() => {
 diff --git a/packages/ui/src/ToolCallBlocks.tsx b/packages/ui/src/ToolCallBlocks.tsx
-index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fdd11869b2 100644
+index dcde82cc62378adfe042c22017859ff826394fcf..5861f4e5549a1b84a4f2f608169f01fc8128598f 100644
 --- a/packages/ui/src/ToolCallBlocks.tsx
 +++ b/packages/ui/src/ToolCallBlocks.tsx
 @@ -14,6 +14,7 @@ import {
@@ -471,7 +471,15 @@ index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fd
  
  const NESTED_TOOLCALL_CONTAINER_CLASS =
    "ml-2 space-y-2 border-border border-l pl-3.5 border-border";
-@@ -106,6 +108,8 @@ function ToolCallBlockComponent({
+@@ -82,6 +84,7 @@ function ToolCallBlockComponent({
+   showIcon = true,
+   cuaAppIconClassName,
+   onOpenCodeViewer,
++  onOpenCommandOutputPreview,
+   onOpenFileLink,
+   onOpenBrowserUrl,
+   onOpenAutomationsMain,
+@@ -106,6 +109,8 @@ function ToolCallBlockComponent({
    cuaGroupEvents,
    renderCuaAssistantMessage,
    renderCuaReasoning,
@@ -480,7 +488,15 @@ index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fd
  }: {
    toolCallNode: TaskChatToolCallTreeNode;
    depth?: number;
-@@ -155,6 +159,11 @@ function ToolCallBlockComponent({
+@@ -117,6 +122,7 @@ function ToolCallBlockComponent({
+   showIcon?: boolean;
+   cuaAppIconClassName?: ToolCallBlockRenderContext["cuaAppIconClassName"];
+   onOpenCodeViewer?: (source: CodeViewerSource) => void;
++  onOpenCommandOutputPreview?: ToolCallBlockRenderContext["onOpenCommandOutputPreview"];
+   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+   onOpenBrowserUrl?: (url: string) => void;
+   onOpenAutomationsMain?: (automationId?: string) => void;
+@@ -155,6 +161,11 @@ function ToolCallBlockComponent({
    renderCuaReasoning?: (
      event: Extract<ConversationCuaGroupEvent, { kind: "reasoning" }>,
    ) => ReactNode;
@@ -492,7 +508,39 @@ index dcde82cc62378adfe042c22017859ff826394fcf..18ddd7ada5db2994355a6787e6eff7fd
  }) {
    const presentationCapabilities = useToolPresentationHostCapabilities(workspacePath);
    const inheritedPluginUi = PluginUi.usePluginUiToolBinding(toolCallNode.toolCall.toolId);
-@@ -399,6 +408,12 @@ function ToolCallBlockComponent({
+@@ -257,6 +268,7 @@ function ToolCallBlockComponent({
+               codePreviewSettings={codePreviewSettings}
+               showIcon={showIcon}
+               onOpenCodeViewer={toolPreviewCodeViewer}
++              onOpenCommandOutputPreview={onOpenCommandOutputPreview}
+               onOpenFileLink={onOpenFileLink}
+               onOpenBrowserUrl={onOpenBrowserUrl}
+               onOpenAutomationsMain={onOpenAutomationsMain}
+@@ -280,6 +292,7 @@ function ToolCallBlockComponent({
+       onOpenAutomationsMain,
+       onOpenBrowserUrl,
+       onOpenPlanDetail,
++      onOpenCommandOutputPreview,
+       onOpenFileLink,
+       showIcon,
+       showTodoToolCalls,
+@@ -317,6 +330,7 @@ function ToolCallBlockComponent({
+       agentSummaryAction,
+       authoritativeAgentType,
+       onOpenCodeViewer: toolPreviewCodeViewer,
++      onOpenCommandOutputPreview,
+       onOpenFileLink,
+       onOpenBrowserUrl,
+       onOpenAutomationsMain,
+@@ -356,6 +370,7 @@ function ToolCallBlockComponent({
+       onOpenWorkflowActor,
+       onOpenWorkflowWorkspace,
+       onOpenWorkflowArtifact,
++      onOpenCommandOutputPreview,
+       onOpenFileLink,
+       rawFileSummaries,
+       showIcon,
+@@ -399,6 +414,12 @@ function ToolCallBlockComponent({
              renderAssistantMessage={renderCuaAssistantMessage}
              renderReasoning={renderCuaReasoning}
            />
@@ -680,6 +728,22 @@ index e50ee6c34b5b45d62e545d7ddac2fc2dcbcb1d4d..f3eba24f2fe7175eec3060fab89a1ecb
 +    );
    return <Renderer {...context} />;
  }
+diff --git a/packages/ui/src/ToolCallBlocks/fileSummaryTypes.ts b/packages/ui/src/ToolCallBlocks/fileSummaryTypes.ts
+index cd21a937f17fdc946e979e8457bcded83cea51b2..b3006a6951e4f631f06859e0da366cad19bbe3c3 100644
+--- a/packages/ui/src/ToolCallBlocks/fileSummaryTypes.ts
++++ b/packages/ui/src/ToolCallBlocks/fileSummaryTypes.ts
+@@ -309,6 +309,11 @@ export interface ToolCallBlockRenderContext {
+    */
+   workflowDraft?: WorkflowDraftPosition;
+   onOpenCodeViewer?: (source: CodeViewerSource) => void;
++  /**
++   * Read 卡片命中官方命令输出日志时的弹窗入口；普通文件仍走 onOpenCodeViewer。
++   * 由会话宿主注入 scope 与 PreviewPane；工具卡只做一次分派。
++   */
++  onOpenCommandOutputPreview?: (request: { path: string; title: string }) => void;
+   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+   onOpenBrowserUrl?: (url: string) => void;
+   /** 定时任务工具卡片跳转到管理页；automationId 存在时直接打开详情。 */
 diff --git a/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx b/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx
 index c159bb72edcf0bd7ebb8106e0e856be78e153b9f..7c2c978c8784b84c4bfedb3a07c95c9bfd3ace3d 100644
 --- a/packages/ui/src/ToolCallBlocks/presentationCapabilities.tsx
@@ -839,10 +903,14 @@ index 37ac09799834fcfdb8d0c29853166af7f8a30046..0b67a07590ced784a029a454582f117f
          kindLabel={
            (isOfficeMode
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
-index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6d3c746fa 100644
+index 40352b38d217883006fc1436db83664013ea1a38..8b0a64e9bb65222a0e6954cc75fa6b625e89d053 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
 +++ b/packages/ui/src/ToolCallBlocks/renderers/explore.tsx
-@@ -11,9 +11,10 @@ import { renderFilePath } from "@/ToolCallBlocks/shared.js";
+@@ -8,12 +8,14 @@ import { buildReadSummary, ReadFileChip } from "@/ToolCallBlocks/renderers/read.
+ import { getWebFetchPrimaryText } from "@/ToolCallBlocks/renderers/web-fetch.js";
+ import { getSearchPrimaryText } from "@/ToolCallBlocks/renderers/search.js";
+ import { renderFilePath } from "@/ToolCallBlocks/shared.js";
++import { resolveReadPreviewTarget } from "@/v4/command-output-file-preview/contract.js";
  import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
  import { ToolLayout } from "../ToolLayout.js";
  import type { ToolCallBlockRenderContext } from "../shared.js";
@@ -854,7 +922,7 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
  
  const EXPLORE_TOOL_ICON = <SearchIcon className="size-4 shrink-0 text-foreground-subtle" />;
  
-@@ -208,6 +209,57 @@ function formatExploreSummary(intl: IntlLike, counts: Record<ExploreBucket, numb
+@@ -208,6 +210,57 @@ function formatExploreSummary(intl: IntlLike, counts: Record<ExploreBucket, numb
      : intl.formatMessage({ id: "chat.toolCall.explore.emptySummary" });
  }
  
@@ -912,7 +980,32 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
  function getChildActionKindLabel(
    intl: IntlLike,
    family: ReturnType<typeof resolveToolCallIdentity>["family"],
-@@ -416,12 +468,37 @@ export function getLatestExploreChildSummaryFromChildren(
+@@ -318,9 +371,22 @@ function getLatestExploreChildSummary(
+     if (!readSummary) {
+       return null;
+     }
+-    const canOpenPreview = readSummary.entryType === "file" && Boolean(context.onOpenCodeViewer);
++    const previewTarget = resolveReadPreviewTarget({
++      entryType: readSummary.entryType,
++      path: readSummary.path,
++      hasCommandOutputPreview: Boolean(context.onOpenCommandOutputPreview),
++      hasCodeViewer: Boolean(context.onOpenCodeViewer),
++    });
++    const canOpenPreview = previewTarget !== null;
+     const openFilePreview = () => {
+-      if (readSummary.entryType !== "file") {
++      if (previewTarget === null) {
++        return;
++      }
++      if (previewTarget === "command-output-dialog") {
++        context.onOpenCommandOutputPreview?.({
++          path: readSummary.path,
++          title: readSummary.fileName,
++        });
+         return;
+       }
+ 
+@@ -416,12 +482,37 @@ export function getLatestExploreChildSummaryFromChildren(
    return null;
  }
  
@@ -952,7 +1045,7 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
      (acc, childToolCallNode) => {
        const bucket = classifyExploreToolCall({
          kind: childToolCallNode.toolCall.kind,
-@@ -433,9 +510,15 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -433,9 +524,15 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
      },
      { search: 0, fetch: 0, list: 0, file: 0 },
    );
@@ -970,7 +1063,7 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
    });
    const collapsedChildSummary = isRunning
      ? getLatestExploreChildSummaryFromChildren(intl, childToolCalls, context, {
-@@ -444,30 +527,39 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -444,30 +541,39 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
      : null;
    const renderContent = useCallback(
      () =>
@@ -1025,7 +1118,7 @@ index 40352b38d217883006fc1436db83664013ea1a38..ae04d77b49112d484a5b1b0eeabc18c6
        context.workspacePath,
      ],
    );
-@@ -497,7 +589,7 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
+@@ -497,7 +603,7 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
          statusTooltip={toolCall.status === "failed" ? errorText : undefined}
          showFailureStatus={toolCall.status === "failed"}
          isRunning={isRunning}
@@ -1453,18 +1546,70 @@ index 0000000000000000000000000000000000000000..0843481c3d73f3845e31709826f0d17f
 +  | { kind: "request-full"; truncated: boolean }
 +  | { kind: "request-range"; offset: number; limit?: number; truncated: boolean };
 diff --git a/packages/ui/src/ToolCallBlocks/renderers/read.tsx b/packages/ui/src/ToolCallBlocks/renderers/read.tsx
-index 461b7c13daaaea1944fbff1fa4abf23023be18d0..3480ca2fa38f848c1146ebfa6c158fe103c9bfac 100644
+index 461b7c13daaaea1944fbff1fa4abf23023be18d0..0ea07ae6aa4db1c8b5392ee55bc2c97e13848781 100644
 --- a/packages/ui/src/ToolCallBlocks/renderers/read.tsx
 +++ b/packages/ui/src/ToolCallBlocks/renderers/read.tsx
-@@ -7,6 +7,7 @@ import {
+@@ -7,7 +7,9 @@ import {
  } from "@/lib/fileDisplay.js";
  import { useZCodeIntl } from "@/i18n/IntlProvider.js";
  import { ToolLayout } from "../ToolLayout.js";
 +import { ReadScopeLabel } from "./read-scope/contract.js";
  import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
++import { resolveReadPreviewTarget } from "@/v4/command-output-file-preview/contract.js";
  import type { ToolCallBlockRenderContext } from "../shared.js";
  import { renderFilePath } from "../shared.js";
-@@ -292,6 +293,7 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
+ 
+@@ -253,21 +255,44 @@ export function ReadFileChip({
+ 
+ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
+   const { intl } = useZCodeIntl();
+-  const { toolCallNode, isRunning, statusLabel, errorText, onOpenCodeViewer } = context;
++  const {
++    toolCallNode,
++    isRunning,
++    statusLabel,
++    errorText,
++    onOpenCodeViewer,
++    onOpenCommandOutputPreview,
++  } = context;
+   const { toolCall } = toolCallNode;
+   const summary = buildReadSummary(toolCall);
+-  const canOpenPreview = summary?.entryType === "file" && Boolean(onOpenCodeViewer);
++  // 普通文件保持既有右栏预览；只有官方命令输出日志且宿主提供弹窗入口时才改走弹窗。
++  const previewTarget = summary
++    ? resolveReadPreviewTarget({
++        entryType: summary.entryType,
++        path: summary.path,
++        hasCommandOutputPreview: Boolean(onOpenCommandOutputPreview),
++        hasCodeViewer: Boolean(onOpenCodeViewer),
++      })
++    : null;
++  const canOpenPreview = previewTarget !== null;
+   const openFilePreview = useCallback(() => {
+-    if (!summary || summary.entryType !== "file" || !onOpenCodeViewer) {
++    if (!summary || previewTarget === null) {
++      return;
++    }
++    if (previewTarget === "command-output-dialog") {
++      onOpenCommandOutputPreview?.({
++        path: summary.path,
++        title: summary.fileName,
++      });
+       return;
+     }
+ 
+-    onOpenCodeViewer({
++    onOpenCodeViewer?.({
+       type: "file",
+       title: summary.fileName,
+       path: summary.path,
+     });
+-  }, [onOpenCodeViewer, summary]);
++  }, [onOpenCodeViewer, onOpenCommandOutputPreview, previewTarget, summary]);
+   const primaryText = useMemo(
+     () =>
+       summary ? (
+@@ -292,6 +317,7 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
          primaryText={primaryText}
          prioritizePrimaryText
          secondaryText={summary ? renderFilePath(summary.filePath) : undefined}
@@ -8253,7 +8398,7 @@ index 0000000000000000000000000000000000000000..665a6a51a0728878aee155dbe5d58df8
 +  );
 +});
 diff --git a/packages/ui/src/v4/ConversationRowView.tsx b/packages/ui/src/v4/ConversationRowView.tsx
-index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..fe1e6e9fab99c296ad9cbf36152080268b996c46 100644
+index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..437499abc28d638a3e9bc83d59645c3fc9e10aa1 100644
 --- a/packages/ui/src/v4/ConversationRowView.tsx
 +++ b/packages/ui/src/v4/ConversationRowView.tsx
 @@ -137,8 +137,11 @@ import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.
@@ -8358,6 +8503,14 @@ index 3036ce7b13b51cff32b8b3e22f61a4cf908d60bb..fe1e6e9fab99c296ad9cbf3615208026
        markerSourceCommandId={row.sourceCommandId}
        icon={view.icon}
        label={view.label}
+@@ -2222,6 +2243,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
+           codePreviewSettings={context.codePreviewSettings}
+           showTodoToolCalls={context.messageStreamShowTodos === true}
+           onOpenCodeViewer={context.onOpenCodeViewer}
++          onOpenCommandOutputPreview={context.onOpenCommandOutputPreview}
+           onOpenFileLink={context.onOpenFileLink}
+           onOpenBrowserUrl={context.onOpenBrowserUrl}
+           onOpenAutomationsMain={context.onOpenAutomationsMain}
 diff --git a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx b/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
 index a367bba0009b0e7d593b5b6095559b6577e1cf80..ccb7a30094e9942b5da2ab9f66efee1ad01aead2 100644
 --- a/packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
@@ -9490,7 +9643,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139ee746082c 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a159c731e0 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9572,18 +9725,25 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    isSelectionSideChatBlocked,
    registerSelectionSideChatOpener,
    setSelectionSideChatBlocked,
-@@ -346,6 +355,10 @@ import {
+@@ -346,6 +355,17 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
 +import { McpStatusDialog } from "@/McpStatusDialog.js";
-+import { BackgroundBashOutputSidePane } from "@/app-shell/BackgroundBashOutputSidePane.js";
-+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
++import {
++  BackgroundBashOutputDialog,
++  backgroundBashScopeKey,
++} from "@/v4/background-bash-output-dialog/contract.js";
++import {
++  CommandOutputFilePreviewDialog,
++  commandOutputPreviewScopeKey,
++  type CommandOutputPreviewRequest,
++} from "@/v4/command-output-file-preview/contract.js";
 +import { isMcpStatusCommand } from "@/lib/mcpStatusCommand.js";
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -641,7 +654,6 @@ export function SessionPane({
+@@ -641,7 +661,6 @@ export function SessionPane({
    onAutoOpenAssistantPptx,
    onOpenFileLink,
    onOpenSubagentSession,
@@ -9591,7 +9751,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    onOpenSubagentDirectory,
    onSyncSubagentSessionTabs,
    onOpenSelectionSideChat,
-@@ -668,6 +680,7 @@ export function SessionPane({
+@@ -668,6 +687,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -9599,7 +9759,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1157,10 @@ export function SessionPane({
+@@ -1144,6 +1164,45 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -9607,10 +9767,45 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
 +  // 后台 Bash 详情改为弹窗：侧栏 tab 会挤占聊天区，用户要求点击任务卡就地查看。
 +  const [backgroundBashDialogTab, setBackgroundBashDialogTab] =
 +    useState<BackgroundBashSidePaneTab | null>(null);
++  // 会话/工作区作用域切换 = 另一份对话：关闭旧弹窗并卸载 side pane（停止轮询），
++  // 避免旧输出或旧回调进入新会话。key 与组件内 guard 使用同一组四项字段
++  // （session/path/identity/remote）；identity 相同但 path 变化也必须失效。
++  const backgroundBashDialogScopeKey = backgroundBashScopeKey({
++    sessionId,
++    workspacePath,
++    workspaceIdentity: workspaceIdentity ?? undefined,
++    remoteSessionId: remoteSessionId ?? undefined,
++  });
++  useEffect(() => {
++    setBackgroundBashDialogTab(null);
++  }, [backgroundBashDialogScopeKey]);
++  // Read 卡片的命令输出日志弹窗：与后台 Bash 弹窗一样按四项作用域失效，
++  // 避免切换会话/remote 后仍读取旧 Host 的同名路径。
++  const commandOutputPreviewScope = useMemo(
++    () => ({
++      sessionId,
++      workspacePath,
++      workspaceIdentity: workspaceIdentity ?? undefined,
++      remoteSessionId: remoteSessionId ?? undefined,
++    }),
++    [workspacePath, workspaceIdentity, remoteSessionId, sessionId],
++  );
++  const commandOutputPreviewKey = commandOutputPreviewScopeKey(commandOutputPreviewScope);
++  const [commandOutputPreviewRequest, setCommandOutputPreviewRequest] =
++    useState<CommandOutputPreviewRequest | null>(null);
++  useEffect(() => {
++    setCommandOutputPreviewRequest(null);
++  }, [commandOutputPreviewKey]);
++  const handleOpenCommandOutputPreview = useCallback(
++    (request: { path: string; title: string }) => {
++      setCommandOutputPreviewRequest({ ...request, scopeKey: commandOutputPreviewKey });
++    },
++    [commandOutputPreviewKey],
++  );
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1917,6 @@ export function SessionPane({
+@@ -1900,7 +1959,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -9618,7 +9813,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2371,12 @@ export function SessionPane({
+@@ -2355,6 +2413,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -9631,7 +9826,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2726,7 @@ export function SessionPane({
+@@ -2704,7 +2768,7 @@ export function SessionPane({
            return;
          }
  
@@ -9640,7 +9835,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2741,11 @@ export function SessionPane({
+@@ -2719,9 +2783,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -9653,7 +9848,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2790,7 @@ export function SessionPane({
+@@ -2766,7 +2832,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -9662,7 +9857,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2812,10 @@ export function SessionPane({
+@@ -2788,8 +2854,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -9674,7 +9869,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        return true;
      },
      [
-@@ -2853,16 +2879,75 @@ export function SessionPane({
+@@ -2853,16 +2921,79 @@ export function SessionPane({
      [cliSlashCommandNames],
    );
  
@@ -9689,11 +9884,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
 +      }
 +      const title = normalizeRenameTitle(requestedTitle);
 +      // 不带标题时由 core 用对话摘要请求模型生成；标题自定义仍走 renameSession。
++      // 生成可能持续到模型返回：先提示 pending，终态 ACK 到达后才 toast 成功/失败，
++      // 不能用 accepted ACK 冒充“已重命名”。
++      if (!title) toast(renameCopy.generating);
 +      const rename = title
 +        ? dispatchCommand("renameSession", { title }, sessionId)
 +        : dispatchCommand("regenerateSessionTitle", {}, sessionId);
 +      void rename
 +        .then((ack) => {
++          if (!title && ack.status === "noop") return; // 新请求/改名/删除已取代本次生成。
 +          if (ack.status !== "accepted" && ack.status !== "duplicate") {
 +            toast(renameCopy.failed);
 +            return;
@@ -9751,7 +9950,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +2958,7 @@ export function SessionPane({
+@@ -2873,7 +3004,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -9760,7 +9959,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +2969,8 @@ export function SessionPane({
+@@ -2884,6 +3015,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -9769,7 +9968,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2893,10 +2980,12 @@ export function SessionPane({
+@@ -2893,10 +3026,12 @@ export function SessionPane({
      cliSlashCommandNames,
      handleDraftSwitchMode,
      handleOpenSelectionSideConversation,
@@ -9782,7 +9981,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
      selectionSideChat,
      sessionId,
    ]);
-@@ -2982,6 +3071,8 @@ export function SessionPane({
+@@ -2982,6 +3117,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -9791,7 +9990,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3060,6 +3151,8 @@ export function SessionPane({
+@@ -2998,6 +3135,7 @@ export function SessionPane({
+       onOpenBrowserUrl,
+       onOpenAutomationsMain,
+       onOpenCodeViewer,
++      onOpenCommandOutputPreview: handleOpenCommandOutputPreview,
+       onAutoOpenAssistantPptx: runtimeReady ? handleAutoOpenAssistantPptx : undefined,
+       assistantPreviewPptxAutoOpenTarget,
+       onOpenFileLink,
+@@ -3060,6 +3198,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -9800,7 +10007,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3891,6 +3984,27 @@ export function SessionPane({
+@@ -3076,6 +3216,7 @@ export function SessionPane({
+       onOpenBrowserUrl,
+       onOpenAutomationsMain,
+       onOpenCodeViewer,
++      handleOpenCommandOutputPreview,
+       handleAutoOpenAssistantPptx,
+       assistantPreviewPptxAutoOpenTarget,
+       onOpenFileLink,
+@@ -3891,6 +4032,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -9828,7 +10043,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +4012,30 @@ export function SessionPane({
+@@ -3898,6 +4060,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -9859,7 +10074,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +4071,16 @@ export function SessionPane({
+@@ -3933,7 +4119,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -9877,7 +10092,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4851,24 @@ export function SessionPane({
+@@ -4704,6 +4899,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -9902,7 +10117,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5108,8 @@ export function SessionPane({
+@@ -4943,7 +5156,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -9912,7 +10127,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5180,6 @@ export function SessionPane({
+@@ -5014,42 +5228,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -9955,7 +10170,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5612,15 @@ export function SessionPane({
+@@ -5482,11 +5660,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -9973,7 +10188,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5704,6 @@ export function SessionPane({
+@@ -5570,12 +5752,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -9986,7 +10201,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5756,37 @@ export function SessionPane({
+@@ -5628,6 +5804,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -9998,33 +10213,10 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
 +          workspaceIdentity={workspaceIdentity}
 +        />
 +      ) : null}
-+      <Dialog
-+        open={backgroundBashDialogTab !== null}
-+        onOpenChange={(open) => {
-+          if (!open) setBackgroundBashDialogTab(null);
-+        }}
-+      >
-+        <DialogContent className="flex h-[min(70vh,640px)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
-+          <DialogHeader className="border-b border-border px-4 py-3 pr-12 text-left">
-+            <DialogTitle className="truncate text-ui-base">
-+              {backgroundBashDialogTab?.title ?? ""}
-+            </DialogTitle>
-+          </DialogHeader>
-+          <div className="min-h-0 flex-1">
-+            {backgroundBashDialogTab ? (
-+              <BackgroundBashOutputSidePane
-+                tab={backgroundBashDialogTab}
-+                visible
-+                onOpenCodeViewer={onOpenCodeViewer}
-+              />
-+            ) : null}
-+          </div>
-+        </DialogContent>
-+      </Dialog>
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5918,39 @@ export function SessionPane({
+@@ -5759,6 +5943,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -10064,7 +10256,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
-@@ -5800,9 +5992,9 @@ export function SessionPane({
+@@ -5800,9 +6017,9 @@ export function SessionPane({
                }
                onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
                onOpenBackgroundBash={
@@ -10076,6 +10268,31 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..875eff7883f68f92f37e93054c30139e
                          workspacePath,
                          workspaceIdentity: workspaceIdentity ?? undefined,
                          remoteSessionId: remoteSessionId ?? undefined,
+@@ -5976,6 +6193,24 @@ export function SessionPane({
+             </SessionPluginReferenceIconBoundary>
+           )}
+         </div>
++        {/* 只读子会话也要能查看后台输出；写操作门禁仍由 status panel 的 readOnly 控制。 */}
++        <BackgroundBashOutputDialog
++          tab={backgroundBashDialogTab}
++          scope={{
++            sessionId,
++            workspacePath,
++            workspaceIdentity: workspaceIdentity ?? undefined,
++            remoteSessionId: remoteSessionId ?? undefined,
++          }}
++          onDismiss={() => setBackgroundBashDialogTab(null)}
++          onOpenCodeViewer={onOpenCodeViewer}
++        />
++        {/* 命令输出文件走弹窗预览；普通源码文件仍由 onOpenCodeViewer 打开右侧栏。 */}
++        <CommandOutputFilePreviewDialog
++          request={commandOutputPreviewRequest}
++          scope={commandOutputPreviewScope}
++          onDismiss={() => setCommandOutputPreviewRequest(null)}
++        />
+       </div>
+     </PluginUiSessionProvider>
+   );
 diff --git a/packages/ui/src/v4/V4ConversationContext.tsx b/packages/ui/src/v4/V4ConversationContext.tsx
 index 84d2e2e51aff36b20444a86decca3db00c266aff..7374fa9af3a409614e7dc4c6c6a0b38ba564c4fb 100644
 --- a/packages/ui/src/v4/V4ConversationContext.tsx
@@ -10162,6 +10379,525 @@ index e52de993de439bab9438104d2ec9d4fb6ab089e3..d0d9979add3ec3118e46bf14ef13a005
      async plans(params: V4ConversationPlansParams): Promise<V4ConversationPlansResult> {
        await ensureHandshake();
        return agentService.conversationPlansV4({
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/BackgroundBashOutputDialog.tsx b/packages/ui/src/v4/background-bash-output-dialog/BackgroundBashOutputDialog.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..4da272700fd65ca94a85bbf5e2b578fce0c68709
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/BackgroundBashOutputDialog.tsx
+@@ -0,0 +1,92 @@
++import { memo } from "react";
++import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
++import { BackgroundBashOutputSidePane } from "@/app-shell/BackgroundBashOutputSidePane.js";
++import type { CodeViewerSource } from "@/lib/codeViewer.js";
++import type { BackgroundBashSidePaneTab } from "@/lib/workspaceSidePane.js";
++
++export interface BackgroundBashDialogScope {
++  sessionId: string | null;
++  workspacePath: string;
++  workspaceIdentity?: string;
++  remoteSessionId?: string;
++}
++
++export interface BackgroundBashOutputDialogProps {
++  tab: BackgroundBashSidePaneTab | null;
++  scope: BackgroundBashDialogScope;
++  onDismiss: () => void;
++  onOpenCodeViewer?: (source: CodeViewerSource) => void;
++}
++
++/**
++ * 作用域键必须逐项包含 session / path / identity / remote。不能退化成
++ * `identity || path`：identity 相同而 path 变化同样是另一份对话。
++ */
++export function backgroundBashScopeKey(scope: BackgroundBashDialogScope): string {
++  return JSON.stringify([
++    scope.sessionId ?? null,
++    scope.workspacePath,
++    scope.workspaceIdentity?.trim() ?? null,
++    scope.remoteSessionId?.trim() ?? null,
++  ]);
++}
++
++/**
++ * 弹窗只属于打开它的会话作用域。session / workspace identity / path / remote 任一变化
++ * 都视为另一份对话：不渲染旧 tab，避免旧输出或旧回调进入新会话；调用方同时清除
++ * tab 状态，从而卸载 side pane 并停止轮询。
++ */
++export function backgroundBashTabInScope(
++  tab: BackgroundBashSidePaneTab | null,
++  scope: BackgroundBashDialogScope,
++): BackgroundBashSidePaneTab | null {
++  if (!tab || !scope.sessionId) return null;
++  if (tab.ownerTaskId !== scope.sessionId) return null;
++  if (tab.workspacePath !== scope.workspacePath) return null;
++  if ((tab.workspaceIdentity?.trim() ?? "") !== (scope.workspaceIdentity?.trim() ?? "")) {
++    return null;
++  }
++  if ((tab.remoteSessionId ?? "") !== (scope.remoteSessionId ?? "")) return null;
++  return tab;
++}
++
++/**
++ * 后台 Bash 输出模态框。刻意渲染在 SessionPane 的只读分支之外：子智能体只读 pane
++ * 也能查看后台输出；写操作仍由 SessionPane 的 readOnly 门禁控制。
++ * 完整文件入口先关闭弹窗，再把查看焦点交给右侧 code viewer，避免文件被遮罩挡住。
++ */
++export const BackgroundBashOutputDialog = memo(function BackgroundBashOutputDialog({
++  tab,
++  scope,
++  onDismiss,
++  onOpenCodeViewer,
++}: BackgroundBashOutputDialogProps) {
++  const scopedTab = backgroundBashTabInScope(tab, scope);
++  const openFullFile = (source: CodeViewerSource): void => {
++    onDismiss();
++    onOpenCodeViewer?.(source);
++  };
++  return (
++    <Dialog
++      open={scopedTab !== null}
++      onOpenChange={(open) => {
++        if (!open) onDismiss();
++      }}
++    >
++      <DialogContent className="flex h-[min(70vh,640px)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
++        <DialogHeader className="border-b border-border px-4 py-3 pr-12 text-left">
++          <DialogTitle className="truncate text-ui-base">{scopedTab?.title ?? ""}</DialogTitle>
++        </DialogHeader>
++        <div className="min-h-0 flex-1">
++          {scopedTab ? (
++            <BackgroundBashOutputSidePane
++              tab={scopedTab}
++              visible
++              onOpenCodeViewer={onOpenCodeViewer ? openFullFile : undefined}
++            />
++          ) : null}
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++});
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/CONTRACT.md b/packages/ui/src/v4/background-bash-output-dialog/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..188d603658e1e0a06e27fd7e9203a46f1df6cd2a
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/CONTRACT.md
+@@ -0,0 +1,12 @@
++# 后台 Bash 输出弹窗
++
++单文件 UI 组件，复用既有 `BackgroundBashOutputSidePane` / `useBackgroundBashOutput`。弹窗渲染在 SessionPane 的 `readOnly ? null` 底部 dock 之外，因此只读子智能体也能查看输出；取消等写操作仍由 SessionPane 的 readOnly 门禁控制。
++
++不变量：
++
++- 作用域由 sessionId、workspacePath、workspaceIdentity、remoteSessionId 四项逐项比较；`identity || path` 的合并键不合格（identity 相同 path 变化也是另一份对话）。
++- `backgroundBashScopeKey` 与 `backgroundBashTabInScope` 使用同一组字段；调用方用 key 清空 tab，组件用 guard 防一帧旧渲染。
++- 作用域不匹配时不渲染 side pane，轮询随组件卸载停止。
++- “完整文件”先 `onDismiss()` 再打开既有 code viewer，不重复文件读取链路。
++
++公开 `contract.ts`；不拥有后台任务状态、输出读取或 code viewer。
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/contract.example.ts b/packages/ui/src/v4/background-bash-output-dialog/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..93b4d175e7cdaf7afda065f5d6640146f0f0bc4d
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/contract.example.ts
+@@ -0,0 +1,8 @@
++import { backgroundBashScopeKey, type BackgroundBashDialogScope } from "./contract.js";
++
++/** 调用方用同一个 scope 同时做 effect key 与渲染 guard，保证两者不会漂移。 */
++export function backgroundBashDialogScopeExample(scope: BackgroundBashDialogScope): {
++  scopeKey: string;
++} {
++  return { scopeKey: backgroundBashScopeKey(scope) };
++}
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/contract.test.ts b/packages/ui/src/v4/background-bash-output-dialog/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b303d208b914e599a0285cae581b4783e05d74d8
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/contract.test.ts
+@@ -0,0 +1,63 @@
++import { describe, expect, it } from "vitest";
++import type { BackgroundBashSidePaneTab } from "@/lib/workspaceSidePane.js";
++import { backgroundBashDialogScopeExample } from "./contract.example.js";
++import {
++  backgroundBashScopeKey,
++  backgroundBashTabInScope,
++  type BackgroundBashDialogScope,
++} from "./contract.js";
++import { backgroundBashOutputDialogModule } from "./module.js";
++
++const scope: BackgroundBashDialogScope = {
++  sessionId: "session-1",
++  workspacePath: "/workspace",
++  workspaceIdentity: "ssh:a",
++  remoteSessionId: "remote-a",
++};
++
++function tab(overrides: Partial<BackgroundBashSidePaneTab> = {}): BackgroundBashSidePaneTab {
++  return {
++    id: "bash-output:session-1:work-1",
++    type: "bash-output",
++    workspacePath: "/workspace",
++    workspaceIdentity: "ssh:a",
++    remoteSessionId: "remote-a",
++    rootSessionId: "root",
++    sessionId: "session-1",
++    workId: "work-1",
++    title: "build",
++    workspaceKey: "ssh:a",
++    ownerTaskId: "session-1",
++    ...overrides,
++  };
++}
++
++describe("background-bash-output-dialog contract", () => {
++  it("declares its module manifest", () => {
++    expect(backgroundBashOutputDialogModule.id).toBe("background-bash-output-dialog-ui");
++  });
++
++  it("treats the same identity with a different path as another scope", () => {
++    expect(backgroundBashTabInScope(tab(), scope)).not.toBeNull();
++    expect(backgroundBashTabInScope(tab(), { ...scope, workspacePath: "/workspace-2" })).toBeNull();
++    expect(
++      backgroundBashScopeKey(scope) ===
++        backgroundBashScopeKey({ ...scope, workspacePath: "/workspace-2" }),
++    ).toBe(false);
++  });
++
++  it("keeps effect key and render guard on the same four fields", () => {
++    expect(backgroundBashDialogScopeExample(scope).scopeKey).toBe(backgroundBashScopeKey(scope));
++    for (const patch of [
++      { sessionId: "session-2" },
++      { workspacePath: "/workspace-2" },
++      { workspaceIdentity: "ssh:b" },
++      { remoteSessionId: "remote-b" },
++    ] satisfies Array<Partial<BackgroundBashDialogScope>>) {
++      expect(backgroundBashScopeKey({ ...scope, ...patch })).not.toBe(
++        backgroundBashScopeKey(scope),
++      );
++      expect(backgroundBashTabInScope(tab(), { ...scope, ...patch })).toBeNull();
++    }
++  });
++});
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/contract.ts b/packages/ui/src/v4/background-bash-output-dialog/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f158a59553f24445e158ef8e34642b8a3ef9a23
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/contract.ts
+@@ -0,0 +1,7 @@
++export {
++  BackgroundBashOutputDialog,
++  backgroundBashScopeKey,
++  backgroundBashTabInScope,
++  type BackgroundBashDialogScope,
++  type BackgroundBashOutputDialogProps,
++} from "./BackgroundBashOutputDialog.js";
+diff --git a/packages/ui/src/v4/background-bash-output-dialog/module.ts b/packages/ui/src/v4/background-bash-output-dialog/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..31f24d9afab5532eabbf54391ed997f24c64b8fe
+--- /dev/null
++++ b/packages/ui/src/v4/background-bash-output-dialog/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * background-bash-output-dialog 模块清单（architecture-governance managed 模块）。
++ * 层：ui。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const backgroundBashOutputDialogModule = {
++  id: "background-bash-output-dialog-ui",
++  requires: ["ui"],
++  provides: ["background-bash-output-dialog-ui"],
++  publicEntrypoints: ["contract.ts"],
++} as const;
+diff --git a/packages/ui/src/v4/command-output-file-preview/CONTRACT.md b/packages/ui/src/v4/command-output-file-preview/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad16bffd3ec74e2aba3c05549a4495d8fc83614f
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/CONTRACT.md
+@@ -0,0 +1,13 @@
++# 命令输出文件预览弹窗
++
++Read 卡片点击命令输出日志文件名时，在模态弹窗中复用既有 `PreviewPane` 查看内容；普通源码文件继续走既有右侧 code viewer。
++
++不变量：
++
++- 只识别官方 Bash 输出布局：`zcode-bash-<id>/<session>/<tool>-stdout.log` 或 `-stderr.log`；Windows/Posix 分隔符都归一化。任意 `.log`、同名源码、错误层级、其它目录都不匹配。
++- 分派规则唯一：普通文件 → code viewer；命中命令输出且宿主提供弹窗入口 → dialog；没有弹窗入口时回退 code viewer。
++- 弹窗按 sessionId、workspacePath、workspaceIdentity、workspaceRemoteSessionId 四项作用域键校验；切换会话/工作区后不读取旧作用域的同名路径。
++- 读取、错误、远端文件服务全部复用 `PreviewPane` / `useWorkspaceServices`，不新建读取或授权链路；不打开右侧栏。
++- 只读子会话同样渲染弹窗；弹窗本身是只读预览。
++
++公开 `contract.ts`。
+diff --git a/packages/ui/src/v4/command-output-file-preview/CommandOutputFilePreviewDialog.tsx b/packages/ui/src/v4/command-output-file-preview/CommandOutputFilePreviewDialog.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..21868a966d50d513621787dc3b9980379336f6ba
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/CommandOutputFilePreviewDialog.tsx
+@@ -0,0 +1,129 @@
++import { memo, useMemo } from "react";
++import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
++import { PreviewPane } from "@/PreviewPane.js";
++import type { CodeViewerSource } from "@/lib/codeViewer.js";
++
++export interface CommandOutputPreviewScope {
++  sessionId: string | null;
++  workspacePath: string;
++  workspaceIdentity?: string;
++  remoteSessionId?: string;
++}
++
++export interface CommandOutputPreviewRequest {
++  path: string;
++  title: string;
++  /**
++   * 打开时的作用域键。切换会话/工作区后即使请求还在 state 里也不能读取另一个
++   * Host 的同名路径；组件内再校验一次，effect 清空只是常规路径。
++   */
++  scopeKey: string;
++}
++
++/**
++ * 作用域键必须逐项包含 session / path / identity / remote；不能退化成 identity || path。
++ */
++export function commandOutputPreviewScopeKey(scope: CommandOutputPreviewScope): string {
++  return JSON.stringify([
++    scope.sessionId ?? null,
++    scope.workspacePath,
++    scope.workspaceIdentity?.trim() ?? null,
++    scope.remoteSessionId?.trim() ?? null,
++  ]);
++}
++
++// 官方 Bash 输出布局：<tmp>/zcode-bash-<随机标识>/<session>/<tool>-stdout.log。
++// 只认这个根目录 + stdout/stderr 文件名，避免把任意 .log 或同名源码误判成命令输出。
++const BASH_OUTPUT_ROOT_PATTERN = /^zcode-bash-[^/\\]+$/i;
++const BASH_OUTPUT_FILE_PATTERN = /-(?:stdout|stderr)\.log$/i;
++
++export function isCommandOutputLogPath(path: string | null | undefined): boolean {
++  if (typeof path !== "string") return false;
++  const normalized = path.trim().replace(/\\/g, "/");
++  if (!normalized) return false;
++  const parts = normalized.split("/").filter(Boolean);
++  if (parts.length < 3) return false;
++  const file = parts.pop();
++  const session = parts.pop();
++  const root = parts.pop();
++  return Boolean(
++    file &&
++    session &&
++    root &&
++    BASH_OUTPUT_FILE_PATTERN.test(file) &&
++    BASH_OUTPUT_ROOT_PATTERN.test(root),
++  );
++}
++
++export type ReadPreviewTarget = "command-output-dialog" | "code-viewer" | null;
++
++/**
++ * Read 卡片的单一分派规则：普通文件保持既有 code viewer；只有官方的命令输出日志
++ * 且宿主提供弹窗入口时才改走弹窗。没有弹窗入口时回退既有 viewer，行为不退化。
++ */
++export function resolveReadPreviewTarget(input: {
++  entryType: "file" | "directory";
++  path: string;
++  hasCommandOutputPreview: boolean;
++  hasCodeViewer: boolean;
++}): ReadPreviewTarget {
++  if (input.entryType !== "file") return null;
++  if (isCommandOutputLogPath(input.path)) {
++    if (input.hasCommandOutputPreview) return "command-output-dialog";
++    return input.hasCodeViewer ? "code-viewer" : null;
++  }
++  return input.hasCodeViewer ? "code-viewer" : null;
++}
++
++/**
++ * 命令输出文件预览弹窗。复用既有 PreviewPane 的文件读取、错误与在线状态；
++ * 不新建读取/授权链路，也不打开右侧栏。
++ */
++export const CommandOutputFilePreviewDialog = memo(function CommandOutputFilePreviewDialog({
++  request,
++  scope,
++  onDismiss,
++}: {
++  request: CommandOutputPreviewRequest | null;
++  scope: CommandOutputPreviewScope;
++  onDismiss: () => void;
++}) {
++  const scopeKey = commandOutputPreviewScopeKey(scope);
++  const active = request && request.scopeKey === scopeKey ? request : null;
++  const source = useMemo<CodeViewerSource | null>(() => {
++    if (!active) return null;
++    return {
++      type: "file",
++      title: active.title,
++      path: active.path,
++      workspacePath: scope.workspacePath,
++      ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
++      ...(scope.remoteSessionId ? { workspaceRemoteSessionId: scope.remoteSessionId } : {}),
++    };
++  }, [active, scope.remoteSessionId, scope.workspaceIdentity, scope.workspacePath]);
++
++  return (
++    <Dialog
++      open={active !== null}
++      onOpenChange={(open) => {
++        if (!open) onDismiss();
++      }}
++    >
++      <DialogContent
++        data-testid="command-output-file-preview-dialog"
++        className="flex h-[min(80vh,720px)] max-w-4xl flex-col gap-0 overflow-hidden p-0"
++      >
++        <DialogHeader className="border-b border-border px-4 py-3 pr-12 text-left">
++          <DialogTitle className="truncate text-ui-base" title={active?.path}>
++            {active?.title ?? ""}
++          </DialogTitle>
++        </DialogHeader>
++        <div className="min-h-0 flex-1">
++          {source ? (
++            <PreviewPane source={source} onClose={onDismiss} workspacePath={scope.workspacePath} />
++          ) : null}
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++});
+diff --git a/packages/ui/src/v4/command-output-file-preview/contract.example.ts b/packages/ui/src/v4/command-output-file-preview/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4bb300390c8ef91e5fef3f871b9a32436500b399
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/contract.example.ts
+@@ -0,0 +1,20 @@
++import {
++  commandOutputPreviewScopeKey,
++  resolveReadPreviewTarget,
++  type CommandOutputPreviewScope,
++} from "./contract.js";
++
++export function commandOutputFilePreviewExample(
++  scope: CommandOutputPreviewScope,
++  path: string,
++): { target: ReturnType<typeof resolveReadPreviewTarget>; scopeKey: string } {
++  return {
++    target: resolveReadPreviewTarget({
++      entryType: "file",
++      path,
++      hasCommandOutputPreview: true,
++      hasCodeViewer: true,
++    }),
++    scopeKey: commandOutputPreviewScopeKey(scope),
++  };
++}
+diff --git a/packages/ui/src/v4/command-output-file-preview/contract.test.ts b/packages/ui/src/v4/command-output-file-preview/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf18f24af8212596066b7c4d91192b181b37bfd2
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/contract.test.ts
+@@ -0,0 +1,74 @@
++import { describe, expect, it } from "vitest";
++import { isCommandOutputLogPath, resolveReadPreviewTarget } from "./contract.js";
++import { commandOutputFilePreviewModule } from "./module.js";
++
++describe("command-output-file-preview contract", () => {
++  it("declares its module manifest", () => {
++    expect(commandOutputFilePreviewModule.id).toBe("command-output-file-preview-ui");
++  });
++
++  it.each([
++    "C:\\Users\\xb\\AppData\\Local\\Temp\\zcode-bash-8E7j1G\\sess_subagent_agent_1\\call_1552b967195849bd9d65479bfdd51130-stdout.log",
++    "C:/Users/xb/AppData/Local/Temp/zcode-bash-8E7j1G/sess_subagent_agent_1/call_1552-stderr.log",
++    "/tmp/zcode-bash-abc123/session_1/exec_bg-stdout.log",
++    "/var/folders/x/zcode-bash-ABC/session/call_1-stdout.log",
++  ])("recognizes official bash output path %s", (path) => {
++    expect(isCommandOutputLogPath(path)).toBe(true);
++  });
++
++  it.each([
++    "/workspace/src/logger.ts",
++    "/workspace/logs/call_1-stdout.log",
++    "/workspace/zcode-bash-abc123/session/other.log",
++    "/workspace/zcode-bash-abc123/session/call_1-stdout.log.bak",
++    "/tmp/not-zcode-bash/session/call_1-stdout.log",
++    "/tmp/zcode-bash-abc123/call_1-stdout.log",
++    "/tmp/zcode-bash-abc123/session/nested/call_1-stdout.log",
++    "",
++    null,
++  ])("rejects non command-output path %s", (path) => {
++    expect(isCommandOutputLogPath(path)).toBe(false);
++  });
++
++  it("routes normal files to the existing code viewer", () => {
++    expect(
++      resolveReadPreviewTarget({
++        entryType: "file",
++        path: "/workspace/src/logger.ts",
++        hasCommandOutputPreview: true,
++        hasCodeViewer: true,
++      }),
++    ).toBe("code-viewer");
++  });
++
++  it("routes official command output to the dialog and falls back when the host is old", () => {
++    const path = "/tmp/zcode-bash-abc123/session/call_1-stdout.log";
++    expect(
++      resolveReadPreviewTarget({
++        entryType: "file",
++        path,
++        hasCommandOutputPreview: true,
++        hasCodeViewer: true,
++      }),
++    ).toBe("command-output-dialog");
++    expect(
++      resolveReadPreviewTarget({
++        entryType: "file",
++        path,
++        hasCommandOutputPreview: false,
++        hasCodeViewer: true,
++      }),
++    ).toBe("code-viewer");
++  });
++
++  it("never previews directories", () => {
++    expect(
++      resolveReadPreviewTarget({
++        entryType: "directory",
++        path: "/tmp/zcode-bash-abc123/session/call_1-stdout.log",
++        hasCommandOutputPreview: true,
++        hasCodeViewer: true,
++      }),
++    ).toBeNull();
++  });
++});
+diff --git a/packages/ui/src/v4/command-output-file-preview/contract.ts b/packages/ui/src/v4/command-output-file-preview/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9891ba62be278cd42a4ccc5314b148cd7d07f0b2
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/contract.ts
+@@ -0,0 +1,9 @@
++export {
++  CommandOutputFilePreviewDialog,
++  commandOutputPreviewScopeKey,
++  isCommandOutputLogPath,
++  resolveReadPreviewTarget,
++  type CommandOutputPreviewRequest,
++  type CommandOutputPreviewScope,
++  type ReadPreviewTarget,
++} from "./CommandOutputFilePreviewDialog.js";
+diff --git a/packages/ui/src/v4/command-output-file-preview/module.ts b/packages/ui/src/v4/command-output-file-preview/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..06b3f2b3b71acef0bb5bf30232b96786c9295cf6
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * command-output-file-preview 模块清单（architecture-governance managed 模块）。
++ * 层：ui。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const commandOutputFilePreviewModule = {
++  id: "command-output-file-preview-ui",
++  requires: ["ui"],
++  provides: ["command-output-file-preview-ui"],
++  publicEntrypoints: ["contract.ts"],
++} as const;
 diff --git a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx b/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
 index 8ef15aa09127a178e757f9408f184124b38f1363..0f91afb83e7c2ef1ae81515b301d48f0629a51cf 100644
 --- a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
@@ -10489,7 +11225,7 @@ index 25e03132a2d2020be063c2bb283500604472548c..cde77255409867b4a5aeb576dd9f35a3
        ),
      );
 diff --git a/packages/ui/src/v4/conversationRowContext.ts b/packages/ui/src/v4/conversationRowContext.ts
-index d52b1999b56a1a810d353d3a7324c302349ebba5..998781f2a5665226c76f765ae6a6e4ad1f2b3767 100644
+index d52b1999b56a1a810d353d3a7324c302349ebba5..0e25f4c4a8f658dae7e93ca10086964ac69adefd 100644
 --- a/packages/ui/src/v4/conversationRowContext.ts
 +++ b/packages/ui/src/v4/conversationRowContext.ts
 @@ -37,6 +37,8 @@ export type ConversationFileChangesState = Exclude<
@@ -10501,6 +11237,15 @@ index d52b1999b56a1a810d353d3a7324c302349ebba5..998781f2a5665226c76f765ae6a6e4ad
    workspacePath: string;
    /** 当前 workspace Host 的用户 Home，用于解析 Assistant 输出中的 ~/ 路径。 */
    workspaceHomePath?: string;
+@@ -82,6 +84,8 @@ export interface ConversationRowRenderContext {
+   onOpenAutomationsMain?: OpenAutomationsMain;
+   /** Assistant Preview Cards：Markdown/文件卡片预览入口，由 app shell 注入 code viewer 行为。 */
+   onOpenCodeViewer?: (source: CodeViewerSource) => void;
++  /** Read 卡片命中官方命令输出日志时打开预览弹窗；普通文件仍走 onOpenCodeViewer。 */
++  onOpenCommandOutputPreview?: (request: { path: string; title: string }) => void;
+   /** Desktop 完成态 PPTX：由 shell 原子创建多个右侧 Preview Tab。 */
+   onAutoOpenAssistantPptx?: (request: AssistantPreviewCardsAutoOpenRequest) => void;
+   /** 当前 renderer 观察到 running → completedSuccess 后，锁定到具体 turn。 */
 diff --git a/packages/ui/src/v4/replaceableConversationTransport.ts b/packages/ui/src/v4/replaceableConversationTransport.ts
 index 57a594887ca3c3c53fd4dc3f583a952d4c7e0bdd..98ee5b392ba896dd7358df28a73184a1394ce59b 100644
 --- a/packages/ui/src/v4/replaceableConversationTransport.ts
@@ -11193,10 +11938,10 @@ index 0000000000000000000000000000000000000000..aca72c132778f5b6fe5d14b2a0a15e8a
 +} as const;
 diff --git a/packages/ui/src/v4/slash-commands/rename.ts b/packages/ui/src/v4/slash-commands/rename.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..454194e20e7b1b6f8c6b124beed6edff513aaef3
+index 0000000000000000000000000000000000000000..42d27f0cba29fb88ff74e745da16be0ae95e710a
 --- /dev/null
 +++ b/packages/ui/src/v4/slash-commands/rename.ts
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,69 @@
 +import type { AppSlashCommand } from "@/slashCommandHelpers.js";
 +
 +const RENAME_COMMAND_PATTERN = /^\/rename(?:\s+([\s\S]*))?$/iu;
@@ -11204,6 +11949,7 @@ index 0000000000000000000000000000000000000000..454194e20e7b1b6f8c6b124beed6edff
 +
 +export interface RenameCommandCopy {
 +  description: string;
++  generating: string;
 +  needsSession: string;
 +  regenerated: string;
 +  renamed(title: string): string;
@@ -11214,6 +11960,7 @@ index 0000000000000000000000000000000000000000..454194e20e7b1b6f8c6b124beed6edff
 +  if (locale === "zh-CN") {
 +    return {
 +      description: "重命名当前会话；不带标题时由模型总结对话生成",
++      generating: "正在根据对话生成标题…",
 +      needsSession: "请先开始会话再重命名。",
 +      regenerated: "已根据对话重命名",
 +      renamed: (title) => `已重命名为「${title}」`,
@@ -11222,6 +11969,7 @@ index 0000000000000000000000000000000000000000..454194e20e7b1b6f8c6b124beed6edff
 +  }
 +  return {
 +    description: "Rename this session; without a title the model summarizes the conversation",
++    generating: "Generating a title from the conversation…",
 +    needsSession: "Start a session before renaming it.",
 +    regenerated: "Renamed from the conversation",
 +    renamed: (title) => `Renamed to "${title}"`,
@@ -12047,6 +12795,151 @@ index 0000000000000000000000000000000000000000..e889d3645d84b03c654cf95d76bdd619
 +    render(body(row("ok")));
 +    expect(screen.queryByTestId("execute-background-run")).toBeNull();
 +    expect(screen.getByTestId("bash-result-output").textContent).toBe("ok");
++  });
++});
+diff --git a/packages/ui/test/backgroundBashOutputDialog.test.ts b/packages/ui/test/backgroundBashOutputDialog.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b64e041c907cbc4b551377824a246b93a1c1fbc0
+--- /dev/null
++++ b/packages/ui/test/backgroundBashOutputDialog.test.ts
+@@ -0,0 +1,139 @@
++// @vitest-environment jsdom
++import { createElement, type ReactNode } from "react";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type { BackgroundBashSidePaneTab } from "@/lib/workspaceSidePane.js";
++import {
++  BackgroundBashOutputDialog,
++  backgroundBashScopeKey,
++  backgroundBashTabInScope,
++} from "@/v4/background-bash-output-dialog/contract.js";
++
++vi.mock("@/components/ui/dialog.js", () => ({
++  Dialog: ({
++    children,
++    open,
++    onOpenChange,
++  }: {
++    children?: ReactNode;
++    open?: boolean;
++    onOpenChange?: (open: boolean) => void;
++  }) =>
++    open
++      ? createElement(
++          "div",
++          null,
++          createElement(
++            "button",
++            { type: "button", onClick: () => onOpenChange?.(false) },
++            "dismiss-dialog",
++          ),
++          children,
++        )
++      : null,
++  DialogContent: ({ children }: { children?: ReactNode }) =>
++    createElement("section", null, children),
++  DialogHeader: ({ children }: { children?: ReactNode }) => createElement("header", null, children),
++  DialogTitle: ({ children }: { children?: ReactNode }) => createElement("h2", null, children),
++}));
++
++vi.mock("@/app-shell/BackgroundBashOutputSidePane.js", () => ({
++  BackgroundBashOutputSidePane: ({
++    onOpenCodeViewer,
++  }: {
++    onOpenCodeViewer?: (source: { type: "file"; path: string; title: string }) => void;
++  }) =>
++    createElement(
++      "button",
++      {
++        type: "button",
++        onClick: () =>
++          onOpenCodeViewer?.({
++            type: "file",
++            path: "/tmp/output.txt",
++            title: "output.txt",
++          }),
++      },
++      "open-full-file",
++    ),
++}));
++
++const scope = {
++  sessionId: "session-1",
++  workspacePath: "/workspace",
++  workspaceIdentity: "ssh:a",
++  remoteSessionId: "remote-a",
++};
++
++function tab(overrides: Partial<BackgroundBashSidePaneTab> = {}): BackgroundBashSidePaneTab {
++  return {
++    id: "bash-output:session-1:work-1",
++    type: "bash-output",
++    workspacePath: "/workspace",
++    workspaceIdentity: "ssh:a",
++    remoteSessionId: "remote-a",
++    rootSessionId: "root",
++    sessionId: "session-1",
++    workId: "work-1",
++    title: "build",
++    workspaceKey: "ssh:a",
++    ownerTaskId: "session-1",
++    ...overrides,
++  };
++}
++
++afterEach(cleanup);
++
++describe("BackgroundBashOutputDialog 作用域", () => {
++  it("同一会话/工作区/remote 才渲染，切换作用域后不展示旧输出", () => {
++    const value = tab();
++    expect(backgroundBashTabInScope(value, scope)).toBe(value);
++    expect(backgroundBashTabInScope(value, { ...scope, sessionId: "session-2" })).toBeNull();
++    // identity 相同、path 变化也是另一份对话（不能退化成 identity || path）。
++    expect(backgroundBashTabInScope(value, { ...scope, workspacePath: "/other" })).toBeNull();
++    expect(backgroundBashScopeKey({ ...scope, workspacePath: "/other" })).not.toBe(
++      backgroundBashScopeKey(scope),
++    );
++    expect(backgroundBashTabInScope(value, { ...scope, workspaceIdentity: "ssh:b" })).toBeNull();
++    expect(backgroundBashTabInScope(value, { ...scope, remoteSessionId: "remote-b" })).toBeNull();
++    expect(backgroundBashTabInScope(value, { ...scope, sessionId: null })).toBeNull();
++  });
++
++  it("作用域不匹配时不渲染 side pane（轮询不会启动）", () => {
++    render(
++      createElement(BackgroundBashOutputDialog, {
++        tab: tab(),
++        scope: { ...scope, sessionId: "session-2" },
++        onDismiss: vi.fn(),
++      }),
++    );
++    expect(screen.queryByText("open-full-file")).toBeNull();
++  });
++
++  it("完整文件入口先关闭弹窗再移交 code viewer", () => {
++    const order: string[] = [];
++    render(
++      createElement(BackgroundBashOutputDialog, {
++        tab: tab(),
++        scope,
++        onDismiss: () => order.push("dismiss"),
++        onOpenCodeViewer: () => order.push("viewer"),
++      }),
++    );
++    fireEvent.click(screen.getByText("open-full-file"));
++    expect(order).toEqual(["dismiss", "viewer"]);
++  });
++
++  it("关闭弹窗只回调 onDismiss", () => {
++    const onDismiss = vi.fn();
++    render(
++      createElement(BackgroundBashOutputDialog, {
++        tab: tab(),
++        scope,
++        onDismiss,
++      }),
++    );
++    fireEvent.click(screen.getByText("dismiss-dialog"));
++    expect(onDismiss).toHaveBeenCalledTimes(1);
 +  });
 +});
 diff --git a/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx b/packages/ui/test/browser/manual-review/pending/autocompact.fixture.tsx
@@ -16028,6 +16921,144 @@ index d18a50d6db0b9658b1984ef1e250f633a87fba9a..00000000000000000000000000000000
 -    expect(h.reportTelemetryEvent).toHaveBeenCalledTimes(2);
 -  });
 -});
+diff --git a/packages/ui/test/commandOutputFilePreviewDialog.test.ts b/packages/ui/test/commandOutputFilePreviewDialog.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5714723735325a71c6082b93d12d6243efb3a67c
+--- /dev/null
++++ b/packages/ui/test/commandOutputFilePreviewDialog.test.ts
+@@ -0,0 +1,132 @@
++// @vitest-environment jsdom
++import { createElement, type ReactNode } from "react";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import {
++  CommandOutputFilePreviewDialog,
++  commandOutputPreviewScopeKey,
++  type CommandOutputPreviewRequest,
++  type CommandOutputPreviewScope,
++} from "@/v4/command-output-file-preview/contract.js";
++
++vi.mock("@/components/ui/dialog.js", () => ({
++  Dialog: ({
++    children,
++    open,
++    onOpenChange,
++  }: {
++    children?: ReactNode;
++    open?: boolean;
++    onOpenChange?: (open: boolean) => void;
++  }) =>
++    open
++      ? createElement(
++          "div",
++          null,
++          createElement(
++            "button",
++            { type: "button", onClick: () => onOpenChange?.(false) },
++            "dismiss-dialog",
++          ),
++          children,
++        )
++      : null,
++  DialogContent: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) =>
++    createElement("section", props, children),
++  DialogHeader: ({ children }: { children?: ReactNode }) => createElement("header", null, children),
++  DialogTitle: ({ children }: { children?: ReactNode }) => createElement("h2", null, children),
++}));
++
++vi.mock("@/PreviewPane.js", () => ({
++  PreviewPane: ({
++    source,
++    onClose,
++  }: {
++    source: {
++      type: string;
++      path?: string;
++      workspacePath?: string;
++      workspaceIdentity?: string;
++      workspaceRemoteSessionId?: string;
++    } | null;
++    onClose: () => void;
++  }) =>
++    createElement(
++      "section",
++      {
++        "data-testid": "mock-preview-pane",
++        "data-type": source?.type ?? "",
++        "data-path": source?.path ?? "",
++        "data-workspace": source?.workspacePath ?? "",
++        "data-identity": source?.workspaceIdentity ?? "",
++        "data-remote": source?.workspaceRemoteSessionId ?? "",
++      },
++      createElement("button", { type: "button", onClick: onClose }, "close-preview"),
++    ),
++}));
++
++const scope: CommandOutputPreviewScope = {
++  sessionId: "session-1",
++  workspacePath: "/workspace",
++  workspaceIdentity: "ssh:a",
++  remoteSessionId: "remote-a",
++};
++
++function request(
++  overrides: Partial<CommandOutputPreviewRequest> = {},
++): CommandOutputPreviewRequest {
++  return {
++    path: "/tmp/zcode-bash-abc/session/call_1-stdout.log",
++    title: "call_1-stdout.log",
++    scopeKey: commandOutputPreviewScopeKey(scope),
++    ...overrides,
++  };
++}
++
++afterEach(cleanup);
++
++describe("CommandOutputFilePreviewDialog", () => {
++  it("renders PreviewPane with the current workspace/remote scope", () => {
++    render(
++      createElement(CommandOutputFilePreviewDialog, {
++        request: request(),
++        scope,
++        onDismiss: vi.fn(),
++      }),
++    );
++    const pane = screen.getByTestId("mock-preview-pane");
++    expect(pane.getAttribute("data-type")).toBe("file");
++    expect(pane.getAttribute("data-path")).toBe(request().path);
++    expect(pane.getAttribute("data-workspace")).toBe("/workspace");
++    expect(pane.getAttribute("data-identity")).toBe("ssh:a");
++    expect(pane.getAttribute("data-remote")).toBe("remote-a");
++    expect(screen.getByText("call_1-stdout.log")).toBeTruthy();
++  });
++
++  it("does not render a request opened under another scope", () => {
++    render(
++      createElement(CommandOutputFilePreviewDialog, {
++        request: request({
++          scopeKey: commandOutputPreviewScopeKey({ ...scope, sessionId: "old" }),
++        }),
++        scope,
++        onDismiss: vi.fn(),
++      }),
++    );
++    expect(screen.queryByTestId("mock-preview-pane")).toBeNull();
++  });
++
++  it("closes through dialog and preview close actions", () => {
++    const onDismiss = vi.fn();
++    render(
++      createElement(CommandOutputFilePreviewDialog, {
++        request: request(),
++        scope,
++        onDismiss,
++      }),
++    );
++    fireEvent.click(screen.getByText("close-preview"));
++    fireEvent.click(screen.getByText("dismiss-dialog"));
++    expect(onDismiss).toHaveBeenCalledTimes(2);
++  });
++});
 diff --git a/packages/ui/test/compactionProfileSettings.test.ts b/packages/ui/test/compactionProfileSettings.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..a085d46648f62d0d9b28b09a21d78d68a8062a02
@@ -17558,6 +18589,114 @@ index 66b2c366ecd358a73f5540a58ab9b45b6cd89f39..b4db0b9ae965713dae4ff3cacf8513da
      expect(html).toContain("深度求索");
      expect(html).toContain("Alibaba Model Studio (International)");
      expect(html.indexOf("深度求索")).toBeLessThan(
+diff --git a/packages/ui/test/readCommandOutputPreview.test.ts b/packages/ui/test/readCommandOutputPreview.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f5a589f177fd6d511752b48974bce197684968cb
+--- /dev/null
++++ b/packages/ui/test/readCommandOutputPreview.test.ts
+@@ -0,0 +1,102 @@
++// @vitest-environment jsdom
++
++import { createElement } from "react";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { ToolCallBlock } from "../src/ToolCallBlocks.js";
++import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
++
++afterEach(cleanup);
++
++const COMMAND_OUTPUT_PATH =
++  "C:\\Users\\xb\\AppData\\Local\\Temp\\zcode-bash-8E7j1G\\sess_subagent_agent_1\\call_1552b967195849bd9d65479bfdd51130-stdout.log";
++const COMMAND_OUTPUT_NAME = "call_1552b967195849bd9d65479bfdd51130-stdout.log";
++
++function row(overrides: Partial<ToolCallRow> = {}): ToolCallRow {
++  return {
++    rowId: 1,
++    turnId: "turn-read-output",
++    createdAt: 1,
++    createdAtSeq: 1,
++    kind: "toolCall",
++    toolCallId: "read-output",
++    toolName: "Read",
++    status: "success",
++    inputText: JSON.stringify({ file_path: COMMAND_OUTPUT_PATH }),
++    input: { file_path: COMMAND_OUTPUT_PATH },
++    output: { text: "1\tcommand output" },
++    ...overrides,
++  };
++}
++
++function card(
++  value: ToolCallRow,
++  callbacks: {
++    onOpenCommandOutputPreview?: (request: { path: string; title: string }) => void;
++    onOpenCodeViewer?: (source: { type: "file"; title: string; path: string }) => void;
++  },
++) {
++  return createElement(
++    ZCodeIntlProvider,
++    { initialLocale: "zh-CN" },
++    createElement(ToolCallBlock, {
++      toolCallNode: toolCallRowToLegacyNode(value),
++      workspacePath: "/workspace",
++      ...callbacks,
++    }),
++  );
++}
++
++describe("Read 卡片命令输出文件入口", () => {
++  it("官方命令输出日志走弹窗，不打开右侧栏", () => {
++    const onOpenCommandOutputPreview = vi.fn();
++    const onOpenCodeViewer = vi.fn();
++    render(card(row(), { onOpenCommandOutputPreview, onOpenCodeViewer }));
++
++    fireEvent.click(screen.getByRole("button", { name: COMMAND_OUTPUT_NAME }));
++
++    expect(onOpenCommandOutputPreview).toHaveBeenCalledWith({
++      path: COMMAND_OUTPUT_PATH,
++      title: COMMAND_OUTPUT_NAME,
++    });
++    expect(onOpenCodeViewer).not.toHaveBeenCalled();
++  });
++
++  it("普通源码文件保持既有右侧 code viewer 行为", () => {
++    const onOpenCommandOutputPreview = vi.fn();
++    const onOpenCodeViewer = vi.fn();
++    render(
++      card(
++        row({
++          inputText: JSON.stringify({ file_path: "/workspace/src/logger.ts" }),
++          input: { file_path: "/workspace/src/logger.ts" },
++        }),
++        { onOpenCommandOutputPreview, onOpenCodeViewer },
++      ),
++    );
++
++    fireEvent.click(screen.getByRole("button", { name: "logger.ts" }));
++
++    expect(onOpenCodeViewer).toHaveBeenCalledWith({
++      type: "file",
++      title: "logger.ts",
++      path: "/workspace/src/logger.ts",
++    });
++    expect(onOpenCommandOutputPreview).not.toHaveBeenCalled();
++  });
++
++  it("宿主未提供弹窗入口时回退既有 viewer，不丢失预览", () => {
++    const onOpenCodeViewer = vi.fn();
++    render(card(row(), { onOpenCodeViewer }));
++
++    fireEvent.click(screen.getByRole("button", { name: COMMAND_OUTPUT_NAME }));
++
++    expect(onOpenCodeViewer).toHaveBeenCalledWith({
++      type: "file",
++      title: COMMAND_OUTPUT_NAME,
++      path: COMMAND_OUTPUT_PATH,
++    });
++  });
++});
 diff --git a/packages/ui/test/readScopeToolCallBlock.test.ts b/packages/ui/test/readScopeToolCallBlock.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbbc1881551
@@ -17745,10 +18884,10 @@ index 0000000000000000000000000000000000000000..b7787cc19cb6b25cf318433115a82cbb
 +});
 diff --git a/packages/ui/test/renameSlashCommand.test.ts b/packages/ui/test/renameSlashCommand.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..47013cc71abb5a27f4479ba83d209ad3ff793332
+index 0000000000000000000000000000000000000000..356dffb8cb2363e247b88ba81c294b7b46bc833a
 --- /dev/null
 +++ b/packages/ui/test/renameSlashCommand.test.ts
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,53 @@
 +import { describe, expect, it, vi } from "vitest";
 +import {
 +  createRenameCommand,
@@ -17798,6 +18937,8 @@ index 0000000000000000000000000000000000000000..47013cc71abb5a27f4479ba83d209ad3
 +    expect(renameCommandCopy("en-US").renamed("Title")).toBe('Renamed to "Title"');
 +    expect(renameCommandCopy("zh-CN").regenerated).toBe("已根据对话重命名");
 +    expect(renameCommandCopy("en-US").regenerated).toBe("Renamed from the conversation");
++    expect(renameCommandCopy("zh-CN").generating).toBe("正在根据对话生成标题…");
++    expect(renameCommandCopy("en-US").generating).toBe("Generating a title from the conversation…");
 +  });
 +});
 diff --git a/packages/ui/test/replaceableConversationTransport.test.ts b/packages/ui/test/replaceableConversationTransport.test.ts
@@ -20339,7 +21480,7 @@ index 9bce67c57e8672fae6dedc6b5bc8630724f59266..0315dc4c9ec543ce6adea80a2088be49
      const html = renderPane();
  
 diff --git a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
-index 3caf20ed47c9a441da78b15530022e2f6ba01e15..778e0b0d5315c87e1ce3bdf50a529a5e5ab08634 100644
+index 3caf20ed47c9a441da78b15530022e2f6ba01e15..a39ef909ad430a31ee61e9ca641085f735578baf 100644
 --- a/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 +++ b/packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts
 @@ -16,6 +16,7 @@ import type {
@@ -20361,7 +21502,7 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..778e0b0d5315c87e1ce3bdf50a529a5e
      await act(async () => {
        action?.run();
        action?.run();
-@@ -3371,6 +3374,115 @@ describe("SessionPane Plan picker action", () => {
+@@ -3371,6 +3374,157 @@ describe("SessionPane Plan picker action", () => {
    );
  });
  
@@ -20414,6 +21555,48 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..778e0b0d5315c87e1ce3bdf50a529a5e
 +        payload: { title: "深度审计" },
 +      });
 +    }
++    await act(async () => root.unmount());
++  });
++
++  it("shows pending first and only toasts success after the final ACK", async () => {
++    liveProjection();
++    let resolveAck!: (ack: CommandAck) => void;
++    const pending = new Promise<CommandAck>((resolve) => {
++      resolveAck = resolve;
++    });
++    mocks.sendCommand.mockImplementation(() => pending);
++    const root = await renderPane();
++    await act(async () => {
++      await captured.composerProps?.onSendText("/rename");
++      await flushMicrotasks();
++    });
++    expect(mocks.toast).toHaveBeenCalledWith("正在根据对话生成标题…");
++    expect(mocks.toast).not.toHaveBeenCalledWith("已根据对话重命名");
++
++    const envelope = mocks.sendCommand.mock.calls[0]?.[0] as CommandEnvelope;
++    await act(async () => {
++      resolveAck(ackFor(envelope, { status: "accepted" }));
++      await flushMicrotasks();
++    });
++    expect(mocks.toast).toHaveBeenCalledWith("已根据对话重命名");
++    await act(async () => root.unmount());
++  });
++
++  it("stays silent when a newer request/rename/delete superseded the regeneration", async () => {
++    liveProjection();
++    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
++      ackFor(envelope, {
++        status: "noop",
++        reasonCode: "fault.command.titleRegenerationSuperseded",
++      }),
++    );
++    const root = await renderPane();
++    await act(async () => {
++      await captured.composerProps?.onSendText("/rename");
++      await flushMicrotasks();
++    });
++    expect(mocks.toast).not.toHaveBeenCalledWith("重命名会话失败。");
++    expect(mocks.toast).not.toHaveBeenCalledWith("已根据对话重命名");
 +    await act(async () => root.unmount());
 +  });
 +
@@ -20477,6 +21660,40 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..778e0b0d5315c87e1ce3bdf50a529a5e
  describe("SessionPane Plan mode goal guard", () => {
    it.each(["/goal", "/goal 保留这段输入", "/target 保留别名输入", "/goal resume"])(
      "blocks %s before any conversation command is dispatched",
+diff --git a/packages/ui/test/v4SessionPaneReadOnly.test.ts b/packages/ui/test/v4SessionPaneReadOnly.test.ts
+index f8efdcb3a4bdc61725485d8db9fbb550bd77547b..47c5df0062995df007c2f18420f4d467bb761120 100644
+--- a/packages/ui/test/v4SessionPaneReadOnly.test.ts
++++ b/packages/ui/test/v4SessionPaneReadOnly.test.ts
+@@ -435,6 +435,29 @@ describe("SessionPane 分享模式接线", () => {
+     expect(timelineState.selectionActionsEnabled).toBe(true);
+   });
+ 
++  it("后台输出弹窗渲染在只读底部 dock 门禁之外", () => {
++    const dockStart = sessionPaneSource.indexOf(
++      "const conversationBottomDockContent = readOnly ? null : (",
++    );
++    const dockEnd = sessionPaneSource.indexOf("const conversationBottomDock =", dockStart);
++    expect(dockStart).toBeGreaterThanOrEqual(0);
++    expect(dockEnd).toBeGreaterThan(dockStart);
++    const dialogIndex = sessionPaneSource.indexOf("<BackgroundBashOutputDialog");
++    expect(dialogIndex).toBeGreaterThan(dockEnd);
++    // 作用域切换必须清空旧 tab，组件内 scope guard 只是防一帧的兜底。
++    expect(sessionPaneSource).toContain("backgroundBashScopeKey");
++    expect(sessionPaneSource).toContain("setBackgroundBashDialogTab(null)");
++  });
++
++  it("命令输出文件弹窗也渲染在只读分支之外", () => {
++    const dockEnd = sessionPaneSource.indexOf("const conversationBottomDock =");
++    expect(dockEnd).toBeGreaterThan(0);
++    const dialogIndex = sessionPaneSource.indexOf("<CommandOutputFilePreviewDialog");
++    expect(dialogIndex).toBeGreaterThan(dockEnd);
++    expect(sessionPaneSource).toContain("onOpenCommandOutputPreview");
++    expect(sessionPaneSource).toContain("setCommandOutputPreviewRequest(null)");
++  });
++
+   it("分享浮窗保持 chat 输入区，不再替换 Composer", () => {
+     expect(renderSharePane(undefined)).toContain('data-conversation-bottom-dock-mode="chat"');
+     const html = renderSharePane(partialDraft());
 diff --git a/packages/ui/test/v4StatusCapsuleSidePane.test.ts b/packages/ui/test/v4StatusCapsuleSidePane.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..36cb9b0a29cb71d67c0bbee7d60c6b3dbd769c0f

@@ -37,10 +37,10 @@ index a755ec45888b605736fe8ef09e813c4200452049..e9c4ec1eb32e0ceda1413bd775e46060
      },
      {
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd055167594030 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..c24c3ee52251acbddb0885a2c5edb097c6ba719c 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
-@@ -2,6 +2,52 @@ version: 1
+@@ -2,6 +2,78 @@ version: 1
  
  # 存量模块先标记为 legacy；新模块或完成迁移的模块设置 managed: true。
  modules:
@@ -90,10 +90,36 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
 +    layers:
 +      ui: .
 +    owner: conversation
++  - id: session-title-regeneration
++    roots: [apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration]
++    managed: true
++    requires: [zcode-cli]
++    publicEntrypoints:
++      - apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/index.ts
++      - apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.ts
++    layers:
++      app: .
++    owner: conversation
++  - id: background-bash-output-dialog-ui
++    roots: [packages/ui/src/v4/background-bash-output-dialog]
++    managed: true
++    requires: [ui]
++    publicEntrypoints: [packages/ui/src/v4/background-bash-output-dialog/contract.ts]
++    layers:
++      ui: .
++    owner: conversation
++  - id: command-output-file-preview-ui
++    roots: [packages/ui/src/v4/command-output-file-preview]
++    managed: true
++    requires: [ui]
++    publicEntrypoints: [packages/ui/src/v4/command-output-file-preview/contract.ts]
++    layers:
++      ui: .
++    owner: conversation
    - id: rpc
      roots: [packages/rpc/src]
      managed: false
-@@ -34,7 +80,7 @@ modules:
+@@ -34,7 +106,7 @@ modules:
      managed: true
      requires: [shared, rpc, services]
      publicEntrypoints: [packages/services/src/storage/contract.ts]
@@ -102,7 +128,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layerOrder: [domain, app, adapters]
      owner: desktop-settings
    - id: client
-@@ -251,14 +297,19 @@ modules:
+@@ -251,14 +323,19 @@ modules:
      managed: true
      requires: []
      publicEntrypoints: [packages/shared/src/gen-ui/index.ts, packages/shared/src/gen-ui/contract.ts]
@@ -125,7 +151,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layerOrder: [domain, app, adapters]
      owner: conversation
  
-@@ -266,8 +317,13 @@ modules:
+@@ -266,8 +343,13 @@ modules:
      roots: [packages/ui/src/gen-ui]
      managed: true
      requires: [ui, services, gen-ui-service, gen-ui-protocol, mcp-apps-protocol, plugin-ui]
@@ -141,7 +167,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layerOrder: [domain, app, adapters, ui]
      owner: conversation
  
-@@ -276,7 +332,12 @@ modules:
+@@ -276,7 +358,12 @@ modules:
      roots: [packages/shared/src/mcp-apps]
      managed: true
      requires: []
@@ -155,7 +181,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layers:
        domain: "."
      owner: plugin
-@@ -284,7 +345,11 @@ modules:
+@@ -284,7 +371,11 @@ modules:
      roots: [apps/zcode-cli/packages/bootstrap/src/zcode-protocol/mcp-ui]
      managed: true
      requires: [zcode-cli, shared, mcp-apps-protocol]
@@ -168,7 +194,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layers:
        app: "."
      owner: plugin
-@@ -292,7 +357,13 @@ modules:
+@@ -292,7 +383,13 @@ modules:
      roots: [packages/services/src/plugin-ui-bridge]
      managed: true
      requires: [services, shared, mcp-apps-protocol]
@@ -183,7 +209,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layers:
        app: "."
      owner: plugin
-@@ -304,8 +375,7 @@ modules:
+@@ -304,8 +401,7 @@ modules:
        - packages/desktop/src/renderer/src/plugin-sandbox
      managed: true
      requires: [desktop, shared, mcp-apps-protocol, gen-ui-protocol]
@@ -193,7 +219,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
          packages/desktop/src/host/pluginSandbox/index.ts,
          packages/desktop/src/host/pluginSandbox/contract.ts,
          packages/desktop/src/preload/pluginSandbox/hostBridge.ts,
-@@ -313,7 +383,7 @@ modules:
+@@ -313,7 +409,7 @@ modules:
          packages/desktop/src/main/pluginSandbox/contract.ts,
          # 页面兼容接口由宿主及其契约测试维护。
          packages/desktop/src/renderer/src/plugin-sandbox/aliasRuntime.ts,
@@ -202,7 +228,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
        ]
      layers:
        adapters: "."
-@@ -322,7 +392,12 @@ modules:
+@@ -322,7 +418,12 @@ modules:
      roots: [packages/ui/src/plugin-ui]
      managed: true
      requires: [ui, shared, services, mcp-apps-protocol, plugin-ui-bridge, plugin-sandbox]
@@ -216,7 +242,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      layers:
        domain: domain
        app: app
-@@ -545,7 +620,7 @@ modules:
+@@ -545,7 +646,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/cli/src/arguments.ts
        - apps/zcode-cli/packages/cli/src/argument-parsing/contract.ts
@@ -225,7 +251,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      owner: agent
    - id: workflow-tool-entrypoints
      roots:
-@@ -561,7 +636,7 @@ modules:
+@@ -561,7 +662,7 @@ modules:
        - apps/zcode-cli/packages/core/src/tool/handlers/list-models.ts
        - apps/zcode-cli/packages/core/src/tool/handlers/fill-workflow-hole.ts
        - apps/zcode-cli/packages/core/src/tool/workflow-entrypoints/contract.ts
@@ -234,7 +260,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      owner: agent
  
    - id: tool-result-settlement
-@@ -574,7 +649,7 @@ modules:
+@@ -574,7 +675,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/core/src/runtime/methods/tool-result-settlement.ts
        - apps/zcode-cli/packages/core/src/runtime/tool-result-settlement/contract.ts
@@ -243,7 +269,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      owner: agent
    - id: channel-reply-tool
      roots:
-@@ -586,7 +661,7 @@ modules:
+@@ -586,7 +687,7 @@ modules:
      publicEntrypoints:
        - apps/zcode-cli/packages/core/src/tool/handlers/reply-to-channel.ts
        - apps/zcode-cli/packages/core/src/tool/channel-reply/contract.ts
@@ -252,7 +278,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      owner: agent
  
    # composer-toolbar-layout：登记既有 DOM 布局入口，不改调用路径。
-@@ -600,7 +675,7 @@ modules:
+@@ -600,7 +701,7 @@ modules:
      publicEntrypoints:
        - packages/ui/src/prompt-editor/useComposerToolbarFit.ts
        - packages/ui/src/composer-toolbar-layout/contract.ts
@@ -261,7 +287,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
      owner: conversation
  
    # task-groups：由 architecture:adopt 登记
-@@ -732,13 +807,279 @@ modules:
+@@ -732,13 +833,279 @@ modules:
      layers:
        ui: .
      owner: conversation
@@ -542,7 +568,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..64af0e42d7ae2eef70353e650acd0551
    maxContractLines: 300
    maxPublicMethods: 12
    forbidCycles: true
-@@ -886,3 +1227,27 @@ exceptions:
+@@ -886,3 +1253,27 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.

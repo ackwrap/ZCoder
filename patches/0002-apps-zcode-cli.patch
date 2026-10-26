@@ -7654,6 +7654,29 @@ index 0a9b5710ee53f540c6e7a189e2afc6c69012e70d..d420fb69e7edc923b4ecf1c9a6af743d
  function countSkillFiles(skillRoots: SkillRoot[]): number {
    // 技能识别规则收敛到共享 scan helper（根自身含
    // SKILL.md 时根自身是一个技能）；同时声明根与
+diff --git a/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/sessions.ts b/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/sessions.ts
+index 52eae612a9e4634ec7237604da7a2e5565f1ec32..64ab6f761a0848ccefd2e72fb7c83fe9c4c674f8 100644
+--- a/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/sessions.ts
++++ b/apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/sessions.ts
+@@ -116,10 +116,17 @@ export async function updateSession(
+   if (fields.length) {
+     values.push(input.id);
+     const sources = input.title !== undefined ? input.expectedTitleSources : undefined;
+-    const guard = sources?.length
++    let guard = sources?.length
+       ? ` and coalesce(title_source, 'first_input') in (${sources.map(() => "?").join(",")})`
+       : "";
+     if (sources?.length) values.push(...sources);
++    // 条件标题写入与 sources guard 同一条 UPDATE 原子执行：后台生成结果不能覆盖
++    // 用户随后写入的标题，也不能写回软删除会话。返回值仍是写入后的当前行，
++    // 调用方据此判断本次 CAS 是否生效。
++    if (input.title !== undefined && input.expectedTitle !== undefined) {
++      guard += " and title = ? and coalesce(title_source, 'first_input') = ? and time_deleted is null";
++      values.push(input.expectedTitle, input.expectedTitleSource ?? "first_input");
++    }
+     db.prepare(`update session set ${fields.join(",")} where id=?${guard}`).run(...values);
+   }
+   return mustGetSession(db, input.id);
 diff --git a/apps/zcode-cli/packages/adapters/tests/adapter-extraction-contracts.test.ts b/apps/zcode-cli/packages/adapters/tests/adapter-extraction-contracts.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..bdec6dd231fcdae3a6dbe8d8b5826e2b36a286d4
@@ -9578,6 +9601,56 @@ index 5892cc8cddfddd6e3b7e45bbf9b43e77990fb34f..8d680e854f12450478f4cd7a40fd4cfd
    it("refreshes runtime headers before each streamed retry attempt with native WebSearch", async () => {
      const calls: Array<{ runtimeHeader: string | undefined; hasNativeWebSearch: boolean }> = [];
      const refreshes: number[] = [];
+diff --git a/apps/zcode-cli/packages/adapters/tests/session-store.test.ts b/apps/zcode-cli/packages/adapters/tests/session-store.test.ts
+index 4f68ea9f198eece54111733d73ee620307abf5cf..1e2244fbf6fdc81a1820824a9234ed3c369e81ca 100644
+--- a/apps/zcode-cli/packages/adapters/tests/session-store.test.ts
++++ b/apps/zcode-cli/packages/adapters/tests/session-store.test.ts
+@@ -239,6 +239,45 @@ describe("virtual project CLI session facts", () => {
+     });
+     store.close();
+   });
++
++  it("conditional title writes reject a stale baseline and soft-deleted sessions atomically", async () => {
++    const store = await createSqliteSessionStore({ dbPath: ":memory:" });
++    const bundle = createSharedContextImportBundle({ sessionSlug: "title-cas" });
++    await store.createSession({
++      ...bundle.session,
++      title: "old title",
++      titleSource: "generated",
++    });
++
++    const stale = await store.updateSession({
++      id: bundle.session.id,
++      title: "late title",
++      titleSource: "custom",
++      expectedTitle: "another title",
++      expectedTitleSource: "generated",
++    });
++    expect(stale).toMatchObject({ title: "old title", titleSource: "generated" });
++
++    const applied = await store.updateSession({
++      id: bundle.session.id,
++      title: "new title",
++      titleSource: "custom",
++      expectedTitle: "old title",
++      expectedTitleSource: "generated",
++    });
++    expect(applied).toMatchObject({ title: "new title", titleSource: "custom" });
++
++    await store.softDeleteSession?.(bundle.session.id);
++    const afterDelete = await store.updateSession({
++      id: bundle.session.id,
++      title: "after delete",
++      titleSource: "custom",
++      expectedTitle: "new title",
++      expectedTitleSource: "custom",
++    });
++    expect(afterDelete).toMatchObject({ title: "new title", titleSource: "custom" });
++    store.close();
++  });
+ });
+ 
+ function createSharedContextImportBundle(params: {
 diff --git a/apps/zcode-cli/packages/adapters/tests/websearch.test.ts b/apps/zcode-cli/packages/adapters/tests/websearch.test.ts
 index 5a889836f70ff32c1948b24bb10a5eed9c1f16de..b7a68d008fa67e3300a626f4b0165e317930ab63 100644
 --- a/apps/zcode-cli/packages/adapters/tests/websearch.test.ts
@@ -9953,6 +10026,47 @@ index 0456d5d02e8a4e918f9fe96af0b955039cb63bbc..1da6ae3a0646ef8289c57b375f665b20
        if (boundary.key && boundaryKeys[boundary.kind].has(boundary.key)) {
          recordDiagnostic(diagnostics, "cold_merge.durable_event_suppressed", event);
          return;
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/command-inbox.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/command-inbox.ts
+index 0a37f4da70c6dabdcadbf3001721cea4b9c47889..b18527866256ba24cf18cab245e9027ee3ab2f8e 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/command-inbox.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/command-inbox.ts
+@@ -68,6 +68,12 @@ export type CommandInboxOutcome =
+       admissionSeq: number;
+       admittedAt: number;
+       queueItemId: string;
++      /**
++       * 幂等释放 per-session admission gate。普通命令由 settle 释放；只有登记了
++       * 长后台任务的命令（当前仅 regenerateSessionTitle）由执行侧在真正登记 job 后
++       * 主动调用，提前放行后续命令。未调用则保持原 FIFO 直到 settle。
++       */
++      releaseSessionAdmission: () => void;
+       /** 执行完成后回填终态。必须调用一次，用于释放 per-session admission gate。 */
+       settle: (final: CommandFinal) => void;
+     };
+@@ -184,6 +190,7 @@ export class CommandInbox {
+           admissionSeq: nextAdmissionSeq,
+           admittedAt,
+           queueItemId: queueItemIdForCommand(envelope.commandId),
++          releaseSessionAdmission: releaseSession,
+           settle: (final) => {
+             if (settled) return;
+             settled = true;
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/executor.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/executor.ts
+index 8cc8eefba06a7f8a346622e4e2b39961a1d7a129..cacff3647827f07b5018bb9fa725c7661959846f 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/executor.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/executor.ts
+@@ -69,6 +69,11 @@ export interface V4CommandAdmission {
+ export interface V4CommandExecutionContext {
+   /** 内部 auto-drain 必须在 reserve 前由 handler 原子校验 Core idle。 */
+   autoDrainPromotion?: true;
++  /**
++   * 幂等释放 per-session admission gate。只有把长任务登记为后台工作后 handler 才调用；
++   * 由 gateway 注入，普通命令不调用，保持原 FIFO 到 settle。
++   */
++  releaseSessionAdmission?: () => void;
+ }
+ 
+ export type V4AdmittedCommandEnvelope = CommandEnvelope & {
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/autocompact.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..1b2a5a6a5add3323c7b4dbed57200c2e4c4615e9
@@ -9989,27 +10103,51 @@ index 6ab19fb0a13557bf463423714cd336ba8b4d6da3..f95038637036328fab3d4a3598645b62
    ...queueHandlers,
    ...sessionMgmtHandlers,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
-index 859fce79163da5beb7befe3eeac51ccba87442b4..74ed54c5abdd77bbc9c877fee8351641d3652165 100644
+index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c05352c8b 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
-@@ -165,6 +165,43 @@ async function renameSession(
+@@ -8,7 +8,8 @@ import type {
+ } from "@zcode/shared/zcode-protocol-v4";
+ import { mapAttachmentRefsToTurnAttachments } from "../attachment-refs.js";
+ import { inputIntentMetadata } from "../input-intent.js";
+-import { commandAdmissionOf } from "../executor.js";
++import { commandAdmissionOf, commandExecutionContextOf } from "../executor.js";
++import { V4CommandNoopError } from "../../v4-gateway.js";
+ import { startPromptTurn } from "../prompt-turn.js";
+ import { requireRecord } from "../record-access.js";
+ import type { V4CommandCoreHost } from "../types.js";
+@@ -165,6 +166,57 @@ async function renameSession(
    return undefined;
  }
  
 +/**
 + * regenerateSessionTitle：`/rename` 不带标题时，由模型总结当前对话重新命名。
 + * 标题写入仍走 core 的 custom 语义（显式用户动作，后续自动标题不覆盖）。
++ *
++ * 异步边界：标题工作由 core 登记为受生命周期管理的 job（新请求/改名/删除会中止旧请求），
++ * CommandInbox 对该命令提前释放 per-session gate，因此 stop/权限应答/其他命令不必等模型。
++ * 这里仍 await completion 取得真实终态，ACK 不会在模型返回前谎报成功。
 + */
 +async function regenerateSessionTitle(
 +  host: V4CommandCoreHost,
 +  envelope: CommandEnvelope,
 +): Promise<CommandResult | undefined> {
 +  const record = requireRecord(host, envelope.sessionId);
-+  const title = await record.app.runtime.regenerateSessionTitleFromConversation({
-+    traceContext: record.traceContext,
-+  });
-+  if (!title) throw new Error("Session title regeneration failed");
-+  return undefined;
++  const { completion } =
++    record.app.runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: record.traceContext,
++    });
++  // job 已登记，后续 rename/delete 现在可以安全执行并取消它；gate 释放幂等。
++  commandExecutionContextOf(envelope)?.releaseSessionAdmission?.();
++  const outcome = await completion;
++  // 成功仍沿用既有 accepted 终态 + SessionTitleUpdated 事件，不新增 CommandResult 变体。
++  if (outcome.status === "applied") return undefined;
++  if (outcome.status === "empty" || outcome.status === "failed") {
++    // 空结果/模型失败保持原标题，客户端按失败提示（与显式 rename 的语义一致）。
++    throw new Error(outcome.message ?? "Session title regeneration failed");
++  }
++  // superseded / 会话已删除 / 过期结果：不是失败，按 noop 收口。
++  throw new V4CommandNoopError("fault.command.titleRegenerationSuperseded");
 +}
 +
 +async function getSessionResources(
@@ -10036,7 +10174,16 @@ index 859fce79163da5beb7befe3eeac51ccba87442b4..74ed54c5abdd77bbc9c877fee8351641
  /** CLI 先持久化软删除，再关闭运行实例；正文保留，后续冷种子不会复活该会话。 */
  async function deleteSession(
    host: V4CommandCoreHost,
-@@ -200,6 +237,9 @@ async function discardSharedContext(
+@@ -175,6 +227,8 @@ async function deleteSession(
+     // 关闭不能静默降级：钩子缺失说明 binder 接线不完整，直接失败（ACK failed）。
+     throw new Error("v4 deleteSession requires host.deleteSession capability");
+   }
++  // 标题生成已脱离 per-session FIFO 独立运行；删除先中止它，避免模型返回后写回墓碑会话。
++  record.app.runtime.cancelSessionTitleRegeneration();
+   await host.deleteSession(record.app.sessionId);
+   return undefined;
+ }
+@@ -200,6 +254,9 @@ async function discardSharedContext(
  export const sessionMgmtHandlers = {
    createSession,
    renameSession,
@@ -10850,7 +10997,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
        // 首条真实用户消息之前的消息不能一律跳过——会话头部是 rewind notice /
        // compact summary 等非真实用户消息时，其后 assistant 回复刷新后会整段消失。
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts
-index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..f76b717bc237a2e29818c1832d4bc720d1eef04b 100644
+index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..71e6d24e1e55f758d1ecba255243b4ba835078da 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts
 @@ -132,6 +132,12 @@ import {
@@ -10887,7 +11034,15 @@ index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..f76b717bc237a2e29818c1832d4bc720
    cliVersion?: string;
    /** 会话是否在宿主注册表中活跃（inbox 的 sessionNotFound 裁决依据）。 */
    sessionExists(sessionId: string): boolean;
-@@ -1740,6 +1753,39 @@ export class ConversationV4Gateway {
+@@ -317,6 +330,7 @@ export interface V4GatewayHost {
+   executeCommand(
+     envelope: CommandEnvelope,
+     admission?: { admissionSeq: number; admittedAt: number; queueItemId: string },
++    executionContext?: { releaseSessionAdmission?: () => void },
+   ): Promise<CommandResult | undefined>;
+   /** 输入命令执行前先落 durable admission；返回同一份完整 intent 供 inbox pin。 */
+   admitCommandInput?(
+@@ -1740,6 +1754,39 @@ export class ConversationV4Gateway {
      );
    }
  
@@ -10927,7 +11082,21 @@ index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..f76b717bc237a2e29818c1832d4bc720
    /** 完整有效 projection 的终态计划目录；冷会话复用订阅 hydration。 */
    async plans(rawParams: unknown): Promise<V4ConversationPlansResult> {
      const params = v4ConversationPlansParamsSchema.parse(rawParams);
-@@ -3321,6 +3367,8 @@ export class ConversationV4Gateway {
+@@ -2646,7 +2693,12 @@ export class ConversationV4Gateway {
+       if (durableInputIntent && outcome.envelope.sessionId !== null) {
+         this.inbox.pinLiveInput(outcome.envelope.sessionId, durableInputIntent);
+       }
+-      const result = await this.host.executeCommand(outcome.envelope, admission);
++      // 长任务命令由 handler 在登记 job 后自行调用 releaseSessionAdmission；
++      // gateway 只转发这个幂等函数，不提前放行，避免 admitCommandInput 慢时
++      // 后续 rename/delete 先于旧标题 job 登记执行。
++      const result = await this.host.executeCommand(outcome.envelope, admission, {
++        releaseSessionAdmission: outcome.releaseSessionAdmission,
++      });
+       // Bug 根因：首输入标题先于 deferred 提升发出，列表会过滤它；ACK 后若初始化/Hook
+       // 尚未结束便没有下一事件。沿用成功执行边界补发当前摘要，不等待 TurnStarted。
+       const admittedSessionId =
+@@ -3321,6 +3373,8 @@ export class ConversationV4Gateway {
        // 创建时种子可能落空（record 尚未入册），首次订阅补一次（幂等、事件优先）。
        this.hydrationBuffers.delete(sessionId);
        this.seedPublisherConfig(sessionId, latestPublisher);
@@ -10936,7 +11105,7 @@ index 14ffb71537cffe3ed193ddc42d1cf7af3e5ca153..f76b717bc237a2e29818c1832d4bc720
        if (loaded.sharedContextImport) {
          latestPublisher.seedSharedContextImport(loaded.sharedContextImport);
        }
-@@ -3359,6 +3407,8 @@ export class ConversationV4Gateway {
+@@ -3359,6 +3413,8 @@ export class ConversationV4Gateway {
      if (loaded.sharedContextImport) {
        publisher.seedSharedContextImport(loaded.sharedContextImport);
      }
@@ -11224,7 +11393,7 @@ index af7bbc7f688e33ec6b2c89984ad5536568640b04..dbc7270795e93464a3f98af710cf526f
              ),
            );
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts
-index b2758d2fc7f34a44ccc3a386e03b60ec1af5d93e..8812e3f5c166a5492630fd71bc890247b931391f 100644
+index b2758d2fc7f34a44ccc3a386e03b60ec1af5d93e..5f125053465cecba2ebc785513845bf4ba2de173 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts
 @@ -40,6 +40,7 @@ import {
@@ -11301,6 +11470,18 @@ index b2758d2fc7f34a44ccc3a386e03b60ec1af5d93e..8812e3f5c166a5492630fd71bc890247
  const STABLE_FORK_MODES = new Set<CollaborationMode>([
    "plan",
    "build",
+@@ -1792,9 +1838,9 @@ export function createConversationV4Gateway(
+         : null,
+     // 回落面已清零（20 命令全部原生）：supports 未命中（未知命令类型）→
+     // notImplemented → ACK failed fault.command.notImplemented。
+-    executeCommand: (envelope, admission) =>
++    executeCommand: (envelope, admission, executionContext) =>
+       nativeExecutor.supports(envelope.type)
+-        ? nativeExecutor.execute(envelope, admission)
++        ? nativeExecutor.execute(envelope, admission, executionContext)
+         : Promise.reject(new V4CommandNotImplementedError(envelope.type)),
+     admitCommandInput: async (envelope, admission) => {
+       // 仅隐藏 composer 不能阻止旧 child 标签页续聊。类型准入必须早于
 @@ -1851,6 +1897,12 @@ export function createConversationV4Gateway(
        }
        return record.app.writePromptAttachment(input);
@@ -12016,6 +12197,130 @@ index eb763d501655ca7d921fede7aab2a40fe7e53ebe..8b29894150e5689b081086ebed2d5343
    it("preserves a Highspeed fallback marker across cold transcript recovery", () => {
      const turnId = "runtime-turn-highspeed-fallback";
      const user = userMessage("u-highspeed-fallback", "accelerated prompt", 1_000, turnId);
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/command-inbox-title-regeneration.test.ts b/apps/zcode-cli/packages/bootstrap/tests/command-inbox-title-regeneration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..69b629d403207554d8e0927e8d598905b41c6ced
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/command-inbox-title-regeneration.test.ts
+@@ -0,0 +1,118 @@
++// /rename 无标题会等待标题模型（最长 60s）。inbox 只对该命令在 admission 后放行
++// per-session gate：后续 stop / 输入 / 权限应答不能被标题模型排队，但命令自身仍 pin，
++// duplicate 必须继续等待同一 final。
++import { describe, expect, it } from "vitest";
++import type { CommandEnvelope } from "@zcode/shared/zcode-protocol-v4";
++import { CommandInbox } from "../src/zcode-protocol-v4/command-inbox.js";
++import type { CommandInboxHost } from "../src/zcode-protocol-v4/command-inbox.js";
++
++function makeHost(): CommandInboxHost {
++  return {
++    getRevision: () => 7,
++    getLogEpoch: () => "epoch-current",
++  };
++}
++
++function envelope(partial: Partial<CommandEnvelope>): CommandEnvelope {
++  return {
++    commandId: "cmd-1",
++    clientId: "client-a",
++    sessionId: "s-1",
++    type: "sendText",
++    payload: { text: "hello" },
++    issuedAt: 1,
++    ...partial,
++  } as CommandEnvelope;
++}
++
++const titleCommand = envelope({
++  commandId: "title-1",
++  type: "regenerateSessionTitle",
++  payload: {},
++});
++
++describe("CommandInbox 标题生成不阻塞会话 FIFO", () => {
++  it("只有执行侧登记 job 后显式 release，同会话后续命令才 admission", async () => {
++    const inbox = new CommandInbox(makeHost());
++    const title = await inbox.handle(titleCommand);
++    expect(title.kind).toBe("execute");
++    if (title.kind !== "execute") return;
++
++    // handler 尚未登记 job：gate 仍被持有，后续命令不能先执行（避免 delete/rename
++    // 早于旧标题 job 出现而无法取消它）。
++    const blocked = inbox.handle(envelope({ commandId: "send-1" }));
++    const blockedResult = await Promise.race([
++      blocked,
++      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 30)),
++    ]);
++    expect(blockedResult).toBe("timeout");
++
++    // 对应 handler 的“job 已登记”边界。
++    title.releaseSessionAdmission();
++    const next = await blocked;
++    expect(next.kind).toBe("execute");
++    if (next.kind === "execute") next.settle({ status: "accepted" });
++
++    // 标题生成期间，显式改名与删除也必须能进入执行（否则只能等模型返回）。
++    const rename = await Promise.race([
++      inbox.handle(
++        envelope({ commandId: "rename-1", type: "renameSession", payload: { title: "x" } }),
++      ),
++      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
++    ]);
++    expect(rename).not.toBe("timeout");
++    if (rename === "timeout") return;
++    expect(rename.kind).toBe("execute");
++    if (rename.kind === "execute") rename.settle({ status: "accepted" });
++
++    const deleted = await Promise.race([
++      inbox.handle(envelope({ commandId: "delete-1", type: "deleteSession", payload: {} })),
++      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
++    ]);
++    expect(deleted).not.toBe("timeout");
++    if (deleted === "timeout") return;
++    expect(deleted.kind).toBe("execute");
++    if (deleted.kind === "execute") deleted.settle({ status: "accepted" });
++
++    title.settle({ status: "accepted" });
++  });
++
++  it("重复的标题命令仍等待同一 final（in-flight pin 不提前释放）", async () => {
++    const inbox = new CommandInbox(makeHost());
++    const title = await inbox.handle(titleCommand);
++    expect(title.kind).toBe("execute");
++    if (title.kind !== "execute") return;
++
++    let settled = false;
++    const duplicate = inbox.handle(titleCommand).then((outcome) => {
++      settled = true;
++      return outcome;
++    });
++    await new Promise((resolve) => setTimeout(resolve, 30));
++    expect(settled).toBe(false);
++
++    title.settle({ status: "accepted" });
++    const outcome = await duplicate;
++    expect(outcome.kind).toBe("ack");
++    if (outcome.kind !== "ack") return;
++    expect(outcome.ack.status).toBe("duplicate");
++  });
++
++  it("其他命令仍保持同会话 FIFO（未 settle 时后续输入等待）", async () => {
++    const inbox = new CommandInbox(makeHost());
++    const first = await inbox.handle(envelope({ commandId: "send-1" }));
++    expect(first.kind).toBe("execute");
++    if (first.kind !== "execute") return;
++
++    const second = inbox.handle(envelope({ commandId: "send-2" }));
++    const raced = await Promise.race([
++      second,
++      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 30)),
++    ]);
++    expect(raced).toBe("timeout");
++    first.settle({ status: "accepted" });
++    const after = await second;
++    expect(after.kind).toBe("execute");
++    if (after.kind === "execute") after.settle({ status: "accepted" });
++  });
++});
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/compact-summary-read.test.ts b/apps/zcode-cli/packages/bootstrap/tests/compact-summary-read.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..df62dac3de692a124e72b9e91f15767458432a29
@@ -13929,6 +14234,131 @@ index 0000000000000000000000000000000000000000..a94445ff43844ae6aacce6f4a66a4399
 +    expect(row?.kind === "timelineMarker" && row.marker).not.toHaveProperty("tokensAfter");
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-gateway.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-gateway.test.ts
+index f5566045db62bb2742f92983b8e133fb6bb671f9..a330dbae00160a1e82ca1e90e02af2f672bcf13a 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/v4-gateway.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/v4-gateway.test.ts
+@@ -107,7 +107,11 @@ interface HostStub {
+   executeImpl: (
+     envelope: CommandEnvelope,
+     admission?: { admissionSeq: number; admittedAt: number; queueItemId: string },
++    executionContext?: { releaseSessionAdmission?: () => void },
+   ) => Promise<CommandResult | undefined>;
++  /** 延迟指定命令的 durable admission，用于验证 gate 释放边界。 */
++  admitDelayFor?: { type: CommandEnvelope["type"]; promise: Promise<void> };
++  executeContexts: Array<{ releaseSessionAdmission?: () => void }>;
+   /** hydration 打桩：sessionId → 持久化事件序列。 */
+   persistedEvents: Map<string, SessionEvent[]>;
+   /** 标记哪些 session 的 loadPersistedEvents 走 transcript 合成（synthesized=true）。 */
+@@ -144,6 +148,7 @@ function makeHost(): HostStub {
+     errors: [],
+     sessions: new Set(["session-1"]),
+     executeImpl: async () => undefined,
++    executeContexts: [],
+     persistedEvents: new Map(),
+     synthesizedSessions: new Set(),
+     configSeeds: new Map(),
+@@ -185,11 +190,13 @@ function makeGateway(host: HostStub): ConversationV4Gateway {
+       onTargetCompleted: (sessionId, event) => {
+         host.projectionEvents.push({ sessionId, event });
+       },
+-      executeCommand: async (envelope, admission) => {
++      executeCommand: async (envelope, admission, executionContext) => {
+         host.executed.push(envelope);
+-        return await host.executeImpl(envelope, admission);
++        if (executionContext) host.executeContexts.push(executionContext);
++        return await host.executeImpl(envelope, admission, executionContext);
+       },
+       admitCommandInput: async (envelope, admission) => {
++        if (host.admitDelayFor?.type === envelope.type) await host.admitDelayFor.promise;
+         if (envelope.type !== "sendText" && envelope.type !== "sendGoalCommand") return null;
+         host.inputAdmissions.push({
+           commandId: envelope.commandId,
+@@ -4315,6 +4322,84 @@ describe("v4/command 收口", () => {
+     expect(host.executed).toEqual([]);
+   });
+ 
++  it("延迟 admit 时标题 job 登记后才放行 rename/delete，旧 job 可被取消", async () => {
++    const host = makeHost();
++    const admitGate = Promise.withResolvers<void>();
++    host.admitDelayFor = {
++      type: "regenerateSessionTitle",
++      promise: admitGate.promise,
++    };
++    const completion = Promise.withResolvers<{
++      status: "applied";
++      title: string;
++    }>();
++    const order: string[] = [];
++    const runtime = {
++      cancelSessionTitleRegeneration: () => order.push("cancel"),
++      scheduleSessionTitleRegenerationFromConversation: () => {
++        order.push("schedule");
++        return { requestId: 1, completion: completion.promise };
++      },
++      setCustomSessionTitle: async () => {
++        order.push("rename");
++      },
++    };
++    const record = {
++      app: { runtime },
++      traceContext: { traceId: "trace-1", sessionId: "session-1" },
++      workspace: { workspacePath: "/w" },
++      persistence: "immediate",
++    } as unknown as V4SessionRecordView;
++    const executor = new V4CommandExecutor({
++      getRecord: (sessionId) =>
++        sessionId === "session-1" ? record : undefined,
++      deleteSession: async () => {},
++    } as never);
++    host.executeImpl = (envelope, admission, executionContext) => {
++      order.push(`execute:${envelope.type}`);
++      return executor.execute(envelope, admission, executionContext);
++    };
++    const gateway = makeGateway(host);
++    gateway.ingest("session-1", sessionCreated(new EventLog()));
++
++    const titleAck = gateway.handleCommand(
++      commandParams({
++        commandId: "title-1",
++        type: "regenerateSessionTitle",
++        payload: {},
++      }),
++    );
++    const renameAck = gateway.handleCommand(
++      commandParams({
++        commandId: "rename-1",
++        type: "renameSession",
++        payload: { title: "next" },
++      }),
++    );
++    const deleteAck = gateway.handleCommand(
++      commandParams({ commandId: "delete-1", type: "deleteSession", payload: {} }),
++    );
++
++    await new Promise<void>((resolve) => setTimeout(resolve, 0));
++    // admit 还没返回：handler 尚未登记 job，rename/delete 不得越过 gate。
++    expect(order).toEqual([]);
++
++    admitGate.resolve();
++    await vi.waitFor(() => expect(order).toContain("schedule"));
++    await vi.waitFor(() => expect(order).toContain("execute:renameSession"));
++    await vi.waitFor(() => expect(order).toContain("execute:deleteSession"));
++    expect(order.indexOf("schedule")).toBeLessThan(order.indexOf("execute:renameSession"));
++    expect(order.indexOf("schedule")).toBeLessThan(order.indexOf("execute:deleteSession"));
++    // delete handler 在 job 登记后到达，能取消旧 job。
++    expect(order).toContain("cancel");
++
++    completion.resolve({ status: "applied", title: "next" });
++    await expect(titleAck).resolves.toMatchObject({ status: "accepted" });
++    await expect(renameAck).resolves.toMatchObject({ status: "accepted" });
++    await expect(deleteAck).resolves.toMatchObject({ status: "accepted" });
++    gateway.dispose();
++  });
++
+   // 2026-07-05 语义修正：handleCommand 等待副作用完成后随响应返回终态 ACK
+   //（spec §6.2/§6.4「accepted 即时带 result」），settle 仍固化结果供 duplicate 重放。
+   it("同 commandId 并发与 ACK 丢失重试等待同一 final result，只执行一次", async () => {
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts
 index e72194e99f6a01c08962dcee52d498f2da8d6511..71304cec6fedf1bdcdad4275fcbad1665b173aaf 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts
@@ -13959,53 +14389,97 @@ index e72194e99f6a01c08962dcee52d498f2da8d6511..71304cec6fedf1bdcdad4275fcbad166
      const executor = new V4CommandExecutor(makeHost(makeRecord()));
      // 与 packages/shared/src/zcode-protocol-v4/command.ts 的 payload map 同步维护。
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts
-index 0f09e82584c8ca153305b7e796aaf631340397b4..964adc07e6e2a7c4802338b0572501145e99b141 100644
+index 0f09e82584c8ca153305b7e796aaf631340397b4..13c5ac9e4edcd7e54b762e472d2ddbebb6431e57 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts
 +++ b/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts
-@@ -22,6 +22,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
+@@ -22,6 +22,11 @@ function makeApp(overrides: Record<string, unknown> = {}) {
      close: vi.fn().mockResolvedValue(undefined),
      runtime: {
        setCustomSessionTitle: vi.fn().mockResolvedValue(undefined),
-+      regenerateSessionTitleFromConversation: vi.fn().mockResolvedValue("对话标题"),
++      cancelSessionTitleRegeneration: vi.fn(),
++      scheduleSessionTitleRegenerationFromConversation: vi.fn().mockReturnValue({
++        requestId: 1,
++        completion: Promise.resolve({ status: "applied", title: "对话标题" }),
++      }),
      },
      ...overrides,
    };
-@@ -88,6 +89,35 @@ describe("v4 原生 renameSession", () => {
+@@ -88,6 +93,58 @@ describe("v4 原生 renameSession", () => {
    });
  });
  
 +describe("v4 原生 regenerateSessionTitle", () => {
-+  it("无标题 /rename：由 core 按对话生成，透传会话根 traceContext", async () => {
++  it("无标题 /rename：调度受管后台任务，终态 applied 才返回成功 ACK", async () => {
 +    const app = makeApp();
 +    const record = makeRecord({ app });
-+    await new V4CommandExecutor(makeHost(record)).execute(
++    const result = await new V4CommandExecutor(makeHost(record)).execute(
 +      envelope("regenerateSessionTitle", {}),
 +    );
-+    expect(app.runtime.regenerateSessionTitleFromConversation).toHaveBeenCalledTimes(1);
-+    expect(app.runtime.regenerateSessionTitleFromConversation).toHaveBeenCalledWith({
++    expect(app.runtime.scheduleSessionTitleRegenerationFromConversation).toHaveBeenCalledTimes(1);
++    expect(app.runtime.scheduleSessionTitleRegenerationFromConversation).toHaveBeenCalledWith({
 +      traceContext: TRACE,
 +    });
++    expect(result).toBeUndefined();
 +    expect(app.runtime.setCustomSessionTitle).not.toHaveBeenCalled();
 +  });
 +
-+  it("生成失败（null）：命令失败，不静默成功", async () => {
++  it("生成失败：命令失败，不静默成功", async () => {
 +    const app = makeApp({
 +      runtime: {
 +        setCustomSessionTitle: vi.fn().mockResolvedValue(undefined),
-+        regenerateSessionTitleFromConversation: vi.fn().mockResolvedValue(null),
++        cancelSessionTitleRegeneration: vi.fn(),
++        scheduleSessionTitleRegenerationFromConversation: vi.fn().mockReturnValue({
++          requestId: 1,
++          completion: Promise.resolve({ status: "failed", message: "model down" }),
++        }),
 +      },
 +    });
 +    await expect(
 +      new V4CommandExecutor(makeHost(makeRecord({ app }))).execute(
 +        envelope("regenerateSessionTitle", {}),
 +      ),
-+    ).rejects.toThrow(/title regeneration failed/iu);
++    ).rejects.toThrow(/model down/iu);
++  });
++
++  it("被新请求/改名/删除取代：按 noop 收口，不误报失败", async () => {
++    const app = makeApp({
++      runtime: {
++        setCustomSessionTitle: vi.fn().mockResolvedValue(undefined),
++        cancelSessionTitleRegeneration: vi.fn(),
++        scheduleSessionTitleRegenerationFromConversation: vi.fn().mockReturnValue({
++          requestId: 1,
++          completion: Promise.resolve({ status: "cancelled" }),
++        }),
++      },
++    });
++    await expect(
++      new V4CommandExecutor(makeHost(makeRecord({ app }))).execute(
++        envelope("regenerateSessionTitle", {}),
++      ),
++    ).rejects.toMatchObject({ reasonCode: "fault.command.titleRegenerationSuperseded" });
 +  });
 +});
 +
  describe("v4 原生 deleteSession", () => {
    it("正路径：语义 = deleteSession，经 host.deleteSession 钩子执行关闭", async () => {
      const record = makeRecord();
+@@ -99,6 +156,16 @@ describe("v4 原生 deleteSession", () => {
+     expect(deleteSession).toHaveBeenCalledWith("s1");
+   });
+ 
++  it("删除前中止在途标题生成，避免模型返回后写回墓碑会话", async () => {
++    const app = makeApp();
++    const deleteSession = vi.fn().mockResolvedValue(undefined);
++    await new V4CommandExecutor(makeHost(makeRecord({ app }), { deleteSession })).execute(
++      envelope("deleteSession", {}),
++    );
++    expect(app.runtime.cancelSessionTitleRegeneration).toHaveBeenCalledTimes(1);
++    expect(deleteSession).toHaveBeenCalledTimes(1);
++  });
++
+   it("session 不存在：拒绝，且不触碰 deleteSession 钩子", async () => {
+     const record = makeRecord();
+     const deleteSession = vi.fn().mockResolvedValue(undefined);
 diff --git a/apps/zcode-cli/packages/contracts/src/context-source-contracts/CONTRACT.md b/apps/zcode-cli/packages/contracts/src/context-source-contracts/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..8087cd74bcfa6ed625072e67a016a8cbce7fa2fb
@@ -14183,7 +14657,7 @@ index 418ef593c810a6c47bb2b71a252cb3aac823b846..818e918c8f1b2f60b4e54a3e4607c37c
      request: ContextSourceRequest,
      options?: ContextSourceResolveOptions,
 diff --git a/apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts b/apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts
-index 3514a449e321a8ee29e3d3122d13294ebf409802..6b02a9466893e4f8d68e650322fff33f32a7e037 100644
+index 3514a449e321a8ee29e3d3122d13294ebf409802..d572563a09527c87fdade724ea68a71ed8e81b47 100644
 --- a/apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts
 +++ b/apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts
 @@ -29,7 +29,8 @@ import type { TodoItem } from "../tools/todo.js";
@@ -14196,7 +14670,21 @@ index 3514a449e321a8ee29e3d3122d13294ebf409802..6b02a9466893e4f8d68e650322fff33f
  
  export const SESSION_TASK_TYPES = [
    "interactive",
-@@ -345,6 +346,12 @@ export interface MessageSummary {
+@@ -259,6 +260,13 @@ export interface UpdateSessionInput {
+   titleSource?: SessionTitleSource;
+   titleMessageID?: MessageId | null;
+   expectedTitleSources?: readonly SessionTitleSource[];
++  /**
++   * 条件标题写入（CAS）：仅当当前 title/title_source 仍等于给定时才更新；
++   * 同时要求会话未被软删除。与 expectedTitleSources 一样由 adapter 原子执行，
++   * 用于迟到的后台标题结果，避免读后 await 更新造成 TOCTOU。
++   */
++  expectedTitle?: string;
++  expectedTitleSource?: SessionTitleSource | null;
+   shareURL?: string | null;
+   summary?: {
+     additions?: number;
+@@ -345,6 +353,12 @@ export interface MessageSummary {
  
  export interface MessageContextSnapshot {
    envInfo?: EnvInfo;
@@ -14209,7 +14697,7 @@ index 3514a449e321a8ee29e3d3122d13294ebf409802..6b02a9466893e4f8d68e650322fff33f
  }
  
  export interface UserMessageInfo {
-@@ -817,6 +824,15 @@ export const SESSION_ENTRY_WORKSPACE_FILE_REWIND = "runtime/workspace_file_rewin
+@@ -817,6 +831,15 @@ export const SESSION_ENTRY_WORKSPACE_FILE_REWIND = "runtime/workspace_file_rewin
  /** 动态工作流工具面已在本会话激活（docs/dynamic-workflow/launch.md「On demand: activation」）。 */
  export const SESSION_ENTRY_DYNAMIC_WORKFLOW_ACTIVATION =
    "runtime/dynamic_workflow_activation" as const;
@@ -14225,7 +14713,7 @@ index 3514a449e321a8ee29e3d3122d13294ebf409802..6b02a9466893e4f8d68e650322fff33f
  
  export const SESSION_ENTRY_TYPES = [
    SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
-@@ -827,8 +843,25 @@ export const SESSION_ENTRY_TYPES = [
+@@ -827,8 +850,25 @@ export const SESSION_ENTRY_TYPES = [
    SESSION_ENTRY_WORKSPACE_CHECKPOINT,
    SESSION_ENTRY_WORKSPACE_FILE_REWIND,
    SESSION_ENTRY_DYNAMIC_WORKFLOW_ACTIVATION,
@@ -16159,18 +16647,20 @@ index 28830dee7fdc26c4b0add45a90ce0a9e599729ab..ddaacf248713db9a99f7178698a4f204
 +  return typeof value === "string" ? value : undefined;
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b755d329bf2 100644
+index 862b572037e7a12aacf342d9b38fa806f6c51f9c..d4a9e59f06651ffe4a67f730d08598cb63326246 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-@@ -1,4 +1,7 @@
+@@ -1,4 +1,9 @@
  import { configureOffPeakRuntime, controlOffPeakRuntime } from "./off-peak/runtime.js";
 +import { configureSessionAutoCompact } from "../compact/session-limit/runtime.js";
 +import type { AutoCompactLimit } from "../compact/session-limit/contract.js";
 +import { SessionResourceController } from "../session-resources/module.js";
++import { cancelSessionTitleRegeneration } from "./methods/session-title-regeneration/index.js";
++import type { SessionTitleRegenerationJob } from "./methods/session-title-regeneration/index.js";
  import {
    createTurnAgentDefinitions,
    createAgentDefinitionsReader,
-@@ -188,6 +191,7 @@ export class AgentRuntime {
+@@ -188,6 +193,7 @@ export class AgentRuntime {
    private contextBuilder: ContextBuilder | null = null;
    private contextInitialized = false;
    private contextSourceSnapshot?: ContextSourceSnapshot;
@@ -16178,7 +16668,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
    private latestContextBuildResult?: ContextBuildResult;
    private memoryRoot?: string;
    private memoryIndexContent?: string;
-@@ -198,6 +202,7 @@ export class AgentRuntime {
+@@ -198,6 +204,7 @@ export class AgentRuntime {
    private pendingMemoryUpdate?: ProjectMemoryUpdate;
    private contextSourcePort?: ContextSourcePort;
    private skillPort?: SkillPort;
@@ -16186,7 +16676,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
    private mcpPort?: McpPort;
    private mcpStartupPromise?: Promise<McpConnectionSnapshot>;
    private residencyBlockingWorkCount = 0;
-@@ -223,6 +228,11 @@ export class AgentRuntime {
+@@ -223,6 +230,11 @@ export class AgentRuntime {
    private imageProcessorPort?: ImageProcessorPort;
    private pdfDocumentPort?: PdfDocumentPort;
    private skillLoadOutcome?: SkillLoadOutcome;
@@ -16198,7 +16688,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
    private workingDirectory: string;
    private workspaceRoot: string;
    private sessionStore?: SessionStorePort;
-@@ -307,6 +317,30 @@ export class AgentRuntime {
+@@ -307,6 +319,30 @@ export class AgentRuntime {
      this.eventReducer = new EventReducer();
      this.eventStore = deps.eventStore;
      this.sessionStore = deps.sessionStore;
@@ -16229,7 +16719,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
      this.rootTraceContext = deps.traceContext ?? createRootTraceContext({ sessionId });
      this.appVersion = deps.appVersion ?? "0.0.0";
      this.logger = deps.logger?.child({
-@@ -384,10 +418,20 @@ export class AgentRuntime {
+@@ -384,10 +420,22 @@ export class AgentRuntime {
      }
    }
  
@@ -16245,15 +16735,23 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
      // ExecutionPort.close() 会把后台 Bash 收口为 cancelled；若允许
      // teardown terminal event 再唤醒模型，并与随后关闭的 session store 竞态。
      this.shuttingDown = true;
++    // 标题生成已脱离命令 FIFO 独立运行；关闭前中止，禁止 shutdown 后再追加事件/落库。
++    cancelSessionTitleRegeneration(this);
 +    this.instructionFileState?.observation?.dispose();
 +    this.instructionFileState = undefined;
      // 同一条理由：会话在关，提醒钟不能再到点唤起一轮。
      this.workflowBlockedReminder.stop();
      // 关闭单个 session 后进程仍存活，
-@@ -427,6 +471,10 @@ export interface AgentRuntime {
+@@ -427,6 +475,16 @@ export interface AgentRuntime {
    ): void;
    /** renameSession：用户显式重命名（titleSource=custom，发 SessionTitleUpdated）。 */
    setCustomSessionTitle(input: { title: string; traceContext: TraceContext }): Promise<void>;
++  /** /rename 无标题：登记受生命周期管理的后台标题生成并返回终态。 */
++  scheduleSessionTitleRegenerationFromConversation(input: {
++    traceContext: TraceContext;
++  }): SessionTitleRegenerationJob;
++  /** 删除/关闭会话时中止在途标题生成。 */
++  cancelSessionTitleRegeneration(): void;
 +  /** /rename 无标题：按对话摘要让模型重新生成标题（titleSource=custom）。 */
 +  regenerateSessionTitleFromConversation(input: {
 +    traceContext: TraceContext;
@@ -16261,7 +16759,7 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..367276806868ee674d8b6765b57f4b75
    maybeStartGoalSummaryTitleGeneration(
      input: string,
      targetID: string,
-@@ -659,6 +707,12 @@ export interface AgentRuntime {
+@@ -659,6 +717,12 @@ export interface AgentRuntime {
    resolvePermission(toolCallId: ToolCallId, decision: PermissionDecisionResult): Promise<void>;
    getPendingPermissionRequests(): PermissionBrokerRequest[];
    getProjection(): Promise<SessionProjection>;
@@ -16895,13 +17393,27 @@ index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..653b6d908d67b7adeaf9a9aab3ab0201
      coordinatorResponsePort: deps.coordinatorResponsePort,
      workflowSubmitPort: deps.workflowSubmitPort,
 diff --git a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
-index a3f20b7290ac9f629a4fd0b17db40522a3988e54..2287fcd672ee29c83d76c0f47f6194d87dc5712c 100644
+index a3f20b7290ac9f629a4fd0b17db40522a3988e54..3fb91773c466c7dc749921fa85425623cd423726 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
-@@ -92,6 +92,10 @@ export interface AgentRuntimeCoreMethods {
+@@ -37,6 +37,7 @@ import type {
+ import type { BackgroundResultOriginMeta, ContextUsageBreakdownItem } from "@zcode/contracts";
+ import type { RuntimeCommand, RuntimeCommandId } from "./command-queue.js";
+ import type { RuntimeMessageEntry } from "../agent/message-history.js";
++import type { SessionTitleRegenerationJob } from "./methods/session-title-regeneration/index.js";
+ import type {
+   ActiveTurnInfo,
+   AcquireForegroundPromotionLeaseResult,
+@@ -92,6 +93,16 @@ export interface AgentRuntimeCoreMethods {
      options?: { goalSummaryTargetID?: string; traceContext?: TraceContext },
    ): void;
    setCustomSessionTitle(input: { title: string; traceContext: TraceContext }): Promise<void>;
++  /** /rename 无标题：登记受生命周期管理的后台标题生成并返回终态。 */
++  scheduleSessionTitleRegenerationFromConversation(input: {
++    traceContext: TraceContext;
++  }): SessionTitleRegenerationJob;
++  /** 删除/关闭会话时中止在途标题生成。 */
++  cancelSessionTitleRegeneration(): void;
 +  /** /rename 无标题：按对话摘要让模型重新生成标题（titleSource=custom）。 */
 +  regenerateSessionTitleFromConversation(input: {
 +    traceContext: TraceContext;
@@ -16909,7 +17421,7 @@ index a3f20b7290ac9f629a4fd0b17db40522a3988e54..2287fcd672ee29c83d76c0f47f6194d8
    recordUserInputAutoResolutionUpdate(
      input: UserInputAutoResolutionUpdatedPayload & { traceContext?: TraceContext },
    ): Promise<void>;
-@@ -256,7 +260,12 @@ export interface AgentRuntimeCoreMethods {
+@@ -256,7 +267,12 @@ export interface AgentRuntimeCoreMethods {
    createContextBuilderFromSnapshot(
      snapshot: ContextSourceSnapshot,
      memoryRoot?: string,
@@ -17857,7 +18369,7 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
      embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(this),
      skillMetadataBudget: this.config.skillMetadataBudget,
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
-index b4509560520c8df72abe407653a7e7d78a4d044a..6f12bba33c5029276042e370d4e7022cc7effaed 100644
+index b4509560520c8df72abe407653a7e7d78a4d044a..86f66fdc09597cccc87c5cc4668888abd198e69f 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
 @@ -6,6 +6,11 @@ import {
@@ -17872,24 +18384,33 @@ index b4509560520c8df72abe407653a7e7d78a4d044a..6f12bba33c5029276042e370d4e7022c
  import { getMode, getPlanEnabled } from "./config.js";
  import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
  import { getProjectId } from "./config.js";
-@@ -190,7 +195,7 @@ import { persistAssistantTimelinePartForSession } from "./timeline-persistence.j
+@@ -190,7 +195,12 @@ import { persistAssistantTimelinePartForSession } from "./timeline-persistence.j
  import { generateWorkspaceText, testModelConnectivity } from "./workspace-generate-text.js";
  import { maybeStartGoalSummaryTitleGeneration } from "./goal-summary-title.js";
  import { maybeStartSessionTitleGenerationFromExternalInput } from "./session-title.js";
 -import { setCustomSessionTitle } from "./session-title.js";
 +import { regenerateSessionTitleFromConversation, setCustomSessionTitle } from "./session-title.js";
++import {
++  cancelSessionTitleRegeneration,
++  scheduleSessionTitleRegeneration,
++} from "./session-title-regeneration/index.js";
++import type { AgentRuntimeInternal } from "../internal.js";
  import {
    drainMemoryExtractions,
    isProjectMemoryEnabled,
-@@ -215,6 +220,7 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
+@@ -215,6 +225,11 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
    proto.maybeStartSessionTitleGenerationFromExternalInput =
      maybeStartSessionTitleGenerationFromExternalInput;
    proto.setCustomSessionTitle = setCustomSessionTitle;
 +  proto.regenerateSessionTitleFromConversation = regenerateSessionTitleFromConversation;
++  proto.scheduleSessionTitleRegenerationFromConversation = scheduleSessionTitleRegeneration;
++  proto.cancelSessionTitleRegeneration = function (this: AgentRuntimeInternal): void {
++    cancelSessionTitleRegeneration(this);
++  };
    proto.maybeStartGoalSummaryTitleGeneration = maybeStartGoalSummaryTitleGeneration;
    proto.testModelConnectivity = testModelConnectivity;
    proto.recordExternalUserPrompt = recordExternalUserPrompt;
-@@ -280,6 +286,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
+@@ -280,6 +295,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void
    proto.createDefaultSubagentPort = createDefaultSubagentPort;
    proto.ensureContextInitialized = ensureContextInitialized;
    proto.getSkillCatalog = getSkillCatalog;
@@ -19384,14 +19905,413 @@ index 0000000000000000000000000000000000000000..e628a0ee90ef2c5f363893401548b587
 +): Promise<void> {
 +  await this.sessionResources.assertEnabled(kind, id);
 +}
-diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
-index faa2fdc43e7210d888f792586beac14e3d807dec..d606d11b32821ab51a2b0e5a1c5232f1a9757ee1 100644
---- a/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
-+++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
-@@ -268,6 +268,88 @@ async function generateAndPersistSessionTitle(
-   }
- }
- 
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/CONTRACT.md b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a86932e1208797946f654a94fd227710d3b959fb
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/CONTRACT.md
+@@ -0,0 +1,16 @@
++# /rename 对话标题生命周期
++
++单 runtime 同时只有一个标题 job。新请求、`setCustomSessionTitle`、`deleteSession` 会同步 abort 旧 job；旧结果只能收口为 cancelled/stale，不能覆盖用户后来的显式改名或已删除会话。
++
++不变量：
++
++- 命令层 await completion 后再回 ACK；成功沿用既有 accepted 终态与 `SessionTitleUpdated`，失败 failed，被取代/删除 noop。
++- 落库只经 session store 的条件写入（`expectedTitle`/`expectedTitleSource` + 未软删除）；不能先读后无条件 update。
++- 自动标题抢先写 generated 时，显式 `/rename` 允许以新值重试一次 CAS；custom 一律视为用户胜出。
++- abort 后立即收口 job，不等忽略 signal 的 provider；被放弃请求的结果丢弃。
++- 读 session/messages 期间被取消时，启动模型前再次检查，不发送请求。
++- `beginShutdown` 取消在途 job；provider 之后返回也不再追加 ModelComplete/usage 或落库。
++- 显式 `/rename` 不限制 `interactive`：可写 selection_side_chat 仍可重命名；自动标题的 interactive 限制不属于本模块。
++- 对话摘要总长不超过 8000，首条请求截 2000，最近对话取末尾预算。
++
++公开 `index.ts` 与 `contract.ts`；不拥有 CommandInbox、session store 或模型选择配置。
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.example.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c871e9c70a39bc33221e40494a58b511a681852b
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.example.ts
+@@ -0,0 +1,8 @@
++import type { MessageWithParts } from "../../deps.js";
++import type { SessionTitleConversationBuilder } from "./contract.js";
++import { buildSessionTitleConversation } from "./runtime.js";
++
++/** `/rename` 的标准输入形态：把已持久化消息裁成有界对话摘要。 */
++export const sessionTitleConversationExample: SessionTitleConversationBuilder = (
++  messages: readonly MessageWithParts[],
++) => buildSessionTitleConversation(messages);
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.test.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..55b86be3602370bb72596b775592442cad6d5fbf
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++import type { MessageWithParts } from "../../deps.js";
++import { sessionTitleConversationExample } from "./contract.example.js";
++import { buildSessionTitleConversation } from "./runtime.js";
++import { sessionTitleRegenerationModule } from "./module.js";
++
++function message(role: "user" | "assistant", text: string): MessageWithParts {
++  return {
++    info: { role },
++    parts: [{ type: "text", text }],
++  } as unknown as MessageWithParts;
++}
++
++describe("session-title-regeneration contract", () => {
++  it("declares its module manifest", () => {
++    expect(sessionTitleRegenerationModule.id).toBe("session-title-regeneration");
++  });
++
++  it("keeps the original request and the recent tail within the 8000 bound", () => {
++    const conversation = sessionTitleConversationExample([
++      message("user", "首条请求"),
++      message("assistant", `${"x".repeat(12_000)}MARKER_LATEST`),
++    ]);
++    expect(conversation).not.toBeNull();
++    expect(conversation!.length).toBeLessThanOrEqual(8_000);
++    expect(conversation).toContain("Original request:\n首条请求");
++    expect(conversation).toContain("MARKER_LATEST");
++    expect(conversation).toBe(
++      buildSessionTitleConversation([
++        message("user", "首条请求"),
++        message("assistant", `${"x".repeat(12_000)}MARKER_LATEST`),
++      ]),
++    );
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c2e1f02c7338c94240ac3703e3385674a7bb3b8
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/contract.ts
+@@ -0,0 +1,25 @@
++import type { MessageWithParts, TraceContext } from "../../deps.js";
++
++/** `/rename` 对话标题的终态；cancelled/stale 表示被新请求、改名或删除取代。 */
++export type SessionTitleRegenerationStatus = "applied" | "cancelled" | "stale" | "empty" | "failed";
++
++export interface SessionTitleRegenerationOutcome {
++  status: SessionTitleRegenerationStatus;
++  title?: string;
++  message?: string;
++}
++
++export interface SessionTitleRegenerationJob {
++  requestId: number;
++  /** 真实终态；命令层 await 它后再回 ACK，不提前 toast 成功。 */
++  completion: Promise<SessionTitleRegenerationOutcome>;
++}
++
++export interface SessionTitleRegenerationInput {
++  traceContext: TraceContext;
++}
++
++/** 有界对话摘要：首条请求保原意，最近对话取末尾预算，总长不超过 8000。 */
++export type SessionTitleConversationBuilder = (
++  messages: readonly MessageWithParts[],
++) => string | null;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/index.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b9959ed385a4e994ac072a6ee468b3ea5657209
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/index.ts
+@@ -0,0 +1,13 @@
++export type {
++  SessionTitleConversationBuilder,
++  SessionTitleRegenerationInput,
++  SessionTitleRegenerationJob,
++  SessionTitleRegenerationOutcome,
++  SessionTitleRegenerationStatus,
++} from "./contract.js";
++export {
++  buildSessionTitleConversation,
++  cancelSessionTitleRegeneration,
++  noteSessionTitleMutation,
++  scheduleSessionTitleRegeneration,
++} from "./runtime.js";
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/module.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2389e9416e3bcc94bb2cfbdaaa0eebb22664715d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * session-title-regeneration 模块清单（architecture-governance managed 模块）。
++ * 层：app。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const sessionTitleRegenerationModule = {
++  id: "session-title-regeneration",
++  requires: ["zcode-cli"],
++  provides: ["session-title-regeneration"],
++  publicEntrypoints: ["index.ts", "contract.ts"],
++} as const;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/runtime.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/runtime.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c697432911ef6fed27bc4131d5e5cd4828b508f1
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/runtime.ts
+@@ -0,0 +1,302 @@
++import { SessionEventType, traceContextToLogContext } from "../../deps.js";
++import type { MessageWithParts, SessionTitleSource, TraceContext } from "../../deps.js";
++import type { AgentRuntimeInternal } from "../../internal.js";
++import {
++  GENERATED_TITLE_EXPECTED_SOURCES,
++  SESSION_TITLE_QUERY_SOURCE,
++  generateTitleCandidate,
++  retainTitleModelContext,
++} from "../title-generation-sidecar.js";
++import type {
++  SessionTitleRegenerationInput,
++  SessionTitleRegenerationJob,
++  SessionTitleRegenerationOutcome,
++} from "./contract.js";
++
++/**
++ * `/rename`（无标题）的后台标题生命周期。
++ *
++ * 模型请求可能持续到 60s，而 CommandInbox 的 per-session FIFO 只在命令返回后才放行：
++ * 旧实现把 await 放在 handler 里，stop / 改名 / 删除 / 权限应答全被标题模型排队。
++ * 这里把请求变成受生命周期管理的工作：
++ * - 同一 runtime 同时只有一个 job；新请求 abort 旧请求，旧结果不落库。
++ * - 落库前校验 requestId、abort、会话存在性、显式改名序号与条件写入快照；
++ *   迟到的结果不能覆盖用户后来的 rename 或已删除会话。
++ * - 工作经 trackResidencyBlockingWork 计入会话回收护栏，完成/失败仍有终态。
++ */
++interface RegenerationJob {
++  baselineTitle: string;
++  baselineTitleSource: SessionTitleSource | undefined;
++  controller: AbortController;
++  mutationSeq: number;
++  requestId: number;
++  traceContext: TraceContext;
++}
++
++interface RegenerationState {
++  current?: RegenerationJob;
++  mutationSeq: number;
++  nextRequestId: number;
++}
++
++const states = new WeakMap<object, RegenerationState>();
++
++function stateFor(runtime: object): RegenerationState {
++  let state = states.get(runtime);
++  if (!state) {
++    state = { mutationSeq: 0, nextRequestId: 0 };
++    states.set(runtime, state);
++  }
++  return state;
++}
++
++/**
++ * 用户显式改名（setCustomSessionTitle）必须同步失效在途生成：
++ * 即使标题字符串碰巧相同，也不能让旧生成结果覆盖这次显式动作。
++ */
++export function noteSessionTitleMutation(runtime: AgentRuntimeInternal): void {
++  const state = stateFor(runtime);
++  state.mutationSeq += 1;
++  if (state.current) {
++    state.current.controller.abort(new Error("session title mutated"));
++    state.current = undefined;
++  }
++}
++
++/** 删除会话/关闭 runtime：中止在途模型请求，避免无主工作继续占用资源。 */
++export function cancelSessionTitleRegeneration(runtime: object): void {
++  const state = stateFor(runtime);
++  if (!state.current) return;
++  state.current.controller.abort(new Error("session title regeneration cancelled"));
++  state.current = undefined;
++}
++
++export function scheduleSessionTitleRegeneration(
++  this: AgentRuntimeInternal,
++  input: SessionTitleRegenerationInput,
++): SessionTitleRegenerationJob {
++  const state = stateFor(this);
++  // 同一会话的新请求取代旧请求：旧模型调用中止，旧 final 以 cancelled 收口。
++  state.current?.controller.abort(new Error("session title regeneration superseded"));
++  state.nextRequestId += 1;
++  const job: RegenerationJob = {
++    baselineTitle: "",
++    baselineTitleSource: undefined,
++    controller: new AbortController(),
++    mutationSeq: state.mutationSeq,
++    requestId: state.nextRequestId,
++    traceContext: input.traceContext,
++  };
++  state.current = job;
++  const completion = runJob.call(this, state, job).finally(() => {
++    if (state.current === job) state.current = undefined;
++  });
++  // 会话回收护栏：模型请求期间 runtime 不能被常驻池当成 idle 回收。
++  void this.trackResidencyBlockingWork(completion).catch(() => undefined);
++  return { requestId: job.requestId, completion };
++}
++
++async function runJob(
++  this: AgentRuntimeInternal,
++  state: RegenerationState,
++  job: RegenerationJob,
++): Promise<SessionTitleRegenerationOutcome> {
++  try {
++    const session = await this.sessionStore?.getSession(this.sessionId);
++    // 显式 /rename 是用户动作：可写 selection_side_chat 同样可重命名。
++    // interactive 限制只属于自动标题（session-title.ts），不要复制成新的业务门禁。
++    if (!session) return { status: "stale" };
++    job.baselineTitle = session.title;
++    job.baselineTitleSource = session.titleSource;
++    if (isStaleJob(state, job)) return { status: "cancelled" };
++    const messages = await this.sessionStore?.messages({ sessionID: this.sessionId });
++    if (!messages) return { status: "stale" };
++    const conversation = buildSessionTitleConversation(messages);
++    if (!conversation) return { status: "empty" };
++    // 读库期间可能已被新请求/改名/删除取消：启动模型前必须再检查，不能白跑一次请求。
++    if (isStaleJob(state, job) || state.mutationSeq !== job.mutationSeq) {
++      return { status: "cancelled" };
++    }
++
++    // 独立标题模型配置由 retainTitleModelContext 冻结；与自动标题使用同一路径。
++    const modelContext = retainTitleModelContext(this);
++    let generated: Awaited<ReturnType<typeof generateTitleCandidate>> | typeof REGENERATION_ABORTED;
++    try {
++      // abort 一旦发生立即收口 job：不等忽略 signal 的 provider 返回，避免 delete/关闭
++      // 时的 residency drain 与长模型请求互相等待。原 promise 的拒绝被就地吞掉。
++      generated = await raceWithAbort(
++        generateTitleCandidate.call(this, conversation, {
++          abortSignal: job.controller.signal,
++          inputKind: "conversation",
++          modelContext,
++          querySource: SESSION_TITLE_QUERY_SOURCE,
++          traceContext: job.traceContext,
++        }),
++        job.controller.signal,
++      );
++    } finally {
++      modelContext.release();
++    }
++    if (generated === REGENERATION_ABORTED) return { status: "cancelled" };
++    if (!generated) return { status: "empty" };
++    if (isStaleJob(state, job) || state.mutationSeq !== job.mutationSeq) {
++      return { status: "cancelled" };
++    }
++
++    // 条件写入（CAS）：title/titleSource 仍等于 job 基线且会话未软删除才落库。
++    // 不能先读后无条件 update——await 期间用户可能已显式改名或删除会话。
++    // 自动标题可能在本 job 期间先一步写入；显式 /rename 应覆盖它，因此只在当前
++    // 来源仍属于自动标题来源时重试一次 CAS，custom 来源一律视为用户已改名胜出。
++    const applied = await writeRegeneratedTitle.call(this, state, job, generated.title);
++    if (!applied) return { status: "stale" };
++    // CAS 期间若已被新请求/改名/删除取代，不再发旧标题事件；用户动作的写入自己会发。
++    if (isStaleJob(state, job)) return { status: "stale" };
++    await this.appendEvent(
++      this.createEvent(
++        SessionEventType.SessionTitleUpdated,
++        {
++          previousTitle: job.baselineTitle,
++          source: "custom",
++          title: generated.title,
++        },
++        generated.traceContext,
++      ),
++      generated.traceContext,
++    );
++    return { status: "applied", title: generated.title };
++  } catch (error) {
++    if (job.controller.signal.aborted || isAbortError(error)) return { status: "cancelled" };
++    this.logger?.warn("Session title regeneration failed", {
++      ...traceContextToLogContext(job.traceContext),
++      errorMessage: error instanceof Error ? error.message : String(error),
++      event: "session_title_regeneration.failed",
++      module: "core.runtime",
++      status: "failed",
++    });
++    return {
++      status: "failed",
++      message: error instanceof Error ? error.message : String(error),
++    };
++  }
++}
++
++async function writeRegeneratedTitle(
++  this: AgentRuntimeInternal,
++  state: RegenerationState,
++  job: RegenerationJob,
++  title: string,
++): Promise<boolean> {
++  let expectedTitle = job.baselineTitle;
++  let expectedTitleSource = job.baselineTitleSource ?? null;
++  for (let attempt = 0; attempt < 2; attempt += 1) {
++    if (isStaleJob(state, job) || state.mutationSeq !== job.mutationSeq) return false;
++    const updated = await this.sessionStore?.updateSession({
++      expectedTitle,
++      expectedTitleSource,
++      id: this.sessionId,
++      title,
++      titleSource: "custom",
++    });
++    if (updated?.title === title && updated.titleSource === "custom") return true;
++    if (!updated) return false;
++    if (state.mutationSeq !== job.mutationSeq || isStaleJob(state, job)) return false;
++    const currentSource = updated.titleSource ?? "first_input";
++    if (!(GENERATED_TITLE_EXPECTED_SOURCES as readonly string[]).includes(currentSource)) {
++      // 用户显式改名（custom）已胜出；旧生成结果不能覆盖。
++      return false;
++    }
++    // 自动标题抢先写入：以它当前的值作为下一次 CAS 基线，显式 /rename 仍应生效。
++    expectedTitle = updated.title;
++    expectedTitleSource = updated.titleSource ?? null;
++  }
++  return false;
++}
++
++const REGENERATION_ABORTED = Symbol("session-title-regeneration-aborted");
++
++/** abort 后立刻结束等待；被放弃的模型请求继续在后台收尾，但不再占用 job/residency。 */
++function raceWithAbort<T>(
++  promise: Promise<T>,
++  signal: AbortSignal,
++): Promise<T | typeof REGENERATION_ABORTED> {
++  if (signal.aborted) {
++    void promise.catch(() => undefined);
++    return Promise.resolve(REGENERATION_ABORTED);
++  }
++  return new Promise((resolve, reject) => {
++    const onAbort = (): void => {
++      signal.removeEventListener("abort", onAbort);
++      void promise.catch(() => undefined);
++      resolve(REGENERATION_ABORTED);
++    };
++    signal.addEventListener("abort", onAbort, { once: true });
++    promise.then(
++      (value) => {
++        signal.removeEventListener("abort", onAbort);
++        resolve(value);
++      },
++      (error: unknown) => {
++        signal.removeEventListener("abort", onAbort);
++        reject(error);
++      },
++    );
++  });
++}
++
++function isStaleJob(state: RegenerationState, job: RegenerationJob): boolean {
++  return state.current !== job || job.controller.signal.aborted;
++}
++
++function isAbortError(error: unknown): boolean {
++  return (
++    typeof error === "object" &&
++    error !== null &&
++    ((error as { name?: unknown }).name === "AbortError" ||
++      (error as { code?: unknown }).code === "ABORT_ERR")
++  );
++}
++
 +const MAX_TITLE_CONVERSATION_CHARS = 8_000;
 +const MAX_TITLE_FIRST_MESSAGE_CHARS = 2_000;
 +
@@ -19436,47 +20356,78 @@ index faa2fdc43e7210d888f792586beac14e3d807dec..d606d11b32821ab51a2b0e5a1c5232f1
 +  const budget = Math.max(0, MAX_TITLE_CONVERSATION_CHARS - prefix.length);
 +  return `${prefix}${recent.slice(-budget)}`;
 +}
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts b/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
+index faa2fdc43e7210d888f792586beac14e3d807dec..7c19170be135966192aaa13aef729bed6ceda755 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts
+@@ -4,7 +4,6 @@ import type {
+   MessageWithParts,
+   ModelSelection,
+   SessionInfo,
+-  SessionTitleSource,
+   TraceContext,
+ } from "../deps.js";
+ import type { AgentTelemetryCausation } from "@zcode/contracts";
+@@ -14,18 +13,20 @@ import {
+   persistGeneratedGoalSummaryTitle,
+ } from "./goal-summary-title.js";
+ import {
++  GENERATED_TITLE_EXPECTED_SOURCES,
+   SESSION_TITLE_QUERY_SOURCE,
+   generateTitleCandidate,
+   normalizeTitleInput,
+   retainTitleModelContext,
+   type TitleModelContext,
+ } from "./title-generation-sidecar.js";
++import {
++  noteSessionTitleMutation,
++  scheduleSessionTitleRegeneration,
++} from "./session-title-regeneration/index.js";
 +
-+/** 用户显式要求按对话重命名：模型总结后写 custom（显式意图，后续自动标题不再覆盖）。 */
++export { buildSessionTitleConversation } from "./session-title-regeneration/index.js";
+ 
+-const GENERATED_TITLE_EXPECTED_SOURCES: readonly SessionTitleSource[] = [
+-  "default",
+-  "first_input",
+-  "generated",
+-];
+ const MIN_GENERATED_TITLE_INPUT_CHARS = 10;
+ 
+ export function maybeStartSessionTitleGeneration(
+@@ -268,6 +269,24 @@ async function generateAndPersistSessionTitle(
+   }
+ }
+ 
++/**
++ * 用户显式要求按对话重命名：登记受生命周期管理的后台工作并等待终态。
++ * 命令层只 await 这里返回的 completion，不把模型请求塞进 handler 的同步语义；
++ * 同一会话的新请求/显式改名/删除都会中止旧请求，旧结果不会落库。
++ */
 +export async function regenerateSessionTitleFromConversation(
 +  this: AgentRuntimeInternal,
 +  input: { traceContext: TraceContext },
 +): Promise<string | null> {
-+  const session = await this.sessionStore?.getSession(this.sessionId);
-+  if (!session) return null;
-+  const messages = await this.sessionStore?.messages({ sessionID: this.sessionId });
-+  if (!messages) return null;
-+  const conversation = buildSessionTitleConversation(messages);
-+  if (!conversation) return null;
-+  const generated = await generateTitleCandidate.call(this, conversation, {
-+    inputKind: "conversation",
-+    querySource: SESSION_TITLE_QUERY_SOURCE,
-+    traceContext: input.traceContext,
-+  });
-+  if (!generated) return null;
-+  await this.sessionStore?.updateSession({
-+    id: this.sessionId,
-+    title: generated.title,
-+    titleSource: "custom",
-+  });
-+  await this.appendEvent(
-+    this.createEvent(
-+      SessionEventType.SessionTitleUpdated,
-+      {
-+        previousTitle: session.title,
-+        source: "custom",
-+        title: generated.title,
-+      },
-+      generated.traceContext,
-+    ),
-+    generated.traceContext,
-+  );
-+  return generated.title;
++  const outcome = await scheduleSessionTitleRegeneration
++    .call(this, input)
++    .completion;
++  if (outcome.status === "failed") {
++    throw new Error(outcome.message ?? "Session title regeneration failed");
++  }
++  return outcome.status === "applied" ? (outcome.title ?? null) : null;
 +}
 +
  /**
   * renameSession：用户显式重命名会话（titleSource=custom）。custom 之后自动标题
   * 生成会被跳过（见 persistGeneratedSessionTitle 的 custom_title 短路），持久化 + 发
+@@ -277,6 +296,8 @@ export async function setCustomSessionTitle(
+   this: AgentRuntimeInternal,
+   input: { title: string; traceContext: TraceContext },
+ ): Promise<void> {
++  // 显式改名先同步失效在途 /rename 生成，避免慢模型在用户输入标题后才落旧结果。
++  noteSessionTitleMutation(this);
+   const previous = await this.sessionStore?.getSession(this.sessionId);
+   const previousTitle = previous?.title ?? "";
+   await this.sessionStore?.updateSession({
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts b/apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts
 index 547243e05f1c3f65492c6f12eb6be87285301902..fd0bf933054b3606fea6573db5652010ac59669f 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/stable-fork-boundary.ts
@@ -20439,10 +21390,30 @@ index 28b18be0434e1e2d3e067aa0459d45d3fc25cfc8..3de92009456270f4625e91f0e43e2525
      entries: withoutTrailingPendingAssistantToolCallEntries(
        this.messageHistory.borrowReadOnlyRuntimeEntries(),
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts b/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
-index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..ae35be545db033d40fd26cdbded3a9ece052506f 100644
+index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca535ccc7df1 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
-@@ -78,6 +78,28 @@ Title rules:
+@@ -51,8 +51,19 @@ export function retainTitleModelContext(
+ export const SESSION_TITLE_QUERY_SOURCE = "session_title";
+ export const GOAL_SUMMARY_TITLE_QUERY_SOURCE = "goal_summary_title";
+ 
++/** 自动标题只允许覆盖这些来源；custom 是用户显式意图，任何后台结果都不能覆盖。 */
++export const GENERATED_TITLE_EXPECTED_SOURCES = [
++  "default",
++  "first_input",
++  "generated",
++] as const satisfies readonly import("../deps.js").SessionTitleSource[];
++
+ const TITLE_GENERATION_TIMEOUT_MS = 60_000;
+ const MAX_TITLE_INPUT_CHARS = 1_200;
++// 对话摘要的上界必须与 buildSessionTitleConversation 一致。旧实现无条件复用
++// 单消息 1200 上界，把已按“首意图 + 最近对话”裁好的 8000 字符再次截成开头 1200，
++// 导致 /rename 看不到最近内容。两种输入必须分别有界。
++const MAX_TITLE_CONVERSATION_INPUT_CHARS = 8_000;
+ const MAX_TITLE_CHARS = 100;
+ 
+ // 标题 sidecar 的 user message 是原始 query，弱约束时模型可能把它当成对话请求直接回答。
+@@ -78,6 +89,28 @@ Title rules:
  - Do not use markdown, numbering, quotes, trailing punctuation, or explanations.
  - Return exactly one valid JSON object with no surrounding text: {"title":"..."}`;
  
@@ -20471,24 +21442,31 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..ae35be545db033d40fd26cdbded3a9ec
  export async function generateTitleCandidate(
    this: AgentRuntimeInternal,
    input: string,
-@@ -87,6 +109,8 @@ export async function generateTitleCandidate(
+@@ -87,6 +120,10 @@ export async function generateTitleCandidate(
      querySource: string;
      traceContext: TraceContext;
      modelContext?: TitleModelContext;
++    /** 外部生命周期信号（/rename 被新请求/改名/删除取代时中止模型请求）。 */
++    abortSignal?: AbortSignal;
 +    /** message：首条用户消息（默认）；conversation：显式 /rename 使用的对话摘要。 */
 +    inputKind?: "message" | "conversation";
    },
  ): Promise<{ modelSelection: ModelSelection; title: string; traceContext: TraceContext } | null> {
    const titleTelemetry = this.agentTelemetry.detached({
-@@ -122,6 +146,7 @@ async function generateTitleCandidateImpl(
+@@ -122,8 +159,12 @@ async function generateTitleCandidateImpl(
      querySource: string;
      traceContext: TraceContext;
      modelContext?: TitleModelContext;
++    abortSignal?: AbortSignal;
 +    inputKind?: "message" | "conversation";
    },
  ): Promise<{ modelSelection: ModelSelection; title: string; traceContext: TraceContext } | null> {
++  // 启动模型前先看生命周期：job 在等 session/messages 时已被取消就不再发请求。
++  if (options.abortSignal?.aborted) return null;
    const context = options.modelContext ?? retainTitleModelContext(this);
-@@ -141,7 +166,7 @@ async function generateTitleCandidateImpl(
+   const requestedModelSelection = context.selection;
+   if (!requestedModelSelection) return null;
+@@ -141,7 +182,7 @@ async function generateTitleCandidateImpl(
      },
    });
    const events: SessionEvent[] = [];
@@ -20497,17 +21475,94 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..ae35be545db033d40fd26cdbded3a9ec
    const modelRequestEvent = this.createEvent(
      SessionEventType.ModelRequest,
      {
-@@ -252,9 +277,18 @@ export function normalizeTitleInput(input: string): string {
+@@ -156,9 +197,13 @@ async function generateTitleCandidateImpl(
+   await this.appendEvent(modelRequestEvent, modelTraceContext);
+   events.push(modelRequestEvent);
+   const networkEventStartIndex = events.length;
+-  const titleAbortSignal = AbortSignal.timeout(
++  const timeoutSignal = AbortSignal.timeout(
+     positiveTimeoutMs(this.config.titleGeneration?.timeoutMs),
+   );
++  // 既保留 sidecar 自己的过期上界，也让 /rename 生命周期能提前中止。
++  const titleAbortSignal = options.abortSignal
++    ? AbortSignal.any([timeoutSignal, options.abortSignal])
++    : timeoutSignal;
+   const modelStartedAt = Date.now();
+   const invocationContext = {
+     metadata: traceContextToLogContext(modelTraceContext),
+@@ -186,19 +231,24 @@ async function generateTitleCandidateImpl(
+     }),
+   );
+   const result = await resultPromise.catch(async (error: unknown) => {
+-    await recordModelUsageFact(this, {
+-      error,
+-      events,
+-      model,
+-      networkEventStartIndex,
+-      ...(options.messageID ? { parentUserMessageId: options.messageID } : {}),
+-      querySource: options.querySource,
+-      startedAt: modelStartedAt,
+-      status: "error",
+-      traceContext: modelTraceContext,
+-    });
++    if (!options.abortSignal?.aborted) {
++      await recordModelUsageFact(this, {
++        error,
++        events,
++        model,
++        networkEventStartIndex,
++        ...(options.messageID ? { parentUserMessageId: options.messageID } : {}),
++        querySource: options.querySource,
++        startedAt: modelStartedAt,
++        status: "error",
++        traceContext: modelTraceContext,
++      });
++    }
+     throw error;
+   });
++  // 被取代/删除/shutdown 的请求即使 provider 忽略 signal 并返回，也不能再追加
++  // ModelComplete / usage 事实；结果由调用侧丢弃。
++  if (options.abortSignal?.aborted) return null;
+   const toolCalls = this.extractToolCallsFromResult(result);
+   const modelCompleteEvent = this.createEvent(
+     SessionEventType.ModelComplete,
+@@ -252,10 +302,50 @@ export function normalizeTitleInput(input: string): string {
      : normalized;
  }
  
 -function buildTitleMessages(input: string): ModelInputMessage[] {
++/**
++ * 对话摘要已由 buildSessionTitleConversation 做过“首意图 + 最近内容”的有界裁剪。
++ * 这里只折叠行尾空白/多余空行，不能再套单消息 1200 上界；若超上界则同时保留
++ * 开头（首意图）和结尾（最近内容），而不是只留开头。
++ */
++export function normalizeConversationTitleInput(input: string): string {
++  const normalized = input
++    .trim()
++    .replace(/[ \t]+\r?\n/g, "\n")
++    .replace(/\r\n/g, "\n")
++    .replace(/\n{3,}/g, "\n\n");
++  if (normalized.length <= MAX_TITLE_CONVERSATION_INPUT_CHARS) return normalized;
++  const separator = "\n...\n";
++  // 分隔符必须计入预算；head+separator+tail 的最终长度不得超过同一上界。
++  const budget = MAX_TITLE_CONVERSATION_INPUT_CHARS - separator.length;
++  const headBudget = Math.floor(budget / 4);
++  const tailBudget = budget - headBudget;
++  const clipped = `${normalized.slice(0, headBudget)}${separator}${normalized.slice(-tailBudget)}`;
++  if (clipped.length > MAX_TITLE_CONVERSATION_INPUT_CHARS) {
++    // 预算已扣除分隔符，正常不可达；显式断言避免未来改动重新引入超界。
++    throw new Error("title conversation input exceeded bound");
++  }
++  return clipped;
++}
++
 +function buildTitleMessages(
 +  input: string,
 +  inputKind: "message" | "conversation",
 +): ModelInputMessage[] {
    return [
 -    { role: "system", content: SESSION_TITLE_SYSTEM_PROMPT },
+-    { role: "user", content: normalizeTitleInput(input) },
 +    {
 +      role: "system",
 +      content:
@@ -20515,9 +21570,16 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..ae35be545db033d40fd26cdbded3a9ec
 +          ? SESSION_TITLE_CONVERSATION_PROMPT
 +          : SESSION_TITLE_SYSTEM_PROMPT,
 +    },
-     { role: "user", content: normalizeTitleInput(input) },
++    {
++      role: "user",
++      content:
++        inputKind === "conversation"
++          ? normalizeConversationTitleInput(input)
++          : normalizeTitleInput(input),
++    },
    ];
  }
+ 
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts
 index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e2a7900f7 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts
@@ -25933,10 +26995,10 @@ index 0000000000000000000000000000000000000000..cbaf2da6e77e0f3b6d68a290de335306
 +});
 diff --git a/apps/zcode-cli/packages/core/tests/session-title-conversation.test.ts b/apps/zcode-cli/packages/core/tests/session-title-conversation.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..acd9e2e2780fdd4f6605ef86ea26ef201e4eafa6
+index 0000000000000000000000000000000000000000..55c8952d427184fa118a3f8ab04141546452fe9e
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/tests/session-title-conversation.test.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,73 @@
 +import { describe, expect, it } from "vitest";
 +import type { MessageWithParts } from "@zcode/contracts";
 +import { buildSessionTitleConversation } from "../src/runtime/methods/session-title.js";
@@ -25999,14 +27061,573 @@ index 0000000000000000000000000000000000000000..acd9e2e2780fdd4f6605ef86ea26ef20
 +    expect(buildSessionTitleConversation([user("   ")])).toBeNull();
 +  });
 +
-+  it("bounds the conversation length", () => {
++  it("bounds the conversation length while keeping the latest content", () => {
 +    const conversation = buildSessionTitleConversation([
 +      user("首条请求"),
-+      assistant("x".repeat(12_000)),
++      assistant(`${"x".repeat(12_000)}MARKER_LATEST`),
 +    ]);
 +    expect(conversation).not.toBeNull();
 +    expect(conversation!.length).toBeLessThanOrEqual(8_000);
 +    expect(conversation).toContain("Original request:\n首条请求");
++    expect(conversation).toContain("MARKER_LATEST");
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/session-title-regeneration.test.ts b/apps/zcode-cli/packages/core/tests/session-title-regeneration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc715b2bb5a2dd6efab752163c1c35901dae19fb
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/session-title-regeneration.test.ts
+@@ -0,0 +1,471 @@
++import { describe, expect, it } from "vitest";
++import {
++  createRootTraceContext,
++  createSessionId,
++  type ModelRequest,
++  type SessionEvent,
++  type SessionEventStorePort,
++  type SessionStorePort,
++} from "@zcode/contracts";
++import { createTestAgentRuntime } from "./test-agent-runtime.js";
++import { createTestSessionEventStore } from "./test-event-store.js";
++import { createTestModelFactory } from "./test-runtime-model.js";
++import { createRecordingSubagentSessionStore } from "./subagent-test-store.js";
++
++function deferred<T>() {
++  let resolve!: (value: T) => void;
++  const promise = new Promise<T>((done) => {
++    resolve = done;
++  });
++  return { promise, resolve };
++}
++
++async function seedSession(
++  store: SessionStorePort,
++  sessionId: ReturnType<typeof createSessionId>,
++  input: {
++    title: string;
++    messages: Array<{ role: "user" | "assistant"; text: string }>;
++    taskType?: "interactive" | "selection_side_chat";
++  },
++) {
++  await store.createSession({
++    id: sessionId,
++    projectID: "project" as never,
++    slug: "slug",
++    directory: "/workspace",
++    title: input.title,
++    titleSource: "generated",
++    version: "1",
++    ...(input.taskType ? { taskType: input.taskType } : {}),
++  });
++  for (const [index, message] of input.messages.entries()) {
++    const messageId = `message-${index}`;
++    await store.saveMessage({
++      id: messageId,
++      sessionID: sessionId,
++      role: message.role,
++      time: { created: index },
++    } as never);
++    await store.savePart({
++      id: `part-${index}`,
++      messageID: messageId,
++      sessionID: sessionId,
++      type: "text",
++      text: message.text,
++    } as never);
++  }
++}
++
++function createRuntime(options: {
++  store: SessionStorePort;
++  requests: ModelRequest[];
++  titleGate?: () => Promise<void>;
++  titles?: string[];
++  eventStore?: SessionEventStorePort;
++}) {
++  const runtime = createTestAgentRuntime(
++    createSessionId("regen-session"),
++    { modelSelection: { providerId: "test", modelId: "model" }, titleGeneration: {} },
++    {
++      sessionStore: options.store,
++      eventStore: options.eventStore ?? createTestSessionEventStore(),
++      modelFactory: createTestModelFactory({
++        async generateText(request) {
++          options.requests.push(request);
++          if (options.titleGate) await options.titleGate();
++          const index = options.requests.length - 1;
++          return {
++            text: JSON.stringify({ title: options.titles?.[index] ?? `title-${index}` }),
++            finishReason: "stop",
++          };
++        },
++      }),
++    },
++  );
++  return runtime;
++}
++
++describe("/rename 对话标题的后台生命周期", () => {
++  it("生成成功后写 custom 并返回 applied", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [
++        { role: "user", text: "修复登录" },
++        { role: "assistant", text: "已定位" },
++      ],
++    });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({ store, requests, titles: ["新标题"] });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome).toMatchObject({ status: "applied", title: "新标题" });
++    expect((await store.getSession(sessionId))?.title).toBe("新标题");
++    expect((await store.getSession(sessionId))?.titleSource).toBe("custom");
++    expect(requests).toHaveLength(1);
++  });
++
++  it("用户显式改名会中止在途生成，旧模型结果不覆盖新标题", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const gate = deferred<void>();
++    const requests: ModelRequest[] = [];
++    let started!: () => void;
++    const startedPromise = new Promise<void>((resolve) => {
++      started = resolve;
++    });
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        started();
++        await gate.promise;
++      },
++      titles: ["迟到的标题"],
++    });
++    const completion = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await startedPromise;
++    await runtime.setCustomSessionTitle({
++      title: "用户标题",
++      traceContext: createRootTraceContext({ sessionId }),
++    });
++    gate.resolve();
++    const outcome = await completion;
++    expect(outcome.status).toBe("cancelled");
++    expect((await store.getSession(sessionId))?.title).toBe("用户标题");
++  });
++
++  it("同一会话的新请求取代旧请求，只有最新结果落库", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const requests: ModelRequest[] = [];
++    const gates: Array<ReturnType<typeof deferred<void>>> = [];
++    let startedCount = 0;
++    const bothStarted = deferred<void>();
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        const gate = deferred<void>();
++        gates.push(gate);
++        startedCount += 1;
++        if (startedCount === 2) bothStarted.resolve();
++        await gate.promise;
++      },
++      titles: ["旧生成", "新生成"],
++    });
++    const first = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await expect.poll(() => gates.length).toBe(1);
++    const second = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await bothStarted.promise;
++    gates[0]?.resolve();
++    gates[1]?.resolve();
++    expect((await first).status).toBe("cancelled");
++    expect((await second).status).toBe("applied");
++    expect((await store.getSession(sessionId))?.title).toBe("新生成");
++  });
++
++  it("空对话直接收口为空，不请求模型", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, { title: "旧标题", messages: [] });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({ store, requests });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome.status).toBe("empty");
++    expect(requests).toHaveLength(0);
++    expect((await store.getSession(sessionId))?.title).toBe("旧标题");
++  });
++
++  it("删除会话时 cancel 会中止在途生成且不写回", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const requests: ModelRequest[] = [];
++    const gate = deferred<void>();
++    let started!: () => void;
++    const startedPromise = new Promise<void>((resolve) => {
++      started = resolve;
++    });
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        started();
++        await gate.promise;
++      },
++    });
++    const completion = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await startedPromise;
++    runtime.cancelSessionTitleRegeneration();
++    gate.resolve();
++    expect((await completion).status).toBe("cancelled");
++    expect((await store.getSession(sessionId))?.title).toBe("旧标题");
++  });
++
++  it("条件写入未命中（并发改名）时不落库也不发标题事件", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        // 模拟另一个不经过本 job 的写入者：模型返回前标题已被改。
++        await store.updateSession({ id: sessionId, title: "并发标题", titleSource: "custom" });
++      },
++      titles: ["迟到的生成标题"],
++    });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome.status).toBe("stale");
++    expect((await store.getSession(sessionId))?.title).toBe("并发标题");
++  });
++
++  it("读 session/messages 期间被取消时不发送模型请求", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const messagesGate = deferred<void>();
++    const messagesStarted = deferred<void>();
++    const originalMessages = store.messages.bind(store);
++    (store as { messages: typeof store.messages }).messages = async (input) => {
++      messagesStarted.resolve();
++      await messagesGate.promise;
++      return originalMessages(input);
++    };
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({ store, requests });
++    const completion = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await messagesStarted.promise;
++    runtime.cancelSessionTitleRegeneration();
++    messagesGate.resolve();
++    expect((await completion).status).toBe("cancelled");
++    expect(requests).toHaveLength(0);
++    expect((await store.getSession(sessionId))?.title).toBe("旧标题");
++  });
++
++  it("shutdown 取消在途生成，旧模型返回后不追加事件也不落库", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const eventStore = createTestSessionEventStore();
++    const titleGate = deferred<void>();
++    let titleStarted!: () => void;
++    const startedPromise = new Promise<void>((resolve) => {
++      titleStarted = resolve;
++    });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({
++      store,
++      requests,
++      eventStore,
++      titleGate: async () => {
++        titleStarted();
++        await titleGate.promise;
++      },
++      titles: ["shutdown 后标题"],
++    });
++    const completion = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await startedPromise;
++    runtime.beginShutdown();
++    expect((await completion).status).toBe("cancelled");
++    titleGate.resolve();
++    await new Promise((resolve) => setTimeout(resolve, 10));
++    const events = await eventStore.getEvents(sessionId);
++    const appendedAfterShutdown = events.filter(
++      (event: SessionEvent) =>
++        event.type === "model_complete" || event.type === "session_title_updated",
++    );
++    expect(appendedAfterShutdown).toHaveLength(0);
++    expect((await store.getSession(sessionId))?.title).toBe("旧标题");
++  });
++
++  it("自动标题抢先写入 generated 时，显式 /rename 仍覆盖它", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧自动标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        await store.updateSession({
++          id: sessionId,
++          title: "自动标题抢先",
++          titleSource: "generated",
++          expectedTitleSources: ["default", "first_input", "generated"],
++        });
++      },
++      titles: ["显式生成标题"],
++    });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome).toMatchObject({ status: "applied", title: "显式生成标题" });
++    expect((await store.getSession(sessionId))?.title).toBe("显式生成标题");
++    expect((await store.getSession(sessionId))?.titleSource).toBe("custom");
++  });
++
++  it("provider 忽略 abort 时取消仍立即收口，不占用 residency drain", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "旧标题",
++      messages: [{ role: "user", text: "修复登录" }],
++    });
++    const requests: ModelRequest[] = [];
++    const never = deferred<void>();
++    let started!: () => void;
++    const startedPromise = new Promise<void>((resolve) => {
++      started = resolve;
++    });
++    const runtime = createRuntime({
++      store,
++      requests,
++      titleGate: async () => {
++        started();
++        await never.promise;
++      },
++    });
++    const completion = runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    await startedPromise;
++    const cancelledAt = Date.now();
++    runtime.cancelSessionTitleRegeneration();
++    const raced = await Promise.race([
++      completion,
++      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 300)),
++    ]);
++    expect(raced).not.toBe("timeout");
++    if (raced === "timeout") return;
++    expect(raced.status).toBe("cancelled");
++    expect(Date.now() - cancelledAt).toBeLessThan(100);
++    never.resolve();
++    await new Promise((resolve) => setTimeout(resolve, 0));
++  });
++
++  it("自动标题晚返回不会覆盖用户显式改名", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    const titleGate = deferred<void>();
++    let titleStarted!: () => void;
++    const startedPromise = new Promise<void>((resolve) => {
++      titleStarted = resolve;
++    });
++    const runtime = createTestAgentRuntime(
++      sessionId,
++      {
++        modelSelection: { providerId: "test", modelId: "model" },
++        titleGeneration: {},
++        workingDirectory: "/workspace",
++      },
++      {
++        sessionStore: store,
++        eventStore: createTestSessionEventStore(),
++        modelFactory: createTestModelFactory({
++          async generateText(_request, observation) {
++            if (observation.invocationContext?.metadata?.querySource === "session_title") {
++              titleStarted();
++              await titleGate.promise;
++              return {
++                text: '{"title":"自动标题"}',
++                finishReason: "stop",
++                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++              };
++            }
++            return {
++              text: "assistant reply",
++              finishReason: "stop",
++              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++            };
++          },
++        }),
++      },
++    );
++    await runtime.executeTurn("请协助完成一个足够长的首条开发任务");
++    await startedPromise;
++    await runtime.setCustomSessionTitle({
++      title: "用户标题",
++      traceContext: createRootTraceContext({ sessionId }),
++    });
++    titleGate.resolve();
++    await new Promise((resolve) => setTimeout(resolve, 0));
++    await new Promise((resolve) => setTimeout(resolve, 0));
++    const session = await store.getSession(sessionId);
++    expect(session?.title).toBe("用户标题");
++    expect(session?.titleSource).toBe("custom");
++  });
++
++  it("可写 selection_side_chat 会话仍可显式重命名", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    await seedSession(store, sessionId, {
++      title: "侧聊",
++      messages: [{ role: "user", text: "任务" }],
++      taskType: "selection_side_chat",
++    });
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({ store, requests, titles: ["侧聊标题"] });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome).toMatchObject({ status: "applied", title: "侧聊标题" });
++    expect((await store.getSession(sessionId))?.title).toBe("侧聊标题");
++  });
++
++  it("会话已不存在时不请求模型", async () => {
++    const store = createRecordingSubagentSessionStore();
++    const sessionId = createSessionId("regen-session");
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime({ store, requests });
++    const outcome = await runtime.scheduleSessionTitleRegenerationFromConversation({
++      traceContext: createRootTraceContext({ sessionId }),
++    }).completion;
++    expect(outcome.status).toBe("stale");
++    expect(requests).toHaveLength(0);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts b/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..785f0e4542fe014412ec1bdb4a516b30dec627af
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts
+@@ -0,0 +1,75 @@
++import { describe, expect, it } from "vitest";
++import { createRootTraceContext, createSessionId, type ModelRequest } from "@zcode/contracts";
++import {
++  SESSION_TITLE_QUERY_SOURCE,
++  generateTitleCandidate,
++} from "../src/runtime/methods/title-generation-sidecar.js";
++import { createTestAgentRuntime } from "./test-agent-runtime.js";
++import { createTestSessionEventStore } from "./test-event-store.js";
++import { createTestModelFactory } from "./test-runtime-model.js";
++
++function createRuntime(requests: ModelRequest[]) {
++  return createTestAgentRuntime(
++    createSessionId("title-sidecar-input"),
++    { modelSelection: { providerId: "test", modelId: "model" }, titleGeneration: {} },
++    {
++      eventStore: createTestSessionEventStore(),
++      modelFactory: createTestModelFactory({
++        async generateText(request) {
++          requests.push(request);
++          return { text: '{"title":"Sidecar title"}', finishReason: "stop" };
++        },
++      }),
++    },
++  );
++}
++
++describe("标题 sidecar 实际下发的 messages", () => {
++  it("对话摘要不被单消息 1200 上界二次截断，最近内容完整送达模型", async () => {
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime(requests);
++    const original = `Original request:\n${"首意图".repeat(300)}\n\nRecent conversation:\n`;
++    const recent = `${"中间对话".repeat(300)}\n\nUser: 最近要修的是登录超时 MARKER_RECENT`;
++    const conversation = `${original}${recent}`;
++    expect(conversation.length).toBeGreaterThan(1_200);
++    expect(conversation.length).toBeLessThanOrEqual(8_000);
++
++    await generateTitleCandidate.call(runtime as never, conversation, {
++      inputKind: "conversation",
++      querySource: SESSION_TITLE_QUERY_SOURCE,
++      traceContext: createRootTraceContext({ sessionId: runtime.getSessionId() }),
++    });
++
++    const sent = String(requests[0]?.messages[1]?.content ?? "");
++    expect(sent).toContain("MARKER_RECENT");
++    expect(sent).toContain("Original request:");
++    expect(sent.length).toBe(conversation.length);
++  });
++
++  it("超过 8000 的对话防御裁剪把分隔符计入预算，保留头尾且不超界", async () => {
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime(requests);
++    const conversation = `HEAD_MARKER${"x".repeat(9_000)}TAIL_MARKER`;
++    await generateTitleCandidate.call(runtime as never, conversation, {
++      inputKind: "conversation",
++      querySource: SESSION_TITLE_QUERY_SOURCE,
++      traceContext: createRootTraceContext({ sessionId: runtime.getSessionId() }),
++    });
++    const sent = String(requests[0]?.messages[1]?.content ?? "");
++    expect(sent.length).toBeLessThanOrEqual(8_000);
++    expect(sent).toContain("HEAD_MARKER");
++    expect(sent).toContain("TAIL_MARKER");
++    expect(sent).toContain("\n...\n");
++  });
++
++  it("单条 message 输入仍保持既有 1200 字符上界", async () => {
++    const requests: ModelRequest[] = [];
++    const runtime = createRuntime(requests);
++    await generateTitleCandidate.call(runtime as never, "x".repeat(3_000), {
++      querySource: SESSION_TITLE_QUERY_SOURCE,
++      traceContext: createRootTraceContext({ sessionId: runtime.getSessionId() }),
++    });
++    const sent = String(requests[0]?.messages[1]?.content ?? "");
++    expect(sent).toHaveLength(1_200);
 +  });
 +});
 diff --git a/apps/zcode-cli/packages/core/tests/skill-catalog-runtime.test.ts b/apps/zcode-cli/packages/core/tests/skill-catalog-runtime.test.ts
@@ -26072,6 +27693,33 @@ index d821a0be80568a88b4801082816b25fd259b04c6..7e99888fb0e29f754152be0c9ba72e9f
  
  Complete the user's search request efficiently and report your findings clearly.`;
  
+diff --git a/apps/zcode-cli/packages/core/tests/subagent-test-store.ts b/apps/zcode-cli/packages/core/tests/subagent-test-store.ts
+index 19c7a5aeab3b39c617029ee4d0e970c17238dffb..cae4fdc8482021ece1489ba94dd751409119b15f 100644
+--- a/apps/zcode-cli/packages/core/tests/subagent-test-store.ts
++++ b/apps/zcode-cli/packages/core/tests/subagent-test-store.ts
+@@ -69,6 +69,22 @@ export function createRecordingSubagentSessionStore(): SessionStorePort {
+       if (!session) {
+         throw new Error(`Unknown session: ${input.id}`);
+       }
++      // 与 sqlite adapter 同语义：条件标题写入未命中时 no-op，返回当前行。
++      if (
++        input.title !== undefined &&
++        input.expectedTitleSources?.length &&
++        !input.expectedTitleSources.includes(session.titleSource ?? "first_input")
++      ) {
++        return session;
++      }
++      if (
++        input.title !== undefined &&
++        input.expectedTitle !== undefined &&
++        (session.title !== input.expectedTitle ||
++          (session.titleSource ?? "first_input") !== (input.expectedTitleSource ?? "first_input"))
++      ) {
++        return session;
++      }
+       const updated: SessionInfo = {
+         ...session,
+         ...(input.title !== undefined ? { title: input.title } : {}),
 diff --git a/apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts b/apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts
 index 222c966b17111cc4ed61dc47762e9961b7666169..8cfb527422cc0c7d7e53c0a63da0522d0cbacc72 100644
 --- a/apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts

@@ -67,10 +67,10 @@ index 3a24bec4333c070a348ac317fed64fd5ac95b499..669ec6e4ca33b8de08fac7a91519be80
  
 diff --git a/docs/background-bash-display.md b/docs/background-bash-display.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..974af4ce9769da3525ce8384868ef2ad77bf036f
+index 0000000000000000000000000000000000000000..8a19008f8daaba68be8ab19d67225e44a21efd87
 --- /dev/null
 +++ b/docs/background-bash-display.md
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,33 @@
 +# 后台 Bash 卡片的显示
 +
 +## 目标
@@ -90,6 +90,10 @@ index 0000000000000000000000000000000000000000..974af4ce9769da3525ce8384868ef2ad
 +
 +状态面板里的后台 Bash 行点击后在模态弹窗中查看输出，不再打开右侧面板 tab：弹窗复用既有 `BackgroundBashOutputSidePane`（运行状态、跟随滚动、输出文件入口），关闭即卸载。聊天区与状态面板共用同一点击入口。
 +
++- 弹窗组件 `packages/ui/src/v4/background-bash-output-dialog/`（managed 模块，公开 `contract.ts`）渲染在 SessionPane 的 `readOnly ? null` 底部 dock 之外：只读子智能体 pane 也能查看后台输出，取消按钮等写操作仍由 readOnly 门禁控制。
++- 「完整文件」入口先关闭弹窗再调用 `onOpenCodeViewer`，右侧 code viewer 不会被模态遮罩挡住；文件读取仍复用既有 code viewer 链路，不新增读取实现。
++- 弹窗按 `sessionId`、`workspacePath`、`workspaceIdentity`、`remoteSessionId` 四项逐项判定作用域（不能合并成 `identity || path`：identity 相同 path 变化也是另一份对话）。作用域切换时 SessionPane 用同一组字段构造 key 清空 tab 状态，组件内 scope guard 防止一帧旧渲染；side pane 随之卸载并停止轮询，旧输出/旧回调不会进入新会话。
++
 +## 边界
 +
 +实现位于既有 Bash 渲染器 `packages/ui/src/ToolCallBlocks/renderers/execute.tsx` 的一个纯函数与展示分支：`splitBackgroundRunNotice` 只做文本切分，不读取磁盘、不发请求、不缓存。后台任务的运行状态、取消与输出仍由既有 `backgroundWorks` 投影和后台任务面板负责，本卡片不新增第二份状态。
@@ -98,6 +102,7 @@ index 0000000000000000000000000000000000000000..974af4ce9769da3525ce8384868ef2ad
 +
 +- 纯函数覆盖三种提示、前置输出、无 task id 与普通文本。
 +- DOM 回归覆盖提示隐藏、task id 展示、前置 stdout 保留、中英文案与普通输出不受影响。
++- 弹窗组件测试覆盖作用域守卫、只读位置（源码门禁外）、关闭后再打开完整文件、关闭回调。
 +- 既有 Bash 预览/结果测试保持原状；`bashOutputPreview` 的 collapsed 断言在本次改动前后同样失败，属存量问题，不归因于本改动。
 diff --git a/docs/chat/assistant-latest-part-actions.md b/docs/chat/assistant-latest-part-actions.md
 index e21952d2888511b00b92b43f552a8dd06708d471..8106d6bcd5b28dab91b888ee51054cac86495bde 100644
@@ -171,6 +176,55 @@ index 140afb0e43ec375e6ef73cd25a372a974a71680e..c605a20dde092d52f7de430ce3112e1e
  ## 多端边界
  
  本模型不改变 task realtime 所有权：
+diff --git a/docs/command-output-file-preview.md b/docs/command-output-file-preview.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a41dedc49ba85534d60ac6d931678ded1791763d
+--- /dev/null
++++ b/docs/command-output-file-preview.md
+@@ -0,0 +1,43 @@
++# 命令输出文件预览
++
++## 目标与交互
++
++聊天里的 Read 工具卡读取到命令输出文件（Bash 后台/大输出的 `-stdout.log` / `-stderr.log`）时，点击文件名在模态弹窗中查看内容，不打开右侧栏。普通源码文件点击仍走既有 `onOpenCodeViewer`。
++
++## 识别规则
++
++官方 Bash 输出路径（`apps/zcode-cli/docs/design/v2/tool/04-bash.md`）为：
++
++```text
++<tmp>/zcode-bash-<随机标识>/<session>/<tool>-stdout.log
++<tmp>/zcode-bash-<随机标识>/<session>/<tool>-stderr.log
++```
++
++只认同时满足以下条件的路径：
++
++- 文件名以 `-stdout.log` 或 `-stderr.log` 结尾；
++- 父目录是 session 目录；
++- 祖父目录匹配 `zcode-bash-<标识>`。
++
++Windows/Posix 分隔符先统一为 `/`。任意 `.log`、同名源码、`zcode-bash-*` 目录下的其它文件、层级不符、普通临时日志都不匹配。当前 Read 工具结果没有额外的“这是 Bash 输出”metadata，路径布局是唯一精确信号；临时目录不可用时的 `outputRootDir` 回退路径不在自动识别范围。
++
++## 分派与作用域
++
++- 普通文件：既有右侧 code viewer。
++- 命中上述路径且宿主提供弹窗入口：`CommandOutputFilePreviewDialog`；未提供时回退既有 viewer，行为不退化。
++- 弹窗复用既有 `PreviewPane` / `useWorkspaceServices` 的文件读取、错误与远端 scope，不新建读取/授权链路。
++- 弹窗按 `sessionId`、`workspacePath`、`workspaceIdentity`、`remoteSessionId` 四项作用域键校验；切换会话/工作区时调用方清空请求，组件内再校验一次，避免读取旧 Host 的同名路径。
++- 只读子会话同样渲染弹窗；弹窗本身是只读预览，不改变会话权限。
++
++## 接入点
++
++- 分派/识别/弹窗位于 managed 模块 `packages/ui/src/v4/command-output-file-preview/`（公开 `contract.ts`）。
++- `ToolCallBlockRenderContext` 增加 `onOpenCommandOutputPreview`，由 `SessionPane` 的 `rowContext` 注入；Read 卡片与 Explore 子读卡各调用一次 `resolveReadPreviewTarget`，不改变其他工具卡的文件入口。
++- `SessionPane` 渲染单个弹窗 host，与后台 Bash 弹窗并列，均位于只读 dock 门禁之外。
++
++## 验收
++
++- 纯函数覆盖 Windows/Posix、stdout/stderr、正常源码、任意 `.log`、层级不符、空路径与目录。
++- Read 卡片 DOM 测试覆盖命令输出走弹窗、普通源码仍走 viewer、宿主无弹窗入口时回退。
++- 弹窗组件测试覆盖 PreviewPane 的 workspace/remote scope、跨作用域不渲染、关闭动作。
++- 未做真实点击 E2E；真实远端文件读取与只读子会话交互仍由人工/E2E 验证。
 diff --git a/docs/compaction-profiles.md b/docs/compaction-profiles.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..b5acdc2757bfb8d92710c58caef920afd4de352f
@@ -573,10 +627,10 @@ index 0000000000000000000000000000000000000000..7292634657b399eb668e6b2284727986
 +10. 来源依据：OpenAI Codex `codex-rs/models-manager/models.json`，核对提交 `d63a9b8344cfe58bc78bbe319b560378fc8756ef`；历史 `codex-rs/core/models.json` 核对提交 `770616414a51fa179ce4cef10f7f8df838d3f46f`；Spark 的 128k 见 OpenAI 2026-02-12 发布说明。历史型号登记不授予账号调用资格，也不自动添加已退役型号。
 diff --git a/docs/rename-slash-command.md b/docs/rename-slash-command.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..546bacd80621aa425084107c45feeabea2956c1d
+index 0000000000000000000000000000000000000000..2db79e560289d73da0bdc58fc23f2fa5d29171c4
 --- /dev/null
 +++ b/docs/rename-slash-command.md
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,75 @@
 +# Composer `/rename` 会话重命名命令
 +
 +## 目标与交互
@@ -587,9 +641,10 @@ index 0000000000000000000000000000000000000000..546bacd80621aa425084107c45feeabe
 +| --- | --- |
 +| 发送 `/rename 新标题` | 标题改为 `新标题`，输入框清空，零模型请求。 |
 +| `/` 面板选中 `/rename` | 只把 `/rename ` 填进输入框，不立即执行；继续输入标题后回车发送。 |
-+| 发送 `/rename`（无标题） | 由标题 sidecar 让模型总结当前对话后重命名；输入框清空，不产生 user row。 |
++| 发送 `/rename`（无标题） | 由标题 sidecar 让模型总结当前对话后重命名；输入框清空，不产生 user row。先 toast「正在根据对话生成标题…」，模型返回并落库后才 toast 成功。 |
 +| 大小写与多余空白 | `/RENAME 新标题` 等价；标题折叠多余空白。 |
 +| 模型生成失败、超时或空结果 | 保持原标题，toast 提示失败；不写空标题。 |
++| 生成期间再次 `/rename`、显式改名或删除会话 | 旧请求中止并以 noop 收口（不误报失败），旧结果不落库；stop / 权限应答 / 其他命令不被标题模型排队。 |
 +| 草稿态（无 session） | 面板不展示；发送时提示先开始会话，不发送文本。 |
 +| 只读态 | 面板不展示；发送时不拦截，按普通文本处理。 |
 +| 带附件、context、引用或队列编辑 | 不拦截，按普通消息发送。 |
@@ -604,6 +659,7 @@ index 0000000000000000000000000000000000000000..546bacd80621aa425084107c45feeabe
 +复用现有标题 sidecar（独立模型请求、无工具、60s 超时、`querySource: session_title`），只替换输入与提示词：
 +
 +- 首条真实用户请求（截 2000 字符）保原意；最近对话按 `User:` / `Assistant:` 拼接，整体上限 8000 字符，取末尾预算。
++- sidecar 必须区分输入种类：单条 message 仍按 1200 字符截断；conversation 已由 core 做「首意图 + 最近内容」的有界裁剪，sidecar 不得再按 1200 二次截断（只有超过 8000 防御上界时才保留头尾）。
 +- 跳过 synthetic、`model-only`、ignored part 与空文本；没有可总结内容时直接失败。
 +- 使用独立的会话摘要提示词，要求 3–7 个词、跟随用户语言、只输出 `{"title":"..."}`。
 +- 生成结果不走首轮门槛（`turnNumber`/短输入/`sessionTitleGenerationAttempted` 不参与），因为这是用户显式请求。
@@ -615,22 +671,40 @@ index 0000000000000000000000000000000000000000..546bacd80621aa425084107c45feeabe
 +  A[/rename 新标题] --> B{有标题?}
 +  B -- 是 --> C[renameSession]
 +  B -- 否 --> D[regenerateSessionTitle]
-+  D --> E[core 读取对话并请求标题模型]
-+  E --> F{生成成功?}
-+  F -- 否 --> G[toast 失败，保留原标题]
++  D --> E[core 登记受生命周期管理的标题 job]
++  E --> P[toast 正在生成]
++  E --> F{生成成功且未被取代?}
++  F -- 否 --> G[失败 toast 或 noop 静默，保留原标题]
 +  F -- 是 --> H[写 custom + SessionTitleUpdated]
 +  C --> H
 +  H --> I[v4 meta 与侧栏标题更新]
 +```
 +
-+命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。`SlashCommandPlugin` 只新增一个 `insertText` 分支（选中后插入文本、不执行 `run()`），不改变面板渲染与键盘选择逻辑。core 侧新增的方法挂在既有 `session-title.ts` 与标题 sidecar 上，不新增第二套标题状态或缓存。
++### 生命周期与 FIFO
++
++- 标题 job 用 per-runtime 状态保存 requestId、AbortController、baseline title/titleSource 与显式改名序号；新请求、`setCustomSessionTitle`、`deleteSession` 都会中止旧请求。
++- 落库前重新校验：job 仍是当前请求、未 abort、会话仍存在、改名序号与持久标题快照未变；迟到的模型结果只收口为 cancelled/stale。
++- `CommandInbox` 为 execute 结果提供幂等 `releaseSessionAdmission`；只有 `regenerateSessionTitle` 的 handler 在**真正登记 job 之后**经 gateway 注入的 executionContext 调用它（不是 inbox 提前放行）。因此 `admitCommandInput` 慢时，后续 rename/delete 不会先执行而错过取消。
++- settle 与异常路径的 release 都幂等。命令自身仍 pin 在 in-flight，同 request 重试继续等待同一 final，不会重复生成。
++- 这是 metadata 后台任务的特殊准入，不改变其他命令的 per-session FIFO 锁语义：普通命令仍只在 settle 后放行下一条。
++- 显式 `/rename` 不新增 `interactive` 业务门禁：可写 selection_side_chat 仍可重命名；自动标题的 interactive 限制只属于自动标题路径。
++- `beginShutdown` 会取消在途 job；模型返回后也不再追加 ModelComplete/usage 或落库。job 在读 session/messages 期间被取消时，启动模型前会再次检查，不发送请求。
++- handler 仍 await job completion 再回 ACK：成功沿用既有 accepted 终态（标题经 `SessionTitleUpdated` 更新），失败返回 failed，被取代/删除返回 noop；不新增 CommandResult 变体，也不会用 accepted 冒充成功。
++- 条件写入：落库使用既有 session store 的预期值 guard（`expectedTitle`/`expectedTitleSource` + 未软删除）在同一条 UPDATE 内原子校验，避免“读后 await update”的 TOCTOU。自动标题仍只用 `expectedTitleSources`，迟到的 generated 结果不会覆盖 custom。
++- abort 后 job 立即收口，不等待忽略 signal 的 provider 返回；删除/关闭的 residency drain 不会与长模型请求互相等待。
++
++命令解析与文案位于 `packages/ui/src/v4/slash-commands/rename.ts`；`SessionPane` 只做一次面板注册和一次发送前拦截，复用既有 `dispatchCommand`、`toast` 与 `cliSlashCommandNames` 门禁。`SlashCommandPlugin` 只新增一个 `insertText` 分支（选中后插入文本、不执行 `run()`），不改变面板渲染与键盘选择逻辑。core 侧实现位于 managed 模块 `apps/zcode-cli/packages/core/src/runtime/methods/session-title-regeneration/`（公开 `index.ts`/`contract.ts`），复用既有 `session-title.ts` 的 custom 语义与标题 sidecar，不新增第二套标题状态或缓存。后台 Bash 弹窗同样位于 managed 模块 `packages/ui/src/v4/background-bash-output-dialog/`。
 +
 +## 验收
 +
 +- 纯解析测试覆盖有/无标题、大小写、空白、非命令文本和 CLI 同名让位。
 +- core 测试覆盖对话摘要的首条请求、过滤规则、2000/8000 字符边界与空内容。
-+- v4 命令测试覆盖透传 traceContext、生成失败不静默成功。
-+- SessionPane 测试覆盖面板 `insertText`、手动标题、无标题触发生成、失败 toast、草稿与只读门禁、附件透传。
++- v4 命令测试覆盖透传 traceContext、生成失败不静默成功、被取代时 noop、删除前中止。
++- inbox 测试覆盖：job 登记前后续命令被 gate 阻止、显式 release 后才放行 rename/delete/普通命令；duplicate 仍等待同一 final 且不重复执行；普通命令之间的 FIFO 保持不变。
++- gateway 测试覆盖延迟 `admitCommandInput` 时 rename/delete 必须在标题 job 登记后执行，并能取消旧 job。
++- core 测试覆盖 requestId/改名/删除/取代的过期结果丢弃、CAS 未命中不写、忽略 abort 的模型也能立即收口、读库期间取消不发请求、shutdown 取消且不追加事件、空对话与可写 selection_side_chat 重命名。
++- sidecar 测试断言实际传给 `model.generateText` 的 messages：conversation 不被 1200 二次截断，message 仍为 1200。
++- SessionPane 测试覆盖面板 `insertText`、pending/成功/失败/被取代 toast、草稿与只读门禁、附件透传。
 +- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
@@ -837,10 +911,10 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +SOFTWARE.
 diff --git a/docs/title-generation-settings.md b/docs/title-generation-settings.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a684cbccdebdfbe8d891714045c1659207cef050
+index 0000000000000000000000000000000000000000..67ce4553604e39d3a3f21ac9ceda4255dc18cc87
 --- /dev/null
 +++ b/docs/title-generation-settings.md
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +# 标题生成模型设置
 +
 +## 目标
@@ -850,6 +924,7 @@ index 0000000000000000000000000000000000000000..a684cbccdebdfbe8d891714045c16592
 +## 行为
 +
 +- 默认值继承：`AppSettings.titleGenerationModel` 缺席 = 跟随会话当前模型，行为与旧版一致。
++- `/rename`（无标题）的对话摘要与自动标题共用同一 sidecar 与模型选择；区别只在输入种类、提示词与生命周期（前者是用户显式后台请求，可被新请求/改名/删除中止）。
 +- 选择某个 provider/model 后，会话创建/冷恢复经既有运行时偏好请求把 `titleGenerationModelSelection` 注入 `runtimeConfig.titleGeneration.modelSelection`；标题 sidecar 使用该模型。
 +- 选回「继承会话模型」写入空引用 `{providerId:"", modelId:""}`，Host 的 `normalizeSettingsPatch` 归一成删除，避免 RPC 吞掉 `undefined` 后旧值残留。
 +- 只影响标题 sidecar（首轮标题、`/goal` 摘要标题、`/rename` 总结），不改变主对话模型、思考档位或 provider 配置。
