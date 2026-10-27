@@ -9725,6 +9725,72 @@ index 7a1dfc384b4372612c7fce3967690a2b0cdfaa8d..6ad988ad366a4eddeb0145f9610f755f
        readToolResultArtifact: (uri) =>
          artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
        // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在
+diff --git a/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts b/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts
+index faf276822b9f5f93b7a07c8edc83b4306fcfb976..d1af8aebfcf0c34061c8c09609cc9da3373f2765 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts
+@@ -8,7 +8,10 @@ import {
+   type ProviderModel,
+   type ProviderRegistryView,
+ } from "@zcode/provider";
+-import { createRegistrySelectionProtocolError } from "./provider-registry-selection.js";
++import {
++  completeMissingRegistryReasoning,
++  createRegistrySelectionProtocolError,
++} from "./provider-registry-selection.js";
+ 
+ export type RuntimeModelFactory = NonNullable<AgentRuntimeDeps["modelFactory"]>;
+ 
+@@ -42,15 +45,22 @@ export class ApiProviderModelRuntime {
+ 
+   readonly modelFactory: RuntimeModelFactory = (target): Model => {
+     if (!this.#started) throw new Error("ApiProviderModelRuntime 必须先 start() 再创建 Model");
+-    const validation = this.#registry.validateSelection(target.selection);
++    // 主轮 Selection 必须自带档位；只有标题/连通性这类辅助调用允许按最低档补齐。
++    const selection = target.allowMissingReasoning
++      ? completeMissingRegistryReasoning(this.#registry, target.selection)
++      : target.selection;
++    const validation = this.#registry.validateSelection(selection);
+     if (!validation.ok) throw createRegistrySelectionProtocolError(validation);
+-    const providerId = target.selection.providerId;
+-    const modelId = target.selection.modelId;
++    const providerId = selection.providerId;
++    const modelId = selection.modelId;
+     const provider = this.#registry.getProvider(providerId);
+     if (!provider) throw new Error("Registry Selection 校验与 Provider 索引结果不一致");
+     const registryModel = this.#registry.getModel(providerId, modelId);
+     if (!registryModel) throw new Error("Registry Selection 校验与 Model 索引结果不一致");
+-    return this.#createRegistryModel(provider, registryModel, target);
++    return this.#createRegistryModel(provider, registryModel, {
++      ...target,
++      selection,
++    });
+   };
+ 
+   start(): void {
+diff --git a/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-selection.ts b/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-selection.ts
+index 9279edb4de5161405d6d8043a4cb6498fb3a90d6..adcb7a822176909ff6b26af28359212df3021676 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-selection.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/app/provider-registry-selection.ts
+@@ -57,6 +57,18 @@ export function completeAuxiliaryRegistryModelSelection(
+   };
+ }
+ 
++/**
++ * 标题这类辅助调用的 Selection 只存 provider/model。只有缺失档位时才按 Registry
++ * 最低档补齐；用户已显式选择的档位保持原值。
++ */
++export function completeMissingRegistryReasoning(
++  registry: ProviderRegistryModelSource,
++  selection: ModelSelection,
++): ModelSelection {
++  if (selection.options?.reasoningLevel) return selection;
++  return completeAuxiliaryRegistryModelSelection(registry, selection);
++}
++
+ export function resolveRegistryOwnedSelection(
+   registry: ProviderRegistryModelSource,
+   requested: string,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
 index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127eaed2006 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
@@ -13463,6 +13529,53 @@ index ab3246653a94c7e3d21ca0c8150ae95e07d4a4a9..8f9f160453bcee7f5a50da85c2053b8f
      });
      const { projection } = runAll(log.events);
      const snapshot = projection.getSnapshot();
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/provider-registry-model-runtime.test.ts b/apps/zcode-cli/packages/bootstrap/tests/provider-registry-model-runtime.test.ts
+index 0799bf85d07d4ee5e270bdb59f4d512f3ce9bb21..e261cc7719faddb780f805a10ad01c5ded43d0a3 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/provider-registry-model-runtime.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/provider-registry-model-runtime.test.ts
+@@ -260,4 +260,42 @@ describe("ApiProviderModelRuntime", () => {
+     );
+     expect(created).toEqual([]);
+   });
++
++  it("辅助调用允许缺失档位时按 Registry 最低档补齐", () => {
++    const { created, runtime } = captureRuntime(new ProviderRegistry([provider()]));
++
++    runtime.modelFactory({
++      selection: { providerId: "api-provider", modelId: "model-a" },
++      allowMissingReasoning: true,
++    });
++
++    expect(created[0]).toMatchObject({ options: { reasoningLevel: "low" } });
++  });
++
++  it("辅助调用已带档位时不被最低档覆盖", () => {
++    const { created, runtime } = captureRuntime(new ProviderRegistry([provider()]));
++
++    runtime.modelFactory({
++      selection: selection(),
++      allowMissingReasoning: true,
++    });
++
++    expect(created[0]).toMatchObject({ options: { reasoningLevel: "high" } });
++  });
++
++  it("主轮缺失档位仍严格报错，不会被静默补齐", () => {
++    const { created, runtime } = captureRuntime(new ProviderRegistry([provider()]));
++
++    expect(() =>
++      runtime.modelFactory({
++        selection: { providerId: "api-provider", modelId: "model-a" },
++      }),
++    ).toThrowError(
++      expect.objectContaining<ModelProtocolError>({
++        code: ModelErrorCode.InvalidModelRequest,
++        message: "Reasoning level is required for api-provider/model-a",
++      }),
++    );
++    expect(created).toEqual([]);
++  });
+ });
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts b/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts
 index c1968533f8ee68e0bc7d9ca506e53df47885dd91..e8635078f0b865deb889651c7e8dee1580d10f3c 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts
@@ -18809,6 +18922,32 @@ index db4900bd604a7cf50f89299d92f0229bc6027c27..f9ab6be46abc11571af616b19e458d54
    this.injectTargetStateIntoMessageHistory(
      await this.readSessionTargetForContext(options.traceContext),
    );
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts
+index a0433610a5be08f81f17a22e447a12a6a56125f6..92b3469fe81980069870c10be82a0e967da5b78d 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts
+@@ -28,7 +28,7 @@ export function createRuntimeModel(
+     retryBudget?: ModelRetryBudget;
+   },
+ ): Model {
+-  const { retryBudget, scope = "session", ...factoryInput } = input;
++  const { retryBudget, scope = "session", allowMissingReasoning, ...factoryInput } = input;
+   // 未绑定 Session 可恢复历史；仅在执行入口拒绝缺失选择，Factory 契约仍严格。
+   if (!factoryInput.selection) {
+     throw createCoreError(CoreErrorType.ConfigurationError, "Select a model before continuing", {
+@@ -37,7 +37,11 @@ export function createRuntimeModel(
+   }
+   const model = withRuntimeInvocationLayer(
+     runtime,
+-    runtime.modelFactory({ ...factoryInput, selection: factoryInput.selection }),
++    runtime.modelFactory({
++      ...factoryInput,
++      selection: factoryInput.selection,
++      ...(allowMissingReasoning ? { allowMissingReasoning: true } : {}),
++    }),
+     scope === "workspace"
+       ? "other"
+       : resolveModelRequestSessionTypeFromTaskType(runtime.config.taskType),
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts
 index 9ca6463b0d0edb2024989e3a7ae66ec17ff8f7ec..079b860b3f2cc96c8b13923db6fa218794442edd 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts
@@ -21390,7 +21529,7 @@ index 28b18be0434e1e2d3e067aa0459d45d3fc25cfc8..3de92009456270f4625e91f0e43e2525
      entries: withoutTrailingPendingAssistantToolCallEntries(
        this.messageHistory.borrowReadOnlyRuntimeEntries(),
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts b/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
-index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca535ccc7df1 100644
+index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..02793a3972e2219c0c49fd585ae866607a4b2a13 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
 @@ -51,8 +51,19 @@ export function retainTitleModelContext(
@@ -21453,7 +21592,7 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca53
    },
  ): Promise<{ modelSelection: ModelSelection; title: string; traceContext: TraceContext } | null> {
    const titleTelemetry = this.agentTelemetry.detached({
-@@ -122,8 +159,12 @@ async function generateTitleCandidateImpl(
+@@ -122,14 +159,21 @@ async function generateTitleCandidateImpl(
      querySource: string;
      traceContext: TraceContext;
      modelContext?: TitleModelContext;
@@ -21466,7 +21605,16 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca53
    const context = options.modelContext ?? retainTitleModelContext(this);
    const requestedModelSelection = context.selection;
    if (!requestedModelSelection) return null;
-@@ -141,7 +182,7 @@ async function generateTitleCandidateImpl(
+   const baseModel = createRuntimeModel(this, {
+     selection: requestedModelSelection,
+     requestDependencies: context.requestDependencies,
++    // 独立标题模型设置只保存 provider/model；缺失档位由宿主按 Registry 最低档补齐，
++    // 否则 deepseek-flash 这类必须带档位的模型会在发请求前抛 reasoning-level-missing。
++    allowMissingReasoning: true,
+   });
+   const model = baseModel.bind(auxiliaryModelOptions(baseModel));
+   const modelSelection = cloneModelSelection(requestedModelSelection);
+@@ -141,7 +185,7 @@ async function generateTitleCandidateImpl(
      },
    });
    const events: SessionEvent[] = [];
@@ -21475,7 +21623,7 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca53
    const modelRequestEvent = this.createEvent(
      SessionEventType.ModelRequest,
      {
-@@ -156,9 +197,13 @@ async function generateTitleCandidateImpl(
+@@ -156,9 +200,13 @@ async function generateTitleCandidateImpl(
    await this.appendEvent(modelRequestEvent, modelTraceContext);
    events.push(modelRequestEvent);
    const networkEventStartIndex = events.length;
@@ -21490,7 +21638,7 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca53
    const modelStartedAt = Date.now();
    const invocationContext = {
      metadata: traceContextToLogContext(modelTraceContext),
-@@ -186,19 +231,24 @@ async function generateTitleCandidateImpl(
+@@ -186,19 +234,24 @@ async function generateTitleCandidateImpl(
      }),
    );
    const result = await resultPromise.catch(async (error: unknown) => {
@@ -21526,7 +21674,7 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..799a105f0a2f0a930667f1952f63ca53
    const toolCalls = this.extractToolCallsFromResult(result);
    const modelCompleteEvent = this.createEvent(
      SessionEventType.ModelComplete,
-@@ -252,10 +302,50 @@ export function normalizeTitleInput(input: string): string {
+@@ -252,10 +305,50 @@ export function normalizeTitleInput(input: string): string {
      : normalized;
  }
  
@@ -21949,7 +22097,7 @@ index 22a30b77fff28dfcf4ba7a1293408e3e67b82699..81f70f4a535241f23633ada469d376d3
        }
      }).then(
 diff --git a/apps/zcode-cli/packages/core/src/runtime/types.ts b/apps/zcode-cli/packages/core/src/runtime/types.ts
-index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..d2207efcdfeba97afefc2945908770873a954bee 100644
+index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..bf1fc8779e4ee1acfa5b30a1c0e7d32ae0650061 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/types.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/types.ts
 @@ -244,6 +244,7 @@ export interface AgentRuntimeConfig {
@@ -21960,7 +22108,19 @@ index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..d2207efcdfeba97afefc294590877087
    };
    language?: string;
    outputStyle?: OutputStylePromptConfig;
-@@ -420,6 +421,7 @@ export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
+@@ -406,6 +407,11 @@ export interface RuntimeModelFactoryInput {
+   selection: ModelSelection;
+   /** 只绑定到本次创建的 Model，不进入公共 ModelRequest 或 Session 持久化。 */
+   requestDependencies?: ModelRequestDependencies;
++  /**
++   * 辅助调用（标题 sidecar 等）的 Selection 可能来自只保存 provider/model 的设置，
++   * 允许宿主按 Registry 的最低档补齐缺失档位；主轮 Selection 不带此标记，仍严格校验。
++   */
++  allowMissingReasoning?: boolean;
+ }
+ 
+ export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
+@@ -420,6 +426,7 @@ export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
  export interface ProviderRuntimeHeadersPort {
    shouldRefreshBeforeModelRequest?(input: { providerId: string; modelId: string }): boolean;
    refreshBeforeModelRequest(input: {
@@ -27551,16 +27711,17 @@ index 0000000000000000000000000000000000000000..cc715b2bb5a2dd6efab752163c1c3590
 +});
 diff --git a/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts b/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..785f0e4542fe014412ec1bdb4a516b30dec627af
+index 0000000000000000000000000000000000000000..6bb22bb97a21b9c29a1bd251f0d50c7be0cf7f4d
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/tests/session-title-sidecar-input.test.ts
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,102 @@
 +import { describe, expect, it } from "vitest";
 +import { createRootTraceContext, createSessionId, type ModelRequest } from "@zcode/contracts";
 +import {
 +  SESSION_TITLE_QUERY_SOURCE,
 +  generateTitleCandidate,
 +} from "../src/runtime/methods/title-generation-sidecar.js";
++import type { RuntimeModelFactoryInput } from "../src/runtime/types.js";
 +import { createTestAgentRuntime } from "./test-agent-runtime.js";
 +import { createTestSessionEventStore } from "./test-event-store.js";
 +import { createTestModelFactory } from "./test-runtime-model.js";
@@ -27628,6 +27789,32 @@ index 0000000000000000000000000000000000000000..785f0e4542fe014412ec1bdb4a516b30
 +    });
 +    const sent = String(requests[0]?.messages[1]?.content ?? "");
 +    expect(sent).toHaveLength(1_200);
++  });
++
++  it("标题模型创建允许宿主补齐缺失档位", async () => {
++    const created: RuntimeModelFactoryInput[] = [];
++    const runtime = createTestAgentRuntime(
++      createSessionId("title-sidecar-reasoning"),
++      { modelSelection: { providerId: "test", modelId: "model" }, titleGeneration: {} },
++      {
++        eventStore: createTestSessionEventStore(),
++        modelFactory: createTestModelFactory({
++          onCreate: (input) => created.push(input),
++          async generateText() {
++            return { text: '{"title":"Sidecar title"}', finishReason: "stop" };
++          },
++        }),
++      },
++    );
++
++    await generateTitleCandidate.call(runtime as never, "hello", {
++      querySource: SESSION_TITLE_QUERY_SOURCE,
++      traceContext: createRootTraceContext({ sessionId: runtime.getSessionId() }),
++    });
++
++    // 设置里的独立标题模型只有 provider/model；不允许宿主补齐档位时
++    // deepseek-flash 这类模型会在发请求前抛 reasoning-level-missing。
++    expect(created[0]?.allowMissingReasoning).toBe(true);
 +  });
 +});
 diff --git a/apps/zcode-cli/packages/core/tests/skill-catalog-runtime.test.ts b/apps/zcode-cli/packages/core/tests/skill-catalog-runtime.test.ts

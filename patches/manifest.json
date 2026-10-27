@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "cdd41dc66fbaf634dd11f8ae048b2ea7d1194a44",
-  "tree": "0ac726b92e2f704b92dcb63c70b2fef3c6bdb385",
+  "sourceHead": "d0bf97b735f1e52c3362b7b493ae79dfc8a9690b",
+  "tree": "bca81534f990dd2d12cb498a60a5540e5c5296a7",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -23,7 +23,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "e02b6c6655b7a640955ce3cdea650e8c0bb7b2ea7fae51615b73e81fec44492a",
+      "sha256": "370d4708f4517ce6ad407bc2c1d70b72de6ad449e1c27d06af44f944cc1427b5",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -85,6 +85,8 @@
         "apps/zcode-cli/packages/adapters/tests/session-store.test.ts",
         "apps/zcode-cli/packages/adapters/tests/websearch.test.ts",
         "apps/zcode-cli/packages/bootstrap/src/app/create-app.ts",
+        "apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts",
+        "apps/zcode-cli/packages/bootstrap/src/app/provider-registry-selection.ts",
         "apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts",
         "apps/zcode-cli/packages/bootstrap/src/app/types.ts",
         "apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/cold-event-merge.ts",
@@ -125,6 +127,7 @@
         "apps/zcode-cli/packages/bootstrap/tests/context-projections/contract.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/context-source-update-notice.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts",
+        "apps/zcode-cli/packages/bootstrap/tests/provider-registry-model-runtime.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/session-facade.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/transcript-hydration.test.ts",
         "apps/zcode-cli/packages/bootstrap/tests/v4-cold-resume.test.ts",
@@ -205,6 +208,7 @@
         "apps/zcode-cli/packages/core/src/runtime/methods/model-runtime-headers.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/resume.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/rewind-message.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/session-fork.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/session-resource-methods.ts",
@@ -281,7 +285,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "b5724fde23f793c2971adffa331d660d8a7850fca011a0d1d41b14e723092127",
+      "sha256": "5855d783a49649321bc5548d06080a1580cd936e4b494c8b5e4c2e644ca7a216",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",

@@ -912,10 +912,10 @@ index 0000000000000000000000000000000000000000..716eeaab4706c585df693077c6e08847
 +SOFTWARE.
 diff --git a/docs/title-generation-settings.md b/docs/title-generation-settings.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..67ce4553604e39d3a3f21ac9ceda4255dc18cc87
+index 0000000000000000000000000000000000000000..96898da6fe30f80b6f64f10c30123ab7a5dc2cde
 --- /dev/null
 +++ b/docs/title-generation-settings.md
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,27 @@
 +# 标题生成模型设置
 +
 +## 目标
@@ -929,6 +929,7 @@ index 0000000000000000000000000000000000000000..67ce4553604e39d3a3f21ac9ceda4255
 +- 选择某个 provider/model 后，会话创建/冷恢复经既有运行时偏好请求把 `titleGenerationModelSelection` 注入 `runtimeConfig.titleGeneration.modelSelection`；标题 sidecar 使用该模型。
 +- 选回「继承会话模型」写入空引用 `{providerId:"", modelId:""}`，Host 的 `normalizeSettingsPatch` 归一成删除，避免 RPC 吞掉 `undefined` 后旧值残留。
 +- 只影响标题 sidecar（首轮标题、`/goal` 摘要标题、`/rename` 总结），不改变主对话模型、思考档位或 provider 配置。
++- 设置里的标题模型只保存 provider/model。需要档位的模型（如 `deepseek/deepseek-flash`）由宿主按 Registry 最低档补齐缺失档位，否则会在发请求前抛 `reasoning-level-missing` 导致 `/rename` 直接失败；主轮选择不带此标记，仍严格校验档位。
 +- 远程 workspace 仍由该会话 Host 的运行时偏好回答；设置读写固定走本机 Host 的 `settingService`。
 +
 +## 边界
