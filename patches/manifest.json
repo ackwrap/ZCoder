@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "c3d0ca39ba4eb1f7252a95f6f237dd4e01b84c74",
-  "tree": "d81ac429ffb00c39e5e2ed51e9489f16021b9a7d",
+  "sourceHead": "cdd41dc66fbaf634dd11f8ae048b2ea7d1194a44",
+  "tree": "0ac726b92e2f704b92dcb63c70b2fef3c6bdb385",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -281,7 +281,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "069fbb87cda8bf9fb5d5b2b1f1244e593fb6923c36cb73ed9ff1078bdb605f63",
+      "sha256": "b5724fde23f793c2971adffa331d660d8a7850fca011a0d1d41b14e723092127",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -494,7 +494,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "8bb3fa18012a7f38461d78f5325fe3eab0606d5976d4ec85c5f14272fdb94b5e",
+      "sha256": "4ba2839b2049e142e29aed70408cc02c118db14ca45a9699029c55903d98a02f",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/Root.tsx",
@@ -643,6 +643,7 @@
         "packages/ui/src/v4/command-output-file-preview/contract.example.ts",
         "packages/ui/src/v4/command-output-file-preview/contract.test.ts",
         "packages/ui/src/v4/command-output-file-preview/contract.ts",
+        "packages/ui/src/v4/command-output-file-preview/dispatch.ts",
         "packages/ui/src/v4/command-output-file-preview/module.ts",
         "packages/ui/src/v4/composer/V4ComposerToolbar.tsx",
         "packages/ui/src/v4/context-artifacts/CONTRACT.md",

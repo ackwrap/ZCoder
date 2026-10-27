@@ -9643,7 +9643,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a159c731e0 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..bdc8558d1129e24c09a7d09b3f301b33f9a9bbbe 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -9725,7 +9725,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    isSelectionSideChatBlocked,
    registerSelectionSideChatOpener,
    setSelectionSideChatBlocked,
-@@ -346,6 +355,17 @@ import {
+@@ -346,6 +355,18 @@ import {
    shouldOfferSideSlashCommand,
    type AppSlashCommand,
  } from "@/slashCommandHelpers.js";
@@ -9737,13 +9737,14 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
 +import {
 +  CommandOutputFilePreviewDialog,
 +  commandOutputPreviewScopeKey,
++  dispatchPreviewSource,
 +  type CommandOutputPreviewRequest,
 +} from "@/v4/command-output-file-preview/contract.js";
 +import { isMcpStatusCommand } from "@/lib/mcpStatusCommand.js";
  import {
    clearConversationSelectionReferenceScope,
    dispatchConversationSelectionAdd,
-@@ -641,7 +661,6 @@ export function SessionPane({
+@@ -641,7 +662,6 @@ export function SessionPane({
    onAutoOpenAssistantPptx,
    onOpenFileLink,
    onOpenSubagentSession,
@@ -9751,7 +9752,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    onOpenSubagentDirectory,
    onSyncSubagentSessionTabs,
    onOpenSelectionSideChat,
-@@ -668,6 +687,7 @@ export function SessionPane({
+@@ -668,6 +688,7 @@ export function SessionPane({
      attachmentReadRange,
      onRuntimeRestart,
      onRuntimeLifecycle,
@@ -9759,7 +9760,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
      fileChanges,
      fileRewindPreview,
    } = useV4Conversation();
-@@ -1144,6 +1164,45 @@ export function SessionPane({
+@@ -1144,6 +1165,55 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -9802,10 +9803,20 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
 +    },
 +    [commandOutputPreviewKey],
 +  );
++  // 工具卡按层枚举属性转发，嵌套分组/子代理行只带旧回调；在 onOpenCodeViewer
++  // 边界统一分派，命令输出日志就不会漏到右侧栏。
++  const openPreviewSource = useCallback(
++    (source: CodeViewerSource) =>
++      dispatchPreviewSource(source, {
++        openCommandOutputPreview: handleOpenCommandOutputPreview,
++        ...(onOpenCodeViewer ? { openCodeViewer: onOpenCodeViewer } : {}),
++      }),
++    [handleOpenCommandOutputPreview, onOpenCodeViewer],
++  );
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1900,7 +1959,6 @@ export function SessionPane({
+@@ -1900,7 +1970,6 @@ export function SessionPane({
      () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
      [draftConfig, modelSelectionView],
    );
@@ -9813,7 +9824,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2355,6 +2413,12 @@ export function SessionPane({
+@@ -2355,6 +2424,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -9826,7 +9837,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2768,7 @@ export function SessionPane({
+@@ -2704,7 +2779,7 @@ export function SessionPane({
            return;
          }
  
@@ -9835,7 +9846,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2783,11 @@ export function SessionPane({
+@@ -2719,9 +2794,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -9848,7 +9859,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2832,7 @@ export function SessionPane({
+@@ -2766,7 +2843,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -9857,7 +9868,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2854,10 @@ export function SessionPane({
+@@ -2788,8 +2865,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -9869,7 +9880,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        return true;
      },
      [
-@@ -2853,16 +2921,79 @@ export function SessionPane({
+@@ -2853,16 +2932,79 @@ export function SessionPane({
      [cliSlashCommandNames],
    );
  
@@ -9950,7 +9961,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +3004,7 @@ export function SessionPane({
+@@ -2873,7 +3015,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -9959,7 +9970,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +3015,8 @@ export function SessionPane({
+@@ -2884,6 +3026,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -9968,7 +9979,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2893,10 +3026,12 @@ export function SessionPane({
+@@ -2893,10 +3037,12 @@ export function SessionPane({
      cliSlashCommandNames,
      handleDraftSwitchMode,
      handleOpenSelectionSideConversation,
@@ -9981,7 +9992,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
      selectionSideChat,
      sessionId,
    ]);
-@@ -2982,6 +3117,8 @@ export function SessionPane({
+@@ -2982,6 +3128,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -9990,15 +10001,17 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        theme,
        codePreviewSettings,
        sessionId,
-@@ -2998,6 +3135,7 @@ export function SessionPane({
+@@ -2997,7 +3145,8 @@ export function SessionPane({
+       onNavigateToRow: handleNavigateToRow,
        onOpenBrowserUrl,
        onOpenAutomationsMain,
-       onOpenCodeViewer,
+-      onOpenCodeViewer,
++      onOpenCodeViewer: openPreviewSource,
 +      onOpenCommandOutputPreview: handleOpenCommandOutputPreview,
        onAutoOpenAssistantPptx: runtimeReady ? handleAutoOpenAssistantPptx : undefined,
        assistantPreviewPptxAutoOpenTarget,
        onOpenFileLink,
-@@ -3060,6 +3198,8 @@ export function SessionPane({
+@@ -3060,6 +3209,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -10007,15 +10020,17 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3076,6 +3216,7 @@ export function SessionPane({
+@@ -3075,7 +3226,8 @@ export function SessionPane({
+       handleNavigateToRow,
        onOpenBrowserUrl,
        onOpenAutomationsMain,
-       onOpenCodeViewer,
+-      onOpenCodeViewer,
++      openPreviewSource,
 +      handleOpenCommandOutputPreview,
        handleAutoOpenAssistantPptx,
        assistantPreviewPptxAutoOpenTarget,
        onOpenFileLink,
-@@ -3891,6 +4032,27 @@ export function SessionPane({
+@@ -3891,6 +4043,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -10043,7 +10058,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +4060,30 @@ export function SessionPane({
+@@ -3898,6 +4071,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -10074,7 +10089,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +4119,16 @@ export function SessionPane({
+@@ -3933,7 +4130,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -10092,7 +10107,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4704,6 +4899,24 @@ export function SessionPane({
+@@ -4704,6 +4910,24 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -10117,7 +10132,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5156,8 @@ export function SessionPane({
+@@ -4943,7 +5167,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -10127,7 +10142,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5228,6 @@ export function SessionPane({
+@@ -5014,42 +5239,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -10170,7 +10185,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5482,11 +5660,15 @@ export function SessionPane({
+@@ -5482,11 +5671,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -10188,7 +10203,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +5752,6 @@ export function SessionPane({
+@@ -5570,12 +5763,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -10201,7 +10216,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +5804,14 @@ export function SessionPane({
+@@ -5628,6 +5815,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -10216,7 +10231,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +5943,39 @@ export function SessionPane({
+@@ -5759,6 +5954,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -10256,7 +10271,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
-@@ -5800,9 +6017,9 @@ export function SessionPane({
+@@ -5800,9 +6028,9 @@ export function SessionPane({
                }
                onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
                onOpenBackgroundBash={
@@ -10268,7 +10283,16 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..02353dd59b83975cb5bf0e4af763b4a1
                          workspacePath,
                          workspaceIdentity: workspaceIdentity ?? undefined,
                          remoteSessionId: remoteSessionId ?? undefined,
-@@ -5976,6 +6193,24 @@ export function SessionPane({
+@@ -5909,7 +6137,7 @@ export function SessionPane({
+                         codePreviewSettings={codePreviewSettings}
+                         onOpenShareUrl={onOpenBrowserUrl ? handleOpenImportedShareUrl : undefined}
+                         onOpenFileLink={onOpenFileLink}
+-                        onOpenCodeViewer={onOpenCodeViewer}
++                        onOpenCodeViewer={openPreviewSource}
+                       />
+                     ) : null
+                   }
+@@ -5976,6 +6204,24 @@ export function SessionPane({
              </SessionPluginReferenceIconBoundary>
            )}
          </div>
@@ -10789,12 +10813,16 @@ index 0000000000000000000000000000000000000000..4bb300390c8ef91e5fef3f871b9a3243
 +}
 diff --git a/packages/ui/src/v4/command-output-file-preview/contract.test.ts b/packages/ui/src/v4/command-output-file-preview/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..cf18f24af8212596066b7c4d91192b181b37bfd2
+index 0000000000000000000000000000000000000000..1b7e8693348a2b3c7f3fe470842bf79834aceda7
 --- /dev/null
 +++ b/packages/ui/src/v4/command-output-file-preview/contract.test.ts
-@@ -0,0 +1,74 @@
-+import { describe, expect, it } from "vitest";
-+import { isCommandOutputLogPath, resolveReadPreviewTarget } from "./contract.js";
+@@ -0,0 +1,133 @@
++import { describe, expect, it, vi } from "vitest";
++import {
++  dispatchPreviewSource,
++  isCommandOutputLogPath,
++  resolveReadPreviewTarget,
++} from "./contract.js";
 +import { commandOutputFilePreviewModule } from "./module.js";
 +
 +describe("command-output-file-preview contract", () => {
@@ -10866,13 +10894,68 @@ index 0000000000000000000000000000000000000000..cf18f24af8212596066b7c4d91192b18
 +      }),
 +    ).toBeNull();
 +  });
++
++  // 嵌套分组/子代理行只转发旧 onOpenCodeViewer；宿主在这里统一分派，
++  // 命令输出日志才不会回落到右侧栏。
++  describe("dispatchPreviewSource", () => {
++    it("routes command output opened through the code viewer callback to the dialog", () => {
++      const openCommandOutputPreview = vi.fn();
++      const openCodeViewer = vi.fn();
++      const source = {
++        type: "file" as const,
++        title: "call_1-stdout.log",
++        path: "/tmp/zcode-bash-abc123/session/call_1-stdout.log",
++      };
++
++      expect(dispatchPreviewSource(source, { openCommandOutputPreview, openCodeViewer })).toBe(
++        "dialog",
++      );
++      expect(openCommandOutputPreview).toHaveBeenCalledWith({
++        path: source.path,
++        title: source.title,
++      });
++      expect(openCodeViewer).not.toHaveBeenCalled();
++    });
++
++    it("keeps normal files and non-file sources on the existing viewer", () => {
++      const openCommandOutputPreview = vi.fn();
++      const openCodeViewer = vi.fn();
++
++      dispatchPreviewSource(
++        { type: "file", title: "logger.ts", path: "/workspace/src/logger.ts" },
++        { openCommandOutputPreview, openCodeViewer },
++      );
++      dispatchPreviewSource(
++        { type: "text", title: "diff", content: "+a", language: "typescript" },
++        { openCommandOutputPreview, openCodeViewer },
++      );
++
++      expect(openCommandOutputPreview).not.toHaveBeenCalled();
++      expect(openCodeViewer).toHaveBeenCalledTimes(2);
++    });
++
++    it("falls back to the viewer when the host has no dialog entry", () => {
++      const openCodeViewer = vi.fn();
++      expect(
++        dispatchPreviewSource(
++          {
++            type: "file",
++            title: "call_1-stdout.log",
++            path: "/tmp/zcode-bash-abc123/session/call_1-stdout.log",
++          },
++          { openCodeViewer },
++        ),
++      ).toBe("viewer");
++      expect(openCodeViewer).toHaveBeenCalledTimes(1);
++    });
++  });
 +});
 diff --git a/packages/ui/src/v4/command-output-file-preview/contract.ts b/packages/ui/src/v4/command-output-file-preview/contract.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9891ba62be278cd42a4ccc5314b148cd7d07f0b2
+index 0000000000000000000000000000000000000000..685a307c97b4195f4dd8230f9bd5b9c9dad00932
 --- /dev/null
 +++ b/packages/ui/src/v4/command-output-file-preview/contract.ts
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,10 @@
 +export {
 +  CommandOutputFilePreviewDialog,
 +  commandOutputPreviewScopeKey,
@@ -10882,6 +10965,43 @@ index 0000000000000000000000000000000000000000..9891ba62be278cd42a4ccc5314b148cd
 +  type CommandOutputPreviewScope,
 +  type ReadPreviewTarget,
 +} from "./CommandOutputFilePreviewDialog.js";
++export { dispatchPreviewSource, type PreviewSourceDispatch } from "./dispatch.js";
+diff --git a/packages/ui/src/v4/command-output-file-preview/dispatch.ts b/packages/ui/src/v4/command-output-file-preview/dispatch.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..647edde1eb5fde7a9d956abac6c0dfbc76e3364b
+--- /dev/null
++++ b/packages/ui/src/v4/command-output-file-preview/dispatch.ts
+@@ -0,0 +1,30 @@
++import type { CodeViewerSource } from "@/lib/codeViewer.js";
++import { isCommandOutputLogPath } from "./CommandOutputFilePreviewDialog.js";
++
++export type PreviewSourceDispatch = "dialog" | "viewer" | "none";
++
++/**
++ * 聊天侧打开文件的单一入口。宿主把 onOpenCodeViewer 换成这里的分派后，
++ * 即使某层卡片只转发了旧回调（嵌套分组、子代理行），命令输出日志也会走弹窗。
++ */
++export function dispatchPreviewSource(
++  source: CodeViewerSource,
++  handlers: {
++    openCommandOutputPreview?: (request: { path: string; title: string }) => void;
++    openCodeViewer?: (source: CodeViewerSource) => void;
++  },
++): PreviewSourceDispatch {
++  if (source.type === "file" && isCommandOutputLogPath(source.path)) {
++    if (handlers.openCommandOutputPreview) {
++      handlers.openCommandOutputPreview({ path: source.path, title: source.title });
++      return "dialog";
++    }
++  }
++
++  if (handlers.openCodeViewer) {
++    handlers.openCodeViewer(source);
++    return "viewer";
++  }
++
++  return "none";
++}
 diff --git a/packages/ui/src/v4/command-output-file-preview/module.ts b/packages/ui/src/v4/command-output-file-preview/module.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..06b3f2b3b71acef0bb5bf30232b96786c9295cf6
@@ -21661,10 +21781,10 @@ index 3caf20ed47c9a441da78b15530022e2f6ba01e15..a39ef909ad430a31ee61e9ca641085f7
    it.each(["/goal", "/goal 保留这段输入", "/target 保留别名输入", "/goal resume"])(
      "blocks %s before any conversation command is dispatched",
 diff --git a/packages/ui/test/v4SessionPaneReadOnly.test.ts b/packages/ui/test/v4SessionPaneReadOnly.test.ts
-index f8efdcb3a4bdc61725485d8db9fbb550bd77547b..47c5df0062995df007c2f18420f4d467bb761120 100644
+index f8efdcb3a4bdc61725485d8db9fbb550bd77547b..f575e2854c8b3eadffe1b8acef2ade05482c7b46 100644
 --- a/packages/ui/test/v4SessionPaneReadOnly.test.ts
 +++ b/packages/ui/test/v4SessionPaneReadOnly.test.ts
-@@ -435,6 +435,29 @@ describe("SessionPane 分享模式接线", () => {
+@@ -435,6 +435,32 @@ describe("SessionPane 分享模式接线", () => {
      expect(timelineState.selectionActionsEnabled).toBe(true);
    });
  
@@ -21689,6 +21809,9 @@ index f8efdcb3a4bdc61725485d8db9fbb550bd77547b..47c5df0062995df007c2f18420f4d467
 +    expect(dialogIndex).toBeGreaterThan(dockEnd);
 +    expect(sessionPaneSource).toContain("onOpenCommandOutputPreview");
 +    expect(sessionPaneSource).toContain("setCommandOutputPreviewRequest(null)");
++    // 嵌套分组只转发旧回调，宿主必须在 onOpenCodeViewer 边界统一分派。
++    expect(sessionPaneSource).toContain("dispatchPreviewSource");
++    expect(sessionPaneSource).toContain("onOpenCodeViewer: openPreviewSource");
 +  });
 +
    it("分享浮窗保持 chat 输入区，不再替换 Composer", () => {

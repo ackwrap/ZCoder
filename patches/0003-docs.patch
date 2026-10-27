@@ -178,10 +178,10 @@ index 140afb0e43ec375e6ef73cd25a372a974a71680e..c605a20dde092d52f7de430ce3112e1e
  本模型不改变 task realtime 所有权：
 diff --git a/docs/command-output-file-preview.md b/docs/command-output-file-preview.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a41dedc49ba85534d60ac6d931678ded1791763d
+index 0000000000000000000000000000000000000000..62b30569c98a537b05332d9eb3fd6d5b7b9f0c92
 --- /dev/null
 +++ b/docs/command-output-file-preview.md
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,44 @@
 +# 命令输出文件预览
 +
 +## 目标与交互
@@ -216,6 +216,7 @@ index 0000000000000000000000000000000000000000..a41dedc49ba85534d60ac6d931678ded
 +## 接入点
 +
 +- 分派/识别/弹窗位于 managed 模块 `packages/ui/src/v4/command-output-file-preview/`（公开 `contract.ts`）。
++- 工具卡各层按白名单逐项转发回调（`ConversationTurnGroup`、`ConversationAgentToolCallRow`、`changes-group`、`cua-group`、`agent`、`execute-group`、`explore`），新增回调很容易漏传。因此真正兜底的是 `SessionPane` 的 `onOpenCodeViewer` 边界：`dispatchPreviewSource` 在这一次包装里识别命令输出日志并改走弹窗，普通文件仍交给既有 viewer。Read 卡片自身的 `onOpenCommandOutputPreview` 保留为直接入口。
 +- `ToolCallBlockRenderContext` 增加 `onOpenCommandOutputPreview`，由 `SessionPane` 的 `rowContext` 注入；Read 卡片与 Explore 子读卡各调用一次 `resolveReadPreviewTarget`，不改变其他工具卡的文件入口。
 +- `SessionPane` 渲染单个弹窗 host，与后台 Bash 弹窗并列，均位于只读 dock 门禁之外。
 +
