@@ -104,6 +104,58 @@ index 0000000000000000000000000000000000000000..8a19008f8daaba68be8ab19d67225e44
 +- DOM 回归覆盖提示隐藏、task id 展示、前置 stdout 保留、中英文案与普通输出不受影响。
 +- 弹窗组件测试覆盖作用域守卫、只读位置（源码门禁外）、关闭后再打开完整文件、关闭回调。
 +- 既有 Bash 预览/结果测试保持原状；`bashOutputPreview` 的 collapsed 断言在本次改动前后同样失败，属存量问题，不归因于本改动。
+diff --git a/docs/browser-use/2026-07-15-browser-turn-final-screenshot-spec.md b/docs/browser-use/2026-07-15-browser-turn-final-screenshot-spec.md
+index 2544053613518ca2b854809a8f1a73acf3b8ea5b..66046f0aae2ea829cee1c76b5f1e47b3e61382f8 100644
+--- a/docs/browser-use/2026-07-15-browser-turn-final-screenshot-spec.md
++++ b/docs/browser-use/2026-07-15-browser-turn-final-screenshot-spec.md
+@@ -17,17 +17,17 @@
+ 
+ ## 2. 已确认边界
+ 
+-| 维度         | 结论                                                                                                      |
+-| ------------ | --------------------------------------------------------------------------------------------------------- |
+-| 触发来源     | 仅 Node REPL 内成功执行、且 response meta 关联具体 tab 的 Browser API                                     |
+-| 不计入触发   | `agent.browsers.list()`、documentation、capability 查询、失败调用                                         |
+-| 已有显式图片 | 不跳过自动截图；显式图片保留在原工具结果中，轮尾仍追加当前 active tab 的最终状态截图                      |
+-| tab 选择     | 完成时重新读取 browser tabs，只截当前 `active=true` 的 tab；这里的 `active` 是 main 给出的 effective active（含后台回退），不等于「UI 当前可见」 |
+-| 轮次终态     | 只在正常完成时尝试；Stop、取消、失败均跳过                                                                |
+-| 展示位置     | 同轮内容区最后：最终 assistant/Website 等预览卡和 file diff 摘要之后、消息操作栏之前；不回挂既有工具卡    |
+-| 展示样式     | 复用 Node REPL 工具结果截图的图片渲染逻辑、尺寸、左对齐、圆角、紧贴图片的 border 和大图查看器             |
++| 维度         | 结论                                                                                                                                                                         |
++| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
++| 触发来源     | 仅 Node REPL 内成功执行、且 response meta 关联具体 tab 的 Browser API                                                                                                        |
++| 不计入触发   | `agent.browsers.list()`、documentation、capability 查询、失败调用                                                                                                            |
++| 已有显式图片 | 不跳过自动截图；显式图片保留在原工具结果中，轮尾仍追加当前 active tab 的最终状态截图                                                                                         |
++| tab 选择     | 完成时重新读取 browser tabs，只截当前 `active=true` 的 tab；这里的 `active` 是 main 给出的 effective active（含后台回退），不等于「UI 当前可见」                             |
++| 轮次终态     | 只在正常完成时尝试；Stop、取消、失败均跳过                                                                                                                                   |
++| 展示位置     | 同轮内容区最后：最终 assistant/Website 等预览卡和 file diff 摘要之后、消息操作栏之前；不回挂既有工具卡                                                                       |
++| 展示样式     | 复用 Node REPL 工具结果截图的图片渲染逻辑、尺寸、左对齐、圆角、紧贴图片的 border 和大图查看器                                                                                |
+ | 失败策略     | browser 已关闭、scope 内已无存活 tab、截图失败，或压缩后仍超预算时静默跳过，并使用 service/runtime logger 留日志；scope 内还有存活 tab 时不会走本行，effective active 必非空 |
+-| 模型上下文   | 自动截图不进入 message history/provider content，不增加模型 tool call                                     |
++| 模型上下文   | 自动截图不进入 message history/provider content，不增加模型 tool call                                                                                                        |
+ 
+ ## 3. 状态与时序
+ 
+@@ -141,7 +141,8 @@ conversation fact、协议字段或持久化状态：
+ 缩略图
+   -> 单击
+   -> 全屏遮罩 + 当前图片按视口等比适配
+-       ├─ 单击图片或遮罩空白 -> 关闭
++       ├─ 单击图片           -> 不关闭（图片内不触发空白 dismiss）
++       ├─ 单击遮罩空白       -> 关闭（图片外、未拖动、非控件）
+        ├─ 单击右上角关闭     -> 关闭
+        └─ Escape              -> 关闭
+ ```
+@@ -149,7 +150,8 @@ conversation fact、协议字段或持久化状态：
+ - 桌面端、普通 Web 和手机 `/remote` 使用相同交互；手机 replayable 只负责恢复原图片事实，
+   不同步遮罩开关状态。
+ - 大图保持原图片比例，最大宽高不能超出当前视口；高度方向至少预留 96px 的查看器安全空间，
+-  避免图片贴满窗口后与关闭按钮、桌面标题栏争用右上角；不支持滚轮缩放、拖拽或平移。
++  避免图片贴满窗口后与关闭按钮、桌面标题栏争用右上角；支持缩放按钮与拖拽/双指平移，
++  不支持滚轮缩放。
+ - 缩略图保留左对齐、紧贴图片的 border 与窄屏无横向溢出合同；打开大图不能改变原工具块或轮尾块布局。
+ - 缩略图入口、右上角关闭按钮和 Escape 均需可访问；关闭后焦点返回触发缩略图。
+ - 多图结果按所点击图片分别打开，遮罩只展示当前图片，图片数据与原 `node_repl_images` fact 保持一致。
 diff --git a/docs/chat/assistant-latest-part-actions.md b/docs/chat/assistant-latest-part-actions.md
 index e21952d2888511b00b92b43f552a8dd06708d471..8106d6bcd5b28dab91b888ee51054cac86495bde 100644
 --- a/docs/chat/assistant-latest-part-actions.md
@@ -425,12 +477,65 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +## 回归证据
 +
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
+diff --git a/docs/image-preview-pointer-interaction.md b/docs/image-preview-pointer-interaction.md
+index 13a27a97160d53cbb74a3dbe078d6bc5379da9c0..e2b5c1201573d8f982167aa039246dad0ae0f25b 100644
+--- a/docs/image-preview-pointer-interaction.md
++++ b/docs/image-preview-pointer-interaction.md
+@@ -32,3 +32,48 @@ Electron 原生鼠标事件
+   `no-drag` 抵消；右上角操作区必须整体放到标题栏下方。Web、手机、Windows 和
+   Linux 使用各自布局，不继承 macOS 安全间距。
+ - 桌面端和 Web 端共用这一交互边界；Electron 专用属性在 Web 端应无副作用。
++
++## 空白点击关闭
++
++全视口 `DialogContent` 自身覆盖整个视口并带有 `p-10` 透明区域，Radix 的外部 dismiss
++无法命中。预览内容只增加一层手势判断：用户在图片外、非控件区域完成一次干净的主指针
++轻点时才调用 `onOpenChange(false)`；不重写 Dialog 的 fade/zoom，也不改各入口。
++
++- 只认主指针（`button === 0`）且单指；第二根手指即使 `isPrimary=false` 也必须跟踪，
++  出现第二个指针立即视为 pinch 并持续到所有指针抬起，不关闭。
++- pointerdown 起点必须在图片可见边界外，且不是 `img`/图片子节点、控件或视频。零矩形
++  测试环境用目标是否为 `img` 作为图片回退判断。
++- 缩放 toolbar、下载/关闭操作区、gallery 箭头等保留区域标注
++  `data-image-preview-interactive`；按钮 disabled 后指针命中父级区域也不关闭。
++- item 身份/src/active index/loading/videoState 组成稳定 `displayKey`；变化时取消旧手势，
++  避免 padding 按下后切图，旧 pointerup 关闭新图。
++- 图片 `getBoundingClientRect()` 非零时按真实（含 transform）矩形判断；图片内部点击、
++  缩放后的图片点击都不关闭。
++- 从按下到抬起累计移动超过 `IMAGE_PREVIEW_DISMISS_MAX_MOVE_PX`（5px）即永久取消本次
++  dismiss；拖远再回来也不关闭。
++- pointerup 时起止点都必须在图片外且不是控件。
++- pointercancel、lostpointercapture、pinch、非主键和多指均不得触发关闭。
++- 不 `preventDefault`、不 `stopPropagation`、不改变现有 viewport 的 pointer capture 与
++  拖拽/缩放清理。
++- 关闭后再次打开重置所有手势状态，不继承上一次的 moved/cancel/lost 标记。
++
++实现集中在受管模块 `ai-elements/image-preview-dismiss/`（纯函数 + `useImagePreviewDismiss`
++hook，含 module/contract）；原 viewer 只增加 import、hook 调用、`displayKey`、控件保留区
++attribute 和 `DialogContent` handler spread。
++
++### 回归矩阵
++
++| ID     | 场景                         | 断言                                          |
++| ------ | ---------------------------- | --------------------------------------------- |
++| IPD-01 | padding 空白轻点             | 调用 `onOpenChange(false)`                    |
++| IPD-02 | 图片点击 / 零矩形图片目标    | 不关闭                                        |
++| IPD-03 | 下载、关闭、gallery、zoom    | 按钮/控件点击不关闭                           |
++| IPD-04 | 空白按下拖动超过阈值再回原处 | 不关闭                                        |
++| IPD-05 | 空白按下但抬起落到图片内     | 不关闭                                        |
++| IPD-06 | 双指 pinch / 非主键          | 不关闭                                        |
++| IPD-07 | pointercancel / lost capture | 不关闭                                        |
++| IPD-08 | 视频及其原生 controls        | 不关闭，controls 行为不变                     |
++| IPD-09 | 关闭后重开                   | 新手势正常，无 stale moved/cancel/lost 状态   |
++| IPD-10 | 真实双 touch / 两种抬起顺序  | padding/viewport 均不关闭，pinch 持续到全抬起 |
++| IPD-11 | zoom disabled 后点 toolbar   | 父级保留区域不触发关闭                        |
++| IPD-12 | gallery/item/loading 切换    | 旧手势取消；新空白轻点仍正常关闭              |
 diff --git a/docs/model-system-prompts.md b/docs/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a67f523a979fb922648ed5768762525ad4621fdd
+index 0000000000000000000000000000000000000000..fb8409d5f6620f6f548879de9e6a21e14243af28
 --- /dev/null
 +++ b/docs/model-system-prompts.md
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,102 @@
 +# 模型自定义系统 Agent 提示词
 +
 +## 范围
@@ -455,6 +560,7 @@ index 0000000000000000000000000000000000000000..a67f523a979fb922648ed5768762525a
 +```
 +
 +- 精确大小写匹配 `providerId + modelId`。
++- UI 入口位于高级设置“标题生成模型”卡标题右上，打开 dialog 编辑；dialog 内可单独选择 provider/model，只编辑该 pair，不改变 `titleGenerationModel`。标题生成仍使用独立 `buildTitleMessages`，不会套用本设置。
 +- 最多 `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20` 条；单条 `text` 不设应用层字符上限，不再有 8000 字符常量、截断或拒绝。
 +- 正常化：`\r\n`/`\r` → `\n`；裁剪首尾空白；保留内部换行与缩进；正常化后为空表示删除该条。
 +- patch schema 只拒绝空 ID、空正文、条目数越界和重复 pair；不因正文长度拒绝；完整 schema 对脏磁盘值安全降级。
@@ -1643,6 +1749,91 @@ index 0000000000000000000000000000000000000000..2f72da18389ee9a7dc181489845d0a95
 +
 +未执行：UI 整包 `tsc`、桌面 E2E、真实授权与真实用户数据；由协调者统一安排。
 +桌面交互 E2E 仍为 pending，Hook/SessionPane 单测不替代真实 Host 验证。
+diff --git a/docs/ui/conversation-focus-mode.md b/docs/ui/conversation-focus-mode.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3654f577c2889a32e6619c5f0ea796ba18e08b2
+--- /dev/null
++++ b/docs/ui/conversation-focus-mode.md
+@@ -0,0 +1,79 @@
++# 对话专注模式（/force，会话级）
++
++## 目标
++
++在 `/` 面板提供本地命令 `/force`，切换**当前会话**的专注模式渲染。默认关闭，状态只存在于当前 renderer 的会话 map 中：
++
++- key = 稳定 `workspaceIdentity`（缺失时回退 `workspacePath`）+ `sessionId`；
++- 同一会话的多个 Pane 共享同一状态；
++- 不同会话互不影响；
++- 切走再切回同一会话保持该会话上次选择；
++- 不写入设置、Host、SQLite 或任何全局持久化，不发送 provider 请求。
++
++关闭时仍走原 `ConversationTimeline`，不执行任何 focus 计算。开启后只渲染最近两个逻辑对话组，其余历史真正 unmount，不是 CSS 隐藏。
++
++## 命令接入
++
++- SessionPane 通过既有 `buildCompatSlashCommands` / `useCompatSlashCommands` 注入 `{ enabled, toggle }`。
++- 命令实现与中英文文案在 `packages/ui/src/v4/slash-commands/`。
++- 不修改 `SlashCommandPlugin`、`slashCommandPanelSections` 或 CLI 可见白名单。
++- 与 CLI 广播命令同名时由既有注册边界让位；`/force` 默认不做别名。
++- 纯视图命令沿用 builder 既有策略：写操作被禁用时仍可切换渲染。
++- 切换后使用现有 toast 提示“已开启/已关闭当前会话的专注模式”。
++
++## 逻辑对话组
++
++以 `turnHeader.state` 为唯一权威：
++
++- `completedSuccess` 结束一个完整组；
++- `completedInterrupted`、`failed`、缺少 header、`running` 不单独占用“两组”名额，与随后的继续内容合并；
++- 同 `turnId` 的 guided 输入永不切组；
++- assistantText `complete`、tool success 不代表轮次完成。
++
++稳定锚点：
++
++- 完整组用结束它的 success `turnId` 作为 id；
++- 尾部未完成组用首 turn `turnId`；
++- 窗口锚点按“组内任一 turnId”解析，因此加载到中断前缀或尾部 turn 完成都不会回退到 latest。
++
++## 首组完整性
++
++仅有 leading `turnHeader` 不能证明首组完整：一个 interrupted 前缀可能仍属于该 success 组。只有看到前一个 success 边界或真正的历史起点，首组才算完整。窗口完成会只补足到该边界；不预取整个历史。补页结束条件：
++
++- 窗口前出现已加载的完整组；或
++- 已到投影历史起点（`canLoadOlder === false`）；或
++- 无进展/错误/8 页上限，此时停止并保留显式重试。
++
++用户请求向上翻页时，先等待当前窗口之前出现两个逻辑组，或确认真实历史起点；历史起点只有一组时合理停止。随后仍会补齐新窗口首组的前置边界。选定新窗口并不结束目标：两个阶段共享同一 8 次预算，第 8 次取得两组但仍缺前置边界时显示该窗口并停止，显式重试继续证明边界。首次请求（包括切换目标时已在途的请求）计入预算，每次加载结束比较真实进展签名，无进展一次即停；显式重试保留同一用户目标，不多翻页。
++
++## 滚动与视图
++
++- 只渲染当前窗口 rows；窗口大小 2 个逻辑组。
++- 向上显示更早 2 组并落底；向下显示更晚 2 组并落顶；返回最新落底。
++- 新消息、流式 delta、新 turn 不移动已锚定的历史窗口。
++- 翻页不 remount `ConversationTimeline` 或底部 Composer/dock：导航 adapter 用 window key 触发落位，并在测高后按最终高度校正一帧；用户已接手滚动则让位。富输入、附件、弹窗和键盘焦点保持原实例。
++- 只有真实用户手势在边界触发翻页；嵌套代码块、工具滚动、输入框键盘不触发。程序化落点位于反方向边界，滚轮惯性不会瞬间跳过多个窗口；短页仍可逐窗浏览。
++- 历史页不展示实时 pending guides / runtime retry；turn navigator 隐藏。查找只覆盖当前两组，属于已知降级，不改变其它页面查找行为。
++- 专注模式不使用持久化滚动记忆；窗口切换按上述规则重置。
++
++## 单一 owner 与竞态
++
++- 旧 `shouldAutoLoadIncompleteLeadingTurn` effect 在专注模式开启时禁用（一行 guard），关闭时保持原逻辑。
++- 专注模式自己的补页统一负责：no-progress 停止、8 页上限、失败显式重试、同一请求 in-flight 去重。
++- 用户请求向前翻页与窗口补全共用同一计数和进展签名；切换目标时在途请求计入新手动目标，不另建第二套计数。
++- 用户向下翻页、返回最新或切换会话会取消 pending 目标；同会话迟到的旧页结果不会把窗口拉回旧目标。
++- 会话切换清零 anchor/补页状态并递增 generation；旧会话迟到的失败不会写进新会话。
++
++## 非目标
++
++- 不新增设置字段、设置页入口或持久化体系。
++- 不改变 prompt、权限、审批、Sandbox、MCP、Skills、模型或 runtime。
++- 不改变关闭专注模式时的虚拟化、滚动和 history 分页语义。
++
++## 验证
++
++- 会话状态：默认 false、同会话多 Pane 一致、不同会话隔离、切回保留。
++- `/force`：注册、开/关文案与 toast、CLI 同名让位、写操作禁用时仍可切换、默认 false。
++- 分组/窗口：success 边界、guided、中断合并、latest 2、逐 2 翻页、历史起点补页、首组前置边界、稳定锚点、prepend/新流不漂移。
++- 视图：隐藏历史不挂载、Composer/dock 与键盘焦点跨页保持、落底/落顶、无环滚动、嵌套滚动、回到底部。
++- 设置：SettingsPage/shared 不重新引入全局 focus 字段。
 diff --git a/docs/ui/conversation-selection-side-chat.md b/docs/ui/conversation-selection-side-chat.md
 index 5250c4398c9a96fc057464081f68dc2abf2fc51f..655903025298d0fcf3baa2cda80d665dd9e96a2d 100644
 --- a/docs/ui/conversation-selection-side-chat.md
@@ -1764,10 +1955,10 @@ index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7
 +验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
 diff --git a/docs/ui/model-system-prompts.md b/docs/ui/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147e4c2c870
+index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b972a67dd4e
 --- /dev/null
 +++ b/docs/ui/model-system-prompts.md
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,253 @@
 +# 模型自定义系统 Agent 提示词（UI 范围）
 +
 +> 2026-10-27。本文只定义 `packages/ui/**` 的可观察行为、状态归属、接入点和回归边界。
@@ -1829,7 +2020,7 @@ index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147
 +- 路径：`packages/ui/src/settings/model-system-prompts/`
 +- 公开入口：`index.ts`
 +- `requires: [shared, ui]`，`owner: desktop-settings`
-+- 职责：设置分组、模型目录选取、条目草稿/校验/删除、异步保存的 scope guard。
++- 职责：通过 render-prop 向标题生成卡注入“设置提示词”入口、dialog 内模型目录选取、条目草稿/校验/删除、异步保存的 scope guard。
 +- 不直接访问持久化、不广播、不读凭据；只调用注入的 `onUpdateSettings(patch)`。
 +
 +### `composer-model-system-prompt`
@@ -1848,9 +2039,19 @@ index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147
 +
 +## 高级设置
 +
-+插入点：`SettingsPage` 的 `advanced` 分支，紧跟 `CompactionSettingsSection`，共用外层
-+`ServiceProvider`，只增加一次组件调用。设置投影与保存命令继续由页面现有
++入口位于“标题生成模型”卡的标题右上（`TitleGenerationModelRow` 的可选 header action），
++不再渲染下方独立的自定义提示词编辑卡，避免同一功能出现两处同名入口。`SettingsPage` 的
++`advanced` 分支用 `ModelSystemPromptsSettingsSection` 的 render-prop 包裹原
++`CompactionSettingsSection`，把“设置提示词”按钮注入 `titleGenerationAction`；状态、写入队列
++与 dialog 仍由 `ui-model-system-prompts-settings` 持有。设置投影与保存命令继续由页面现有
 +`useSettings({ services: localHostServices })` 注入。
++
++Dialog 使用既有 `Dialog`/`Button`，标题固定为“自定义系统 Agent 提示词”，并明确当前
++`provider · model`；模型选择器、条目计数和错误都移入 dialog。首次打开优先预选当前
++`titleGenerationModel` 的显式 pair；该值为“继承会话模型”时按当前模型目录选择第一项。
++用户在 dialog 内换模型只编辑该 pair 的提示词，**不读写也不改变** `titleGenerationModel`，
++标题生成 runtime 继续使用独立 `buildTitleMessages`，不套用本功能。
++按钮没有可选模型（无显式标题模型、无已保存条目、目录为空或读取失败）时禁用。
 +
 +### 条目规则
 +
@@ -1869,6 +2070,18 @@ index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147
 +- 保存走注入的 `onUpdateSettings({ modelSystemPromptAppends: nextEntries })`；不新增 RPC。
 +- 保存 pending 时禁用重复提交；Enter 在 textarea 中只换行，`Ctrl/Cmd+Enter` 或“保存”提交。
 +  blur 不自动保存，避免与“删除此条”点击竞争。
++- 关闭 dialog、按 Esc、点遮罩、取消或切换模型都只丢弃本次未提交草稿，不自动保存；保存成功
++  且没有更晚编辑时关闭同一 dialog 会话。保存失败保留 dialog 内输入与错误，可直接重试。
++- dialog 内换模型会更新选择 token；上一个 pair 的 pending 写入继续完成它冻结的 pair，
++  其迟到成功/失败不得关闭新 pair 的 dialog、覆盖新草稿或串改错误状态。同一 pair 取消后
++  重开的干净 dialog（即使等待期间丢弃过编辑、历史版本已不同）会跟随迟到成功正文（含删除），
++  再次保存不反写旧文本；当前新编辑或第三方权威值优先。旧 save 的失败错误只在其原 dialog
++  会话可见。
++- clean 草稿跟随外部刷新时使用本窗口有效投影：仍有效的成功 overlay 继续覆盖 raw props，
++  第三方权威值使 overlay 失效并被采用；不能用 raw entries 直接退回旧值。
++- 模型选择器空 placeholder 禁用，空值不改变当前选择；打开时若选择仍为空，回退到显式标题
++  模型、目录首项或首个已保存条目。
++- 外部入口不是 Radix Trigger，关闭时若按钮仍挂载则归还焦点；按钮已卸载时不做显式焦点抢占。
 +- 保存失败：保留当前草稿与错误提示，可直接重试；不乐观删除本地条目。
 +- 成功回调先对比当前 confirmed pair：权威已等于保存值时不再建 overlay 并立即 clean；
 +  权威仍是提交前值时保留 overlay，等 props 离开基线后再 clean/采用；权威已变成第三个值
@@ -1947,7 +2160,10 @@ index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147
 +
 +## 接入点（最小 diff）
 +
-+- `SettingsPage.tsx`：新增 import + advanced 分支一次组件调用。
++- `SettingsPage.tsx`：advanced 分支用 `ModelSystemPromptsSettingsSection` render-prop 包裹
++  `CompactionSettingsSection`，把注入的按钮传给 `titleGenerationAction`；不再渲染独立设置卡。
++- `CompactionSettingsSection.tsx`：`TitleGenerationModelRow` 标题行增加可选 header action
++  插槽，只负责渲染 ReactNode，不感知提示词状态或保存逻辑。
 +- `V4ComposerToolbar.tsx`：解构已有 `sessionId`；在 `ModelConfigSelect` 前渲染开关（一个
 +  fragment + 一个 key）；使用已存在的 `useSettings({ services: baseServices })` 投影。
 +- `SessionPane.tsx`：新增一次本地设置投影 hook；包装 `createSubmissionFromComposer` 冻结
@@ -1968,26 +2184,34 @@ index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147
 +
 +## 回归矩阵
 +
-+| ID      | 场景                       | 断言                                             |
-+| ------- | -------------------------- | ------------------------------------------------ |
-+| MSP-S01 | 高级设置新增条目           | 精确 pair、文本规范化、只发送完整数组 patch      |
-+| MSP-S02 | 编辑/清空/删除/孤儿        | 清空删除；孤儿仍可见可删                         |
-+| MSP-S03 | 20 条边界与长文本         | 第 21 条本地拒绝；>8000 字符完整保存、冻结、透传 |
-+| MSP-S04 | 保存失败                   | 草稿与错误保留，可重试；pending 结束             |
-+| MSP-S05 | 外部刷新/快速换选/迟到保存 | 不覆盖 dirty 草稿，不串到新选择                  |
-+| MSP-C01 | 新会话与多会话             | 默认关闭；互不继承；重挂恢复                     |
-+| MSP-C02 | 模型切换                   | 有配置沿用 enabled；无配置隐藏且发送 false       |
-+| MSP-C03 | 草稿 promotion             | 值迁移到真实 session 并清草稿；新任务仍关闭      |
-+| MSP-C04 | 冻结与排队/失败恢复        | payload 保持当次快照；重试不重新读取开关         |
-+| MSP-C05 | 存储失败                   | 内存选项不丢，只降级持久性                       |
++| ID      | 场景                       | 断言                                              |
++| ------- | -------------------------- | ------------------------------------------------- |
++| MSP-S01 | 高级设置新增条目           | 精确 pair、文本规范化、只发送完整数组 patch       |
++| MSP-S02 | 编辑/清空/删除/孤儿        | 清空删除；孤儿仍可见可删                          |
++| MSP-S03 | 20 条边界与长文本          | 第 21 条本地拒绝；>8000 字符完整保存、冻结、透传  |
++| MSP-S04 | 保存失败                   | 草稿与错误保留，可重试；pending 结束              |
++| MSP-S05 | 外部刷新/快速换选/迟到保存 | 不覆盖 dirty 草稿，不串到新选择                   |
++| MSP-S06 | 标题卡入口与 dialog        | 按钮在标题卡内；dialog 默认不可见；取消不写       |
++| MSP-S07 | dialog 内独立模型选择      | 换 pair 不改 titleGenerationModel、不自动保存     |
++| MSP-S08 | dialog 键盘与长文本        | Ctrl/Cmd+Enter 保存；>9500 字符完整提交           |
++| MSP-S09 | 取消后重开 + 迟到成功      | 同 pair 未编辑草稿跟随成功/删除，不反写旧文本     |
++| MSP-S10 | 空选择与焦点               | placeholder 不可选；Cancel/Esc/save 归还入口焦点  |
++| MSP-S11 | 旧失败不串新 dialog        | pending 收尾；旧 dialog 会话错误不显示在新草稿    |
++| MSP-S12 | 丢弃编辑后重开 + 迟到成功  | 干净草稿按当前状态跟随成功/删除，历史版本不阻断   |
++| MSP-S13 | clean + overlay + 外部数组 | A overlay 与外部 B 同时保留；third 权威值优先     |
++| MSP-C01 | 新会话与多会话             | 默认关闭；互不继承；重挂恢复                      |
++| MSP-C02 | 模型切换                   | 有配置沿用 enabled；无配置隐藏且发送 false        |
++| MSP-C03 | 草稿 promotion             | 值迁移到真实 session 并清草稿；新任务仍关闭       |
++| MSP-C04 | 冻结与排队/失败恢复        | payload 保持当次快照；重试不重新读取开关          |
++| MSP-C05 | 存储失败                   | 内存选项不丢，只降级持久性                        |
 +| MSP-C06 | 旧 Host capability         | 旧 `modelSystemPrompt:true` 或缺失新位均隐藏/省略 |
-+| MSP-C07 | A pending 时外部加 C       | B 的 patch 保留 C；failed A 不成为 B 底稿        |
-+| MSP-C08 | 推荐换模 + barrier 改开关  | 只从冻结 intent/snapshot 解析最终模型            |
-+| MSP-C09 | 导航 abort / 迟到 ACK      | accepted 仍迁移；新 owner 不被清                 |
-+| MSP-C10 | 重复 accepted + 手动 off   | applied 保证不覆盖目标后来的 toggle              |
-+| MSP-C11 | 保存先匹配后外部再变       | 不建/清 overlay；clean 后跟随外部；B 不用旧值    |
-+| MSP-C12 | pending applied 写盘失败   | 新 renderer 重载后 query/snapshot 不覆盖显式 off |
-+| MSP-I01 | 中英文案                   | 键集合一致；新模块接入现有 i18n                  |
++| MSP-C07 | A pending 时外部加 C       | B 的 patch 保留 C；failed A 不成为 B 底稿         |
++| MSP-C08 | 推荐换模 + barrier 改开关  | 只从冻结 intent/snapshot 解析最终模型             |
++| MSP-C09 | 导航 abort / 迟到 ACK      | accepted 仍迁移；新 owner 不被清                  |
++| MSP-C10 | 重复 accepted + 手动 off   | applied 保证不覆盖目标后来的 toggle               |
++| MSP-C11 | 保存先匹配后外部再变       | 不建/清 overlay；clean 后跟随外部；B 不用旧值     |
++| MSP-C12 | pending applied 写盘失败   | 新 renderer 重载后 query/snapshot 不覆盖显式 off  |
++| MSP-I01 | 中英文案                   | 键集合一致；新模块接入现有 i18n                   |
 diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080f9de2638
