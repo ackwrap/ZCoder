@@ -9792,7 +9792,7 @@ index 9279edb4de5161405d6d8043a4cb6498fb3a90d6..adcb7a822176909ff6b26af28359212d
    registry: ProviderRegistryModelSource,
    requested: string,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
-index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127eaed2006 100644
+index efb8fe4855eeaa0e0895908e611ed4957ce82250..8186441bebdc436f043f2c700620967e011744e7 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts
 @@ -397,6 +397,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
@@ -9870,8 +9870,36 @@ index efb8fe4855eeaa0e0895908e611ed4957ce82250..2bf9943dbc53389fa313edfb3beb6127
          registered.push(definition.modelName);
        }
        appProvidedToolNames = registered;
+@@ -598,7 +611,10 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+         },
+       );
+     },
+-    setMode: async (mode: CollaborationMode) => {
++    setMode: async (
++      mode: CollaborationMode,
++      options?: { planEnabled?: boolean; preservePlan?: boolean },
++    ) => {
+       const previousMode = deps.runtime.getMode();
+       const session = await deps.sessionStore.getSession(deps.sessionId);
+       // 群模式属于任务授权；不能写入工作区默认模式，让其他群或私聊继承。
+@@ -608,7 +624,14 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
+           permission: { ...session.permission, mode },
+         });
+       }
+-      await deps.runtime.setExecutionState({ mode }, deps.traceContext);
++      await deps.runtime.setExecutionState(
++        {
++          mode,
++          ...(options?.preservePlan ? { preservePlan: true } : {}),
++          ...(options?.planEnabled === undefined ? {} : { planEnabled: options.planEnabled }),
++        },
++        deps.traceContext,
++      );
+       if (deps.localSettingStore && session?.permission?.scope !== "session") {
+         try {
+           await deps.localSettingStore.saveProjectPermissionMode({
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/types.ts b/apps/zcode-cli/packages/bootstrap/src/app/types.ts
-index e3bda0e37ceac56103f9f5f430cfefd20962e807..f0f455aa62766058768963c3019f3666887ebc25 100644
+index e3bda0e37ceac56103f9f5f430cfefd20962e807..81255a959350fb139f5a90972d9e40370dd7dd62 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/types.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/app/types.ts
 @@ -73,6 +73,7 @@ import type {
@@ -9882,7 +9910,21 @@ index e3bda0e37ceac56103f9f5f430cfefd20962e807..f0f455aa62766058768963c3019f3666
    ExecuteTurnOptions,
    ExpertWorkflowCommandResult,
    McpAppProvidedToolDefinition,
-@@ -718,6 +719,11 @@ export interface ZCodeApp {
+@@ -712,12 +713,24 @@ export interface ZCodeApp {
+     workflowKind?: string;
+   }): Promise<ExpertWorkflowCommandResult>;
+   sendInput(input: PromptInput, options?: SendInputOptions): Promise<SendInputResult>;
+-  setMode(mode: CollaborationMode): Promise<{
++  /**
++   * 权限位切换。preservePlan 让服务端执行时保留当前权威 Plan 位（权限-only 入口优先使用）；
++   * planEnabled 为旧发送端显式值；两者都不传时沿用旧语义（按 mode 推导 Plan）。
++   */
++  setMode(
++    mode: CollaborationMode,
++    options?: { planEnabled?: boolean; preservePlan?: boolean },
++  ): Promise<{
+     mode: CollaborationMode;
+     previousMode: CollaborationMode;
      traceId: TraceContext["traceId"];
    }>;
    setModelIoFullRetentionEnabled?(enabled: boolean): void;
@@ -10168,6 +10210,21 @@ index 6ab19fb0a13557bf463423714cd336ba8b4d6da3..f95038637036328fab3d4a3598645b62
    ...sessionFlowHandlers,
    ...queueHandlers,
    ...sessionMgmtHandlers,
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/model-config.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/model-config.ts
+index 3db5cb2dff7aabc4d81872b2f4bae309fa9f5ac6..4a952857692a78121de0c3d0183e1fc09612d138 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/model-config.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/model-config.ts
+@@ -161,7 +161,9 @@ async function switchCollaborationMode(
+   if (previousMode === mode && !record.app.runtime.getPlanEnabled()) {
+     throw new V4CommandNoopError(CONFIG_UNCHANGED);
+   }
+-  await record.app.setMode(mode);
++  if (payload.preservePlan === true) await record.app.setMode(mode, { preservePlan: true });
++  else if (payload.planEnabled === undefined) await record.app.setMode(mode);
++  else await record.app.setMode(mode, { planEnabled: payload.planEnabled });
+   return undefined;
+ }
+ 
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c05352c8b 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
@@ -14501,6 +14558,35 @@ index e72194e99f6a01c08962dcee52d498f2da8d6511..71304cec6fedf1bdcdad4275fcbad166
    it("协议命令全部原生（回落面清零）；未知命令不 supports", () => {
      const executor = new V4CommandExecutor(makeHost(makeRecord()));
      // 与 packages/shared/src/zcode-protocol-v4/command.ts 的 payload map 同步维护。
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-native-model-config.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-native-model-config.test.ts
+index 7143991e585a435e52dccdfb40e6cffc5420f4f6..4d9b470a871b09020a94c7b7efcaec9f16db9ce4 100644
+--- a/apps/zcode-cli/packages/bootstrap/tests/v4-native-model-config.test.ts
++++ b/apps/zcode-cli/packages/bootstrap/tests/v4-native-model-config.test.ts
+@@ -324,6 +324,24 @@ describe("v4 原生 switchCollaborationMode", () => {
+     expect(app.runtime.emitModeChanged).not.toHaveBeenCalled();
+   });
+ 
++  it("权限-only payload 携带 planEnabled 时透传，保留权威 Plan 位", async () => {
++    const app = makeApp();
++    const record = makeRecord(app);
++    await new V4CommandExecutor(makeHost(record)).execute(
++      modeEnvelope("s1", { mode: "yolo", planEnabled: true }),
++    );
++    expect(app.setMode).toHaveBeenCalledWith("yolo", { planEnabled: true });
++  });
++
++  it("preservePlan 由服务端保留当前 Plan 位，不信任客户端旧值", async () => {
++    const app = makeApp();
++    const record = makeRecord(app);
++    await new V4CommandExecutor(makeHost(record)).execute(
++      modeEnvelope("s1", { mode: "yolo", preservePlan: true }),
++    );
++    expect(app.setMode).toHaveBeenCalledWith("yolo", { preservePlan: true });
++  });
++
+   // R-19：同值切换从静默 return（被当 accepted）改为显式 noop——旧行为与投影种子缺失
+   // 叠加成过「点完全访问没反应」的用户可见 bug（runtime 已是 yolo、投影种子还是 build）。
+   it("同值切换：抛 V4CommandNoopError(config.unchanged)——不调 setMode、不补发事件（不 bump revision）", async () => {
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts b/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts
 index 0f09e82584c8ca153305b7e796aaf631340397b4..13c5ac9e4edcd7e54b762e472d2ddbebb6431e57 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/v4-native-session-mgmt.test.ts
@@ -16760,7 +16846,7 @@ index 28830dee7fdc26c4b0add45a90ce0a9e599729ab..ddaacf248713db9a99f7178698a4f204
 +  return typeof value === "string" ? value : undefined;
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
-index 862b572037e7a12aacf342d9b38fa806f6c51f9c..d4a9e59f06651ffe4a67f730d08598cb63326246 100644
+index 862b572037e7a12aacf342d9b38fa806f6c51f9c..96d174b832f3b65e34f1fbf8fb46d8872cab48cc 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 @@ -1,4 +1,9 @@
@@ -16855,6 +16941,15 @@ index 862b572037e7a12aacf342d9b38fa806f6c51f9c..d4a9e59f06651ffe4a67f730d08598cb
      // 同一条理由：会话在关，提醒钟不能再到点唤起一轮。
      this.workflowBlockedReminder.stop();
      // 关闭单个 session 后进程仍存活，
+@@ -411,7 +459,7 @@ export interface AgentRuntime {
+   getPlanEnabled(): boolean;
+   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;
+   setExecutionState(
+-    input: { mode?: string; planEnabled?: boolean },
++    input: { mode?: string; planEnabled?: boolean; preservePlan?: boolean },
+     traceContext?: TraceContext,
+   ): Promise<void>;
+   getSessionModelSelection(): ModelSelection | undefined;
 @@ -427,6 +475,16 @@ export interface AgentRuntime {
    ): void;
    /** renameSession：用户显式重命名（titleSource=custom，发 SessionTitleUpdated）。 */
@@ -17493,7 +17588,7 @@ index 78cddd91e028a00f4ed078961fb60177b6aeacad..6861f33805a110a83fc57c1e50646d68
  
  export function buildProviderRequestMessages(input: {
 diff --git a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts b/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
-index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..653b6d908d67b7adeaf9a9aab3ab020121297020 100644
+index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..208f205fc8ffa09df4206638998dc14d23efc472 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts
 @@ -181,7 +181,7 @@ function createRuntimeToolExecutor(
@@ -17505,8 +17600,209 @@ index d0ed719fa3d040ea7e3d421ce9637f64e23be0ea..653b6d908d67b7adeaf9a9aab3ab0201
      subagentPort: runtime.subagentPort,
      coordinatorResponsePort: deps.coordinatorResponsePort,
      workflowSubmitPort: deps.workflowSubmitPort,
+@@ -226,7 +226,8 @@ function createRuntimeToolExecutor(
+     permissionTimeoutMs: runtime.config.permissionTimeoutMs,
+     sessionId: runtime.sessionId,
+     traceContext: runtime.rootTraceContext,
+-    getMode: () => runtime.config.mode ?? "build",
++    // 工具准入必须走 runtime.getMode：默认继承型 child 的权限由父实时解析。
++    getMode: () => runtime.getMode(),
+     maxConcurrency: runtime.config.toolConcurrency?.maxConcurrency,
+   });
+ }
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/CONTRACT.md b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..efde8e16d45d6528d69711e82ece7ea5fade2c9a
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/CONTRACT.md
+@@ -0,0 +1,13 @@
++# inherited-mode
++
++默认继承型子代理的权限位实时解析：spawn 时注入一个 getter，之后 child 的 `getMode`/工具准入每次读取父当前有效 mode。不复制、不持久化、不订阅父变化，也不在父切换时逐个同步 child。
++
++不变量：
++
++- 只有 `permissionMode` 未指定或为 `default` 才注入；显式 `acceptEdits`/`auto`/`plan`/`bypassPermissions`/`dontAsk` 不注入，保持独立。
++- 普通 child 跟随父；内置 Explore 默认 yolo，`guarded` 父会话 clamp 为 `guarded`。复用 `inheritPermissionMode`。
++- child 本地 `config.mode` 写入不解除继承、不影响父；授权读取走 `getMode`，不是 child 配置。
++- 初始化/恢复跨 await 不需要握手：getter 一旦注入，`resumeFromStore` 覆盖 child config 也不影响 `getMode`。
++- 旧 pending/已进入 runner 的调用保留准入时捕获的 mode；只有之后的新准入动态遵守父。
++- Plan 是独立状态：`getPlanEnabled` 与 child 自己的 plan 不变；父的 `preservePlan` 只在父入口处理。
++- 不拥有审批、沙箱、工具策略或父 execution-state 提交；父仍按既有 persist→memory→event 语义提交。
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.example.ts b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1aff32d1184f5eda0981c8f0691af999ca79d8ab
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.example.ts
+@@ -0,0 +1,14 @@
++/**
++ * inherited-mode 标准调用示例：spawn 时注入 getter，之后不再同步。
++ */
++import { attachInheritedModeSource, resolveInheritedChildMode } from "./contract.js";
++import type { AgentRuntimeInternal } from "../internal.js";
++
++export function exampleInheritedMode(
++  parent: AgentRuntimeInternal,
++  child: AgentRuntimeInternal,
++  builtInExplore: boolean,
++): string {
++  attachInheritedModeSource(child, parent, builtInExplore);
++  return resolveInheritedChildMode(parent.getMode(), builtInExplore);
++}
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.test.ts b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..71d876abf80324180e2161fa07dd275e1d72b797
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.test.ts
+@@ -0,0 +1,61 @@
++import { describe, expect, it } from "vitest";
++
++import type { AgentRuntimeInternal } from "../internal.js";
++import { exampleInheritedMode } from "./contract.example.js";
++import { inheritedModeModule } from "./module.js";
++import {
++  attachInheritedModeSource,
++  resolveInheritedChildMode,
++  shouldInheritParentPermissionMode,
++} from "./contract.js";
++
++function fakeRuntime(mode: string) {
++  return {
++    config: { mode },
++    inheritedModeSource: undefined as (() => string) | undefined,
++    getMode() {
++      // 与生产 getMode 同序：继承源优先，否则本地 config。
++      return this.inheritedModeSource?.() ?? this.config.mode;
++    },
++  } as unknown as AgentRuntimeInternal;
++}
++
++describe("inherited-mode contract", () => {
++  it("declares its module manifest", () => {
++    expect(inheritedModeModule.id).toBe("inherited-mode");
++  });
++
++  it("only default/unspecified permissionMode is inheritable", () => {
++    expect(shouldInheritParentPermissionMode(undefined)).toBe(true);
++    expect(shouldInheritParentPermissionMode("default")).toBe(true);
++    for (const explicit of ["acceptEdits", "auto", "plan", "bypassPermissions", "dontAsk"]) {
++      expect(shouldInheritParentPermissionMode(explicit)).toBe(false);
++    }
++  });
++
++  it("Explore starts from yolo but a guarded parent clamps it", () => {
++    expect(resolveInheritedChildMode("build", true)).toBe("yolo");
++    expect(resolveInheritedChildMode("guarded", true)).toBe("guarded");
++    expect(resolveInheritedChildMode("guarded", false)).toBe("guarded");
++    expect(resolveInheritedChildMode("yolo", false)).toBe("yolo");
++  });
++
++  it("getter follows the parent live without writing child config", () => {
++    const parent = fakeRuntime("build");
++    const child = fakeRuntime("build");
++    attachInheritedModeSource(child, parent, true);
++
++    expect(child.getMode()).toBe("yolo");
++    parent.config.mode = "guarded";
++    expect(child.getMode()).toBe("guarded");
++    expect(child.config.mode).toBe("build");
++  });
++
++  it("contract example attaches the getter and resolves Explore clamping", () => {
++    const parent = fakeRuntime("guarded");
++    const child = fakeRuntime("yolo");
++
++    expect(exampleInheritedMode(parent, child, true)).toBe("guarded");
++    expect(child.getMode()).toBe("guarded");
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.ts b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c524b212bb4225642de965043faafa42a47b7746
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/contract.ts
+@@ -0,0 +1,19 @@
++/**
++ * inherited-mode 对外契约：默认继承型子代理的权限位如何实时解析。
++ *
++ * 一个意图：parent spawn child 时注入一个 getter，child 的 getMode/工具准入每次读取
++ * 父当前有效 mode；不复制、不持久化、不订阅父模式变化。显式 permissionMode 不注入。
++ */
++import type { CollaborationMode } from "@zcode/contracts";
++
++export {
++  attachInheritedModeSource,
++  resolveInheritedChildMode,
++  shouldInheritParentPermissionMode,
++} from "./runtime.js";
++
++/** 子代理可继承的权限位；plan 是独立状态，不在权限位里。 */
++export type InheritedPermissionMode = Extract<
++  CollaborationMode,
++  "build" | "edit" | "guarded" | "yolo" | "auto"
++>;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/module.ts b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e2b810bf9750a604172af5cb3a5c2ee81da17dbf
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * inherited-mode 模块清单（architecture-governance managed 模块）。
++ * 层：app。修改 requires 时同步更新 architecture-policy.yaml（检查器会校验两者一致）。
++ */
++export const inheritedModeModule = {
++  id: "inherited-mode",
++  requires: ["zcode-cli"],
++  provides: ["inherited-mode"],
++  publicEntrypoints: ["contract.ts"],
++} as const;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/inherited-mode/runtime.ts b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/runtime.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bee02310a18474ce326bbf61e9077798d9b1671d
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/runtime/inherited-mode/runtime.ts
+@@ -0,0 +1,38 @@
++import { inheritPermissionMode, type CollaborationMode } from "@zcode/contracts";
++
++import type { AgentRuntimeInternal } from "../internal.js";
++
++/**
++ * 子代理初始化/恢复跨越多个 await：只有 default/未指定才是继承型；
++ * 显式 permissionMode（acceptEdits/auto/plan/bypassPermissions/dontAsk）保持独立。
++ */
++export function shouldInheritParentPermissionMode(permissionMode: string | undefined): boolean {
++  return permissionMode === undefined || permissionMode === "default";
++}
++
++/**
++ * 与 resolveSubagentPermissionMode 的继承分支同源：
++ * 普通子代理跟随父权限；内置 Explore 默认 yolo，但 guarded 父会话必须 clamp。
++ */
++export function resolveInheritedChildMode(
++  parentMode: CollaborationMode,
++  builtInExplore: boolean,
++): CollaborationMode {
++  return builtInExplore
++    ? inheritPermissionMode(parentMode, "yolo")
++    : inheritPermissionMode(parentMode, parentMode);
++}
++
++/**
++ * 默认继承型 child：getMode 每次读取父当前有效 mode。
++ * 不复制、不持久化、不订阅父模式变化；初始化/恢复窗口由实时读取自然关闭。
++ * child 本地 config 写入不解除继承；显式 permissionMode 的 child 不调用本函数。
++ */
++export function attachInheritedModeSource(
++  child: AgentRuntimeInternal,
++  parent: AgentRuntimeInternal,
++  builtInExplore: boolean,
++): void {
++  child.inheritedModeSource = () =>
++    resolveInheritedChildMode(parent.getMode(), builtInExplore);
++}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
-index a3f20b7290ac9f629a4fd0b17db40522a3988e54..3fb91773c466c7dc749921fa85425623cd423726 100644
+index a3f20b7290ac9f629a4fd0b17db40522a3988e54..8e14f55b8f12b8d7c1bc81329a6fb5cc201f06e4 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
 @@ -37,6 +37,7 @@ import type {
@@ -17517,6 +17813,15 @@ index a3f20b7290ac9f629a4fd0b17db40522a3988e54..3fb91773c466c7dc749921fa85425623
  import type {
    ActiveTurnInfo,
    AcquireForegroundPromotionLeaseResult,
+@@ -76,7 +77,7 @@ export interface AgentRuntimeCoreMethods {
+   getPlanEnabled(): boolean;
+   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;
+   setExecutionState(
+-    input: { mode?: string; planEnabled?: boolean },
++    input: { mode?: string; planEnabled?: boolean; preservePlan?: boolean },
+     traceContext?: TraceContext,
+   ): Promise<void>;
+   getSessionModelSelection(): ModelSelection | undefined;
 @@ -92,6 +93,16 @@ export interface AgentRuntimeCoreMethods {
      options?: { goalSummaryTargetID?: string; traceContext?: TraceContext },
    ): void;
@@ -17562,7 +17867,7 @@ index 3160a2679e73589f833d22854284b83a5566c65c..f9a0a29ba541a650c7e8d029e959b783
    ): Promise<void>;
    persistUserPrompt(
 diff --git a/apps/zcode-cli/packages/core/src/runtime/internal.ts b/apps/zcode-cli/packages/core/src/runtime/internal.ts
-index 1ea63fc4105aab36fb3530962ef3166e766a6d55..6a9ab84ea4cb97dc4c60abd9d27782642cb4211c 100644
+index 1ea63fc4105aab36fb3530962ef3166e766a6d55..679c52efaa10a6cd6bfe06a2ac187b876a359538 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/internal.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/internal.ts
 @@ -1,4 +1,5 @@
@@ -17571,7 +17876,15 @@ index 1ea63fc4105aab36fb3530962ef3166e766a6d55..6a9ab84ea4cb97dc4c60abd9d2778264
  import type {
    Logger,
    ModelSelection,
-@@ -97,6 +98,7 @@ export interface AgentRuntimeInternal
+@@ -34,6 +35,7 @@ import type {
+   ToolRegistry,
+   ContextBuilder,
+   ContextBuildResult,
++  CollaborationMode,
+ } from "./deps.js";
+ import type {
+   ActiveTurnSteeringState,
+@@ -97,6 +99,7 @@ export interface AgentRuntimeInternal
    contextBuilder: ContextBuilder | null;
    contextInitialized: boolean;
    contextSourceSnapshot?: ContextSourceSnapshot;
@@ -17579,7 +17892,7 @@ index 1ea63fc4105aab36fb3530962ef3166e766a6d55..6a9ab84ea4cb97dc4c60abd9d2778264
    latestContextBuildResult?: ContextBuildResult;
    memoryRoot?: string;
    memoryIndexContent?: string;
-@@ -107,6 +109,7 @@ export interface AgentRuntimeInternal
+@@ -107,6 +110,7 @@ export interface AgentRuntimeInternal
    pendingMemoryUpdate?: ProjectMemoryUpdate;
    contextSourcePort?: ContextSourcePort;
    skillPort?: SkillPort;
@@ -17587,7 +17900,19 @@ index 1ea63fc4105aab36fb3530962ef3166e766a6d55..6a9ab84ea4cb97dc4c60abd9d2778264
    mcpPort?: McpPort;
    mcpStartupPromise?: Promise<McpConnectionSnapshot>;
    residencyBlockingWorkCount: number;
-@@ -138,6 +141,11 @@ export interface AgentRuntimeInternal
+@@ -117,6 +121,11 @@ export interface AgentRuntimeInternal
+   mcpToolsSignature?: string;
+   mcpToolListRevision?: number;
+   subagentPort?: SubagentPort;
++  /**
++   * 默认继承父权限的 child：getMode/工具准入每次读取父当前有效 mode。
++   * 显式 permissionMode 的 child 不注入；child 本地 config 写入不解除继承。
++   */
++  inheritedModeSource?: () => CollaborationMode;
+   getAgentDefinitions: NonNullable<AgentRuntimeDeps["getAgentDefinitions"]>;
+   prepareAgentDefinitions: (input: {
+     signal: AbortSignal;
+@@ -138,6 +147,11 @@ export interface AgentRuntimeInternal
    imageProcessorPort?: ImageProcessorPort;
    pdfDocumentPort?: PdfDocumentPort;
    skillLoadOutcome?: SkillLoadOutcome;
@@ -17884,6 +18209,50 @@ index 9b16555b64ae068599461489ca25ab45520a846c..55bd5f51be1d5ec605410ce42ee1c6d2
          semantics: {
            origin: "agent_runtime",
            kind: "compact_summary",
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
+index adc936f95d04637f9ec078e92a5205bfcc65df92..09e68efeb2374522d0c9a8ec49d52d20aec53dee 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/config.ts
+@@ -26,7 +26,10 @@ import {
+ import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
+ import type { AgentRuntimeInternal } from "../internal.js";
+ import { cloneModelSelection } from "../model-selection.js";
+-import { applyRuntimeExecutionState } from "../execution-state.js";
++import {
++  applyRuntimeExecutionState,
++  readRuntimeExecutionState,
++} from "../execution-state.js";
+ 
+ import { mirrorSubagentInteractionEvent } from "../../subagent/tool-event-mirror.js";
+ import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
+@@ -41,10 +44,15 @@ import {
+ 
+ export async function setExecutionState(
+   this: AgentRuntimeInternal,
+-  input: { mode?: string; planEnabled?: boolean },
++  input: { mode?: string; planEnabled?: boolean; preservePlan?: boolean },
+   traceContext?: TraceContext,
+ ): Promise<void> {
+-  await applyRuntimeExecutionState(this, input, { source: "command", traceContext });
++  // 权限-only 入口在服务端保留当前权威 Plan 位；旧发送端仍可显式传 planEnabled。
++  const state =
++    input.preservePlan && input.mode !== "plan"
++      ? { ...input, planEnabled: readRuntimeExecutionState(this).planEnabled }
++      : input;
++  await applyRuntimeExecutionState(this, state, { source: "command", traceContext });
+ }
+ 
+ export function updateConfig(
+@@ -86,7 +94,8 @@ export function getSessionShellSelection(
+ }
+ 
+ export function getMode(this: AgentRuntimeInternal): CollaborationMode {
+-  return this.config.mode ?? "build";
++  // 默认继承型 child 实时读取父当前有效 mode；显式 child 没有该源，仍用本地 config。
++  return this.inheritedModeSource?.() ?? (this.config.mode ?? "build");
+ }
+ 
+ export function getPlanEnabled(this: AgentRuntimeInternal): boolean {
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
 index 591619e469c542125350313fae1491cc246b89f2..eb3e1978df1dfe8638f94d62f4d153964033b835 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
@@ -21335,10 +21704,21 @@ index 547243e05f1c3f65492c6f12eb6be87285301902..fd0bf933054b3606fea6573db5652010
 +  );
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts b/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
-index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3994918e6 100644
+index 372999d848356c01116f8041e1df4f31b558232e..c3de09dee3b2969e02e9bab9744f733980461a1d 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
-@@ -294,10 +294,15 @@ export function createDefaultSubagentPort(
+@@ -63,6 +63,10 @@ import { computeOfficialCuaServerNames } from "./mcp.js";
+ import { persistRuntimeModelSelection, sameModelSelection } from "./turn-model.js";
+ import { getOffPeakExecution, markTemporaryRuntimeSelection } from "../off-peak/runtime.js";
+ import { getOffPeakModelBinding } from "../off-peak/model-binding.js";
++import {
++  attachInheritedModeSource,
++  shouldInheritParentPermissionMode,
++} from "../inherited-mode/contract.js";
+ 
+ export function createDefaultSubagentPort(
+   this: AgentRuntimeInternal,
+@@ -294,10 +298,15 @@ export function createDefaultSubagentPort(
              midConversationSystem: this.config.midConversationSystem,
              toolSearch: this.config.toolSearch,
              bashShellSelection,
@@ -21355,7 +21735,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3
                ...(agentsMdInstructions ? { userInstructions: agentsMdInstructions } : {}),
              },
              agentName: `zcode-${request.agentType}`,
-@@ -363,6 +368,7 @@ export function createDefaultSubagentPort(
+@@ -363,6 +372,7 @@ export function createDefaultSubagentPort(
              toolScheduler: deps.toolScheduler ?? defaultScheduler,
              executionPort: deps.executionPort,
              fileSystemPort: deps.fileSystemPort,
@@ -21363,16 +21743,23 @@ index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3
              // Explore 子运行时会暴露 WebFetch，但之前没有继承主 runtime 的
              // HTTP client port，导致工具在真正发请求前抛出配置错误，而不是网络请求失败。
              httpClientPort: deps.httpClientPort,
-@@ -411,71 +417,71 @@ export function createDefaultSubagentPort(
+@@ -410,72 +420,81 @@ export function createDefaultSubagentPort(
+             traceContext: request.traceContext,
            },
          );
- 
+-
 -        const resumesExistingChild = request.resumeFromStore === true;
 -        if (childBinding)
 -          markTemporaryRuntimeSelection(
--            childRuntime as unknown as AgentRuntimeInternal,
++        // 默认继承型 child 的 getMode 实时读父当前有效 mode；初始化/恢复跨 await 也不会
++        // 错过切换。显式 permissionMode 不注入，保持独立。
++        if (shouldInheritParentPermissionMode(request.permissionMode)) {
++          attachInheritedModeSource(
+             childRuntime as unknown as AgentRuntimeInternal,
 -            offPeak?.ordinarySelection,
--          );
++            this,
++            builtInExplore,
+           );
 -        let previousSelection: ModelSelection | undefined;
 -        if (resumesExistingChild) {
 -          const persistedMessages = await this.sessionStore?.messages({
@@ -21384,47 +21771,8 @@ index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3
 -              CoreErrorType.SessionNotFound,
 -              `No transcript found for agent ${request.agentId}`,
 -              { recoverable: true },
-+        try {
-+          const resumesExistingChild = request.resumeFromStore === true;
-+          if (childBinding)
-+            markTemporaryRuntimeSelection(
-+              childRuntime as unknown as AgentRuntimeInternal,
-+              offPeak?.ordinarySelection,
-             );
-+          let previousSelection: ModelSelection | undefined;
-+          if (resumesExistingChild) {
-+            const persistedMessages = await this.sessionStore?.messages({
-+              sessionID: request.sessionId,
-+            });
-+            // terminal resume 只恢复已有历史；模型初始化前失败不能变成一次空 session 创建。
-+            if (!persistedMessages?.length) {
-+              throw createCoreError(
-+                CoreErrorType.SessionNotFound,
-+                `No transcript found for agent ${request.agentId}`,
-+                { recoverable: true },
-+              );
-+            }
-+            const entries = await this.sessionStore?.sessionEntries?.({
-+              sessionID: request.sessionId,
-+              type: SESSION_ENTRY_MODEL_SELECTION,
-+            });
-+            previousSelection = parseModelSelectionValue(entries?.at(-1)?.data);
-+            await childRuntime.resumeFromStore({
-+              persistedMessages,
-+              traceContext: request.traceContext,
-+            });
-+            // 恢复只导入历史；本轮 profile 选出的模型仍是执行权威，并更新冷恢复所用的选择记录。
-+            await persistRuntimeModelSelection(
-+              childRuntime as unknown as AgentRuntimeInternal,
-+              childSelection,
-+            );
-+          } else {
-+            // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
-+            // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
-+            await childRuntime.ensureSessionPersistedForExternalActivity(request.prompt, {
-+              traceContext: request.traceContext,
-+            });
-           }
+-            );
+-          }
 -          const entries = await this.sessionStore?.sessionEntries?.({
 -            sessionID: request.sessionId,
 -            type: SESSION_ENTRY_MODEL_SELECTION,
@@ -21468,9 +21816,50 @@ index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3
 -            previousModelSelection: previousSelection ?? null,
 -            traceContext: request.traceContext,
 -          });
--        }
+         }
 -        request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
--        try {
++
+         try {
++          const resumesExistingChild = request.resumeFromStore === true;
++          if (childBinding)
++            markTemporaryRuntimeSelection(
++              childRuntime as unknown as AgentRuntimeInternal,
++              offPeak?.ordinarySelection,
++            );
++          let previousSelection: ModelSelection | undefined;
++          if (resumesExistingChild) {
++            const persistedMessages = await this.sessionStore?.messages({
++              sessionID: request.sessionId,
++            });
++            // terminal resume 只恢复已有历史；模型初始化前失败不能变成一次空 session 创建。
++            if (!persistedMessages?.length) {
++              throw createCoreError(
++                CoreErrorType.SessionNotFound,
++                `No transcript found for agent ${request.agentId}`,
++                { recoverable: true },
++              );
++            }
++            const entries = await this.sessionStore?.sessionEntries?.({
++              sessionID: request.sessionId,
++              type: SESSION_ENTRY_MODEL_SELECTION,
++            });
++            previousSelection = parseModelSelectionValue(entries?.at(-1)?.data);
++            await childRuntime.resumeFromStore({
++              persistedMessages,
++              traceContext: request.traceContext,
++            });
++            // 恢复只导入历史；本轮 profile 选出的模型仍是执行权威，并更新冷恢复所用的选择记录。
++            await persistRuntimeModelSelection(
++              childRuntime as unknown as AgentRuntimeInternal,
++              childSelection,
++            );
++          } else {
++            // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
++            // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
++            await childRuntime.ensureSessionPersistedForExternalActivity(request.prompt, {
++              traceContext: request.traceContext,
++            });
++          }
 +          await notifySessionReady();
 +          if (
 +            !resumesExistingChild ||
@@ -21498,7 +21887,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..588d901ed20b8355ebc1b41bce7af8a3
            return await childRuntime.executeTurn(request.prompt, undefined, {
              ...(childBinding
                ? {
-@@ -494,6 +500,7 @@ export function createDefaultSubagentPort(
+@@ -494,6 +513,7 @@ export function createDefaultSubagentPort(
              traceContext: request.traceContext,
            });
          } finally {
@@ -22096,6 +22485,19 @@ index 22a30b77fff28dfcf4ba7a1293408e3e67b82699..81f70f4a535241f23633ada469d376d3
          throw coreError;
        }
      }).then(
+diff --git a/apps/zcode-cli/packages/core/src/runtime/session-mode-port.ts b/apps/zcode-cli/packages/core/src/runtime/session-mode-port.ts
+index 0172b60ca5ab77910558039ce45155387ca7acf9..2369bb097a4517f7cc2eb815dbf33bba0e6443f9 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/session-mode-port.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/session-mode-port.ts
+@@ -5,7 +5,7 @@ import { applyRuntimeExecutionState, readRuntimeExecutionState } from "./executi
+ export function createRuntimeSessionModePort(runtime: AgentRuntimeInternal): SessionModePort {
+   return {
+     supportsPermissionFullAccess: () => Boolean(runtime.sessionStore?.commitPermissionFullAccess),
+-    getMode: () => runtime.config.mode ?? "build",
++    getMode: () => runtime.getMode(),
+     getPrePlanMode: () => undefined,
+     isPlanEnabled: () => readRuntimeExecutionState(runtime).planEnabled,
+     async enterPlanMode(input) {
 diff --git a/apps/zcode-cli/packages/core/src/runtime/types.ts b/apps/zcode-cli/packages/core/src/runtime/types.ts
 index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..bf1fc8779e4ee1acfa5b30a1c0e7d32ae0650061 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/types.ts
@@ -25402,6 +25804,50 @@ index 0000000000000000000000000000000000000000..f11eec1bb525545f3988a087b769f962
 +    }
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/core/tests/independent-plan-state.test.ts b/apps/zcode-cli/packages/core/tests/independent-plan-state.test.ts
+index fbdb693a5b6abe3f7cc63acb8153f8edebf33931..2ffb0f0075cd1b9cda18fd17f52d2864610d68e8 100644
+--- a/apps/zcode-cli/packages/core/tests/independent-plan-state.test.ts
++++ b/apps/zcode-cli/packages/core/tests/independent-plan-state.test.ts
+@@ -1,7 +1,10 @@
+ import { describe, expect, it, vi } from "vitest";
++import { createSessionId } from "@zcode/contracts";
+ import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
+ import { createRuntimeSessionModePort } from "../src/runtime/session-mode-port.js";
+ import { PermissionService } from "../src/permission/service.js";
++import { createTestAgentRuntime } from "./test-agent-runtime.js";
++import { createTestSessionEventStore } from "./test-event-store.js";
+ 
+ describe("Todo151 独立 Plan", () => {
+   it("持久化失败时不退出 Plan，也不发布成功事件", async () => {
+@@ -19,6 +22,19 @@ describe("Todo151 独立 Plan", () => {
+     expect(fixture.appendEvent).not.toHaveBeenCalled();
+   });
+ 
++  it("preservePlan 权限-only 切换保留服务端权威 Plan 位", async () => {
++    const runtime = createTestAgentRuntime(
++      createSessionId("preserve-plan"),
++      { mode: "guarded", planEnabled: true, workingDirectory: "/workspace" },
++      { eventStore: createTestSessionEventStore() },
++    );
++
++    await runtime.setExecutionState({ mode: "yolo", preservePlan: true });
++
++    expect(runtime.getMode()).toBe("yolo");
++    expect(runtime.getPlanEnabled()).toBe(true);
++  });
++
+   it("工具进入／批准退出不改变 yolo，状态成对保存", async () => {
+     const fixture = {
+       sessionId: "session",
+diff --git a/apps/zcode-cli/packages/core/tests/inherited-mode-contract.test.ts b/apps/zcode-cli/packages/core/tests/inherited-mode-contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e86793928f8370307360598945620d921cec48f1
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/inherited-mode-contract.test.ts
+@@ -0,0 +1,3 @@
++// core Vitest 只收集 tests/ 入口；此 wrapper 让 src/runtime/inherited-mode/contract.test.ts
++// 在现有入口执行，不修改 root 配置、不放宽全局扫描。
++import "../src/runtime/inherited-mode/contract.test.js";
 diff --git a/apps/zcode-cli/packages/core/tests/instruction-file-updates.test.ts b/apps/zcode-cli/packages/core/tests/instruction-file-updates.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..55928071921e78290075cac04afe197c3d26c1cf
@@ -27880,6 +28326,355 @@ index d821a0be80568a88b4801082816b25fd259b04c6..7e99888fb0e29f754152be0c9ba72e9f
  
  Complete the user's search request efficiently and report your findings clearly.`;
  
+diff --git a/apps/zcode-cli/packages/core/tests/subagent-mode-inheritance.test.ts b/apps/zcode-cli/packages/core/tests/subagent-mode-inheritance.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d5534ea01450cb89eb8697fa160dc84acd80ca6
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/subagent-mode-inheritance.test.ts
+@@ -0,0 +1,343 @@
++import { describe, expect, it, vi } from "vitest";
++import {
++  createSessionId,
++  SessionEventType,
++  type CollaborationMode,
++  type PermissionBrokerRequest,
++  type SessionEvent,
++  type SessionEventStorePort,
++} from "@zcode/contracts";
++import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
++import {
++  attachInheritedModeSource,
++  resolveInheritedChildMode,
++  shouldInheritParentPermissionMode,
++} from "../src/runtime/inherited-mode/contract.js";
++import { createManualPermissionBroker } from "../src/permission/broker.js";
++import { createTestAgentRuntime } from "./test-agent-runtime.js";
++import { createTestModelFactory } from "./test-runtime-model.js";
++import { createTestSessionEventStore } from "./test-event-store.js";
++
++type TestRuntime = ReturnType<typeof createTestAgentRuntime>;
++
++function makeRuntime(
++  name: string,
++  mode: CollaborationMode,
++  deps: Record<string, unknown> = {},
++): TestRuntime {
++  return createTestAgentRuntime(
++    createSessionId(name),
++    { mode, workingDirectory: "/workspace" },
++    { eventStore: createTestSessionEventStore(), ...deps },
++  );
++}
++
++function stateOf(runtime: TestRuntime) {
++  return runtime as unknown as AgentRuntimeInternal;
++}
++
++function attachChild(parent: TestRuntime, child: TestRuntime, builtInExplore = false): void {
++  attachInheritedModeSource(stateOf(child), stateOf(parent), builtInExplore);
++}
++
++function modeEvents(store: SessionEventStorePort, sessionId: string) {
++  return store
++    .getEvents(sessionId as never)
++    .then((events) => events.filter((event) => event.type === SessionEventType.SessionModeChanged));
++}
++
++function attachSessionStore(
++  runtime: TestRuntime,
++  saveSessionEntry: (entry: unknown) => Promise<void>,
++) {
++  const store = { saveSessionEntry: vi.fn(saveSessionEntry) };
++  (runtime as unknown as { sessionStore: typeof store; sessionPersisted: boolean }).sessionStore =
++    store;
++  (runtime as unknown as { sessionPersisted: boolean }).sessionPersisted = true;
++  return store;
++}
++
++function switchableEventStore() {
++  const store = createTestSessionEventStore();
++  const append = store.append.bind(store);
++  const control = { fail: false };
++  store.append = async (event) => {
++    if (control.fail) throw new Error("event store unavailable");
++    return append(event);
++  };
++  return { store, control };
++}
++
++function deferred<T>() {
++  let resolve!: (value: T) => void;
++  const promise = new Promise<T>((resolvePromise) => {
++    resolve = resolvePromise;
++  });
++  return { promise, resolve };
++}
++
++describe("继承型子代理权限动态解析", () => {
++  it("父切换后 child.getMode 实时跟随，child config 与事件不变", async () => {
++    const childEvents = createTestSessionEventStore();
++    const parent = makeRuntime("parent-dynamic", "yolo");
++    const child = makeRuntime("child-dynamic", "yolo", { eventStore: childEvents });
++    attachChild(parent, child);
++
++    await parent.setExecutionState({ mode: "guarded" });
++
++    expect(parent.getMode()).toBe("guarded");
++    expect(child.getMode()).toBe("guarded");
++    // 不复制、不持久化、不发布 child 模式事件。
++    expect((stateOf(child) as { config: { mode: string } }).config.mode).toBe("yolo");
++    expect(await modeEvents(childEvents, String(stateOf(child).sessionId))).toHaveLength(0);
++
++    await parent.setExecutionState({ mode: "yolo" });
++    expect(child.getMode()).toBe("yolo");
++  });
++
++  it("Explore 默认 yolo，guarded 父会话 clamp", () => {
++    const parent = makeRuntime("parent-explore", "build");
++    const explore = makeRuntime("explore-dynamic", "build");
++    attachChild(parent, explore, true);
++
++    expect(explore.getMode()).toBe(resolveInheritedChildMode("build", true));
++    (stateOf(parent) as { config: { mode: string } }).config.mode = "guarded";
++    expect(explore.getMode()).toBe("guarded");
++    (stateOf(parent) as { config: { mode: string } }).config.mode = "yolo";
++    expect(explore.getMode()).toBe("yolo");
++  });
++
++  it("显式 permissionMode 的 child 不注入，父切换不影响", async () => {
++    for (const explicit of ["acceptEdits", "auto", "plan", "bypassPermissions", "dontAsk"]) {
++      expect(shouldInheritParentPermissionMode(explicit)).toBe(false);
++    }
++    const parent = makeRuntime("parent-explicit", "yolo");
++    const child = makeRuntime("child-explicit", "guarded");
++    // 显式 child 不调用 attachChild。
++    await parent.setExecutionState({ mode: "yolo" });
++    expect(child.getMode()).toBe("guarded");
++    await parent.setExecutionState({ mode: "build" });
++    expect(child.getMode()).toBe("guarded");
++  });
++
++  it("嵌套 getMode 链按父实时值组合", () => {
++    const parent = makeRuntime("parent-nested", "yolo");
++    const child = makeRuntime("child-nested", "yolo");
++    const grandchild = makeRuntime("grandchild-nested", "yolo");
++    attachChild(parent, child);
++    attachChild(child, grandchild);
++
++    (stateOf(parent) as { config: { mode: string } }).config.mode = "guarded";
++    expect(child.getMode()).toBe("guarded");
++    expect(grandchild.getMode()).toBe("guarded");
++  });
++
++  it("child 本地 config 写入不解除继承、不写父", () => {
++    const parent = makeRuntime("parent-local-write", "yolo");
++    const child = makeRuntime("child-local-write", "yolo");
++    attachChild(parent, child);
++
++    (stateOf(child) as { config: { mode: string } }).config.mode = "build";
++    expect(child.getMode()).toBe("yolo");
++    (stateOf(parent) as { config: { mode: string } }).config.mode = "guarded";
++    expect(child.getMode()).toBe("guarded");
++    expect(parent.getMode()).toBe("guarded");
++  });
++
++  it("resume 覆盖 child config 后 getMode 仍读父", () => {
++    const parent = makeRuntime("parent-resume-dynamic", "guarded");
++    const child = makeRuntime("child-resume-dynamic", "guarded");
++    attachChild(parent, child);
++    // 模拟 resumeFromStore 按历史写回旧模式。
++    (stateOf(child) as { config: { mode: string } }).config.mode = "yolo";
++    expect(child.getMode()).toBe("guarded");
++  });
++
++  it("旧准入捕获值不变，新准入读父当前值", async () => {
++    const parent = makeRuntime("parent-captured", "yolo");
++    const child = makeRuntime("child-captured", "yolo");
++    attachChild(parent, child);
++    const capturedAtAdmission = child.getMode();
++
++    await parent.setExecutionState({ mode: "guarded" });
++
++    expect(capturedAtAdmission).toBe("yolo");
++    expect(child.getMode()).toBe("guarded");
++  });
++
++  it("父 save 失败不生效；同值再请求成功后 child 新准入才更新", async () => {
++    const parentEvents = createTestSessionEventStore();
++    const parent = makeRuntime("parent-save-fail", "yolo", { eventStore: parentEvents });
++    const child = makeRuntime("child-save-fail", "yolo");
++    attachChild(parent, child);
++    const store = attachSessionStore(parent, async () => {
++      throw new Error("disk full");
++    });
++
++    await expect(parent.setExecutionState({ mode: "guarded" })).rejects.toThrow("disk full");
++    expect(parent.getMode()).toBe("yolo");
++    expect(child.getMode()).toBe("yolo");
++    expect(await modeEvents(parentEvents, String(stateOf(parent).sessionId))).toHaveLength(0);
++
++    store.saveSessionEntry.mockResolvedValue(undefined);
++    await parent.setExecutionState({ mode: "guarded" });
++
++    expect(parent.getMode()).toBe("guarded");
++    expect(child.getMode()).toBe("guarded");
++    expect(await modeEvents(parentEvents, String(stateOf(parent).sessionId))).toHaveLength(1);
++  });
++
++  it("父 event 失败时内存已生效；同值再请求不再产生新事务", async () => {
++    const parentEvents = switchableEventStore();
++    const parent = makeRuntime("parent-event-fail", "yolo", {
++      eventStore: parentEvents.store,
++    });
++    const child = makeRuntime("child-event-fail", "yolo");
++    attachChild(parent, child);
++    const store = attachSessionStore(parent, async () => {});
++    parentEvents.control.fail = true;
++
++    await expect(parent.setExecutionState({ mode: "guarded" })).rejects.toThrow(
++      "event store unavailable",
++    );
++    // persist 成功后的内存赋值是有效提交点；event 失败不回滚、不再开新事务。
++    expect(parent.getMode()).toBe("guarded");
++    expect(child.getMode()).toBe("guarded");
++    expect(store.saveSessionEntry).toHaveBeenCalledTimes(1);
++    expect(await modeEvents(parentEvents.store, String(stateOf(parent).sessionId))).toHaveLength(
++      0,
++    );
++
++    parentEvents.control.fail = false;
++    await parent.setExecutionState({ mode: "guarded" });
++    // 同值走 HEAD 的 early-return：没有第二次保存/事件。
++    expect(store.saveSessionEntry).toHaveBeenCalledTimes(1);
++    expect(parent.getMode()).toBe("guarded");
++  });
++
++  it("真实 spawn：child 初始化 await 期间父切 guarded，首个工具准入读到新权限", async () => {
++    const parentSessionId = createSessionId("real-spawn-parent");
++    const childCreateStarted = deferred<void>();
++    const releaseChildCreate = deferred<void>();
++    const requests: PermissionBrokerRequest[] = [];
++    const parentEvents: SessionEvent[] = [];
++    const execute = vi.fn(async () => {
++      throw new Error("Must not execute");
++    });
++    let childCalls = 0;
++    let mainCalls = 0;
++    const eventStore = createTestSessionEventStore();
++    const broker = createManualPermissionBroker({
++      onRequest: (request) => {
++        requests.push(request);
++      },
++    });
++    const sessionStore = {
++      createSession: vi.fn(async (input: { id: string }) => {
++        if (input.id !== parentSessionId) {
++          childCreateStarted.resolve();
++          await releaseChildCreate.promise;
++        }
++        return { id: input.id } as never;
++      }),
++      getSession: vi.fn(async (id: string) => ({ id, directory: "/workspace" }) as never),
++      messages: vi.fn(async () => []),
++      sessionEntries: vi.fn(async () => []),
++      saveSessionEntry: vi.fn(async () => {}),
++      saveMessage: vi.fn(async () => {}),
++      savePart: vi.fn(async () => {}),
++      updateSession: vi.fn(async () => {}),
++    };
++    const runtime = createTestAgentRuntime(
++      parentSessionId,
++      {
++        mode: "yolo",
++        workingDirectory: "/workspace/real-spawn",
++        bashShellSelection: {
++          dialect: "posix",
++          source: "auto-detected",
++          display: { name: "bash" },
++        },
++      },
++      {
++        eventStore,
++        sessionStore: sessionStore as never,
++        executionPort: { run: execute },
++        permissionBroker: {
++          requestPermission: (request, options) =>
++            broker.requestPermission(request, { ...options, timeoutMs: 3000 }),
++        },
++        modelFactory: createTestModelFactory({
++          async generateText(request, observation) {
++            const child =
++              (observation.invocationContext?.metadata as { querySource?: string })
++                ?.querySource === "subagent";
++            const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
++            if (child && ++childCalls === 1) {
++              return {
++                finishReason: "tool-calls",
++                text: "",
++                usage,
++                toolCalls: [
++                  { id: "child-rm", name: "Bash", input: { command: "rm -rf fixture" } },
++                ],
++              };
++            }
++            if (!child && ++mainCalls === 1) {
++              return {
++                finishReason: "tool-calls",
++                text: "",
++                usage,
++                toolCalls: [
++                  {
++                    id: "parent-agent",
++                    name: "Agent",
++                    input: {
++                      description: "test",
++                      prompt: "test",
++                      subagent_type: "general-purpose",
++                    },
++                  },
++                ],
++              };
++            }
++            return { finishReason: "stop", text: "done", usage };
++          },
++        }),
++      },
++    );
++    const unsubscribe = runtime.subscribeEvents({
++      onSessionEvent: (event) => {
++        if (event.sessionId === parentSessionId) parentEvents.push(event);
++      },
++    });
++    const turn = runtime.executeTurn("Run the fixture child");
++    try {
++      await childCreateStarted.promise;
++
++      await runtime.setExecutionState({ mode: "guarded" });
++      expect(runtime.getMode()).toBe("guarded");
++      expect(
++        parentEvents.some((event) => event.type === SessionEventType.SessionModeChanged),
++      ).toBe(true);
++      releaseChildCreate.resolve();
++
++      await vi.waitFor(() => {
++        expect(requests).toHaveLength(1);
++      });
++      // child 没有复制/持久化模式；首个工具准入直接读到父当前 guarded。
++      expect(requests[0]).toMatchObject({ mode: "guarded", origin: { kind: "subagent" } });
++      expect(execute).not.toHaveBeenCalled();
++      expect(
++        broker.resolvePermission(requests[0]!.requestId, {
++          decision: "deny",
++          reason: "test denied",
++        }),
++      ).toBe(true);
++      await turn;
++    } finally {
++      releaseChildCreate.resolve();
++      unsubscribe();
++    }
++  });
++});
 diff --git a/apps/zcode-cli/packages/core/tests/subagent-test-store.ts b/apps/zcode-cli/packages/core/tests/subagent-test-store.ts
 index 19c7a5aeab3b39c617029ee4d0e970c17238dffb..cae4fdc8482021ece1489ba94dd751409119b15f 100644
 --- a/apps/zcode-cli/packages/core/tests/subagent-test-store.ts

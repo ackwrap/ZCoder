@@ -425,6 +425,89 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +## 回归证据
 +
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
+diff --git a/docs/permission-mode-live-switch.md b/docs/permission-mode-live-switch.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..995a038e1f63c7ea2aa53200d8efcb336499cbfa
+--- /dev/null
++++ b/docs/permission-mode-live-switch.md
+@@ -0,0 +1,77 @@
++# 运行中权限模式切换（含继承型子代理）
++
++## 范围
++
++用户在主会话 Composer 切换权限模式（build/edit/guarded/yolo）时：
++
++- 草稿仍记录下一次 Submission 的意图；
++- 运行中的会话同时下发 `switchCollaborationMode`，后续**新准入**的工具调用按新模式执行；
++- 默认继承型子代理在后续新准入时实时读取父当前有效 mode；
++- 不打断对话、不取消 turn、不强停已经进入 runner 的调用；旧 pending/已捕获 mode 的调用保持原值。
++
++不改变审批、沙箱、工具策略、权限授予或 plan 工具路径。
++
++## 父会话提交语义
++
++沿用既有 `execution-state`：
++
++1. 先持久化；
++2. 持久化成功后写内存（这是有效提交点）；
++3. 追加 `SessionModeChanged`。
++
++- 持久化失败：内存不变，命令返回错误，未完成变更不生效。
++- 事件失败：内存已经是新值，变更**可能已生效**；命令返回错误，但系统不为此另开修复事务、不回滚。
++- 同值调用直接返回，不重复保存/发布。
++- `preservePlan` 只在 `setExecutionState` 入口把服务端当前 `planEnabled` 显式带入；全局 `resolveExecutionState`、ExitPlan 与旧请求兼容不变。
++
++## 子代理权限：动态 getter
++
++默认继承型 child 在 spawn 时注入一个 getter：
++
++```ts
++child.inheritedModeSource = () =>
++  resolveInheritedChildMode(parent.getMode(), builtInExplore);
++```
++
++`getMode()`（工具准入、hooks、permission service 的稳定边界）优先读取该源：
++
++```ts
++return this.inheritedModeSource?.() ?? (this.config.mode ?? "build");
++```
++
++- 普通 child 跟随父；内置 Explore 默认 yolo，`guarded` 父会话 clamp 为 `guarded`；复用 `inheritPermissionMode`，不引入自定义模式全序。
++- 显式 `acceptEdits`/`auto`/`plan`/`bypassPermissions`/`dontAsk` 不注入，保持独立。
++- 不复制、不持久化、不订阅父变化；child 不产生 inherited 模式的保存/事件。
++- 初始化/恢复跨 await 不需要握手：getter 一旦注入，`resumeFromStore` 覆盖 child `config.mode` 也不影响 `getMode`。
++- child 本地 `config.mode` 写入不解除继承、不影响父；授权读取走 `getMode`。
++- 嵌套：`parent.getMode()` 本身可能是动态源，链式读取自然成立；普通 Agent 不派生孙代理，不额外承诺 workflow child。
++- 旧 pending/已进入 runner 的调用保留准入时捕获的 mode；只有之后的新准入动态遵守父。
++- `permissionFullAccessPending` 等 child 既有授权事务不被父变更触碰；新准入仍按父当前 mode 判定。
++
++工具准入的两处稳定边界都改为 `runtime.getMode()`（`runtime-tools` executor 与 `session-mode-port`），不能直接读 `config.mode`。
++
++## UI 语义
++
++- `switchCollaborationMode` 是 CAS 命令，必须带权威快照的 `baseRevision` 与 `baseLogEpoch`。
++- 去重基线是“服务端已确认模式”，不是可能滞后的 `config.mode`。有在途意图时不得按旧基线去重，`guarded→yolo→guarded` 的最后一次必须保留。
++- 命令串行：只保留最新意图，前一 ACK 后再判断是否还需要发；stale 时基于最新快照或 ACK 的 `revisionAtDecision` 重试，有上限。
++- 只读会话、草稿态、投影尚未切到当前会话时不下发。
++- `plan`/`plan-off` 仍由草稿的 `planEnabled` 独立处理；权限-only 命令固定发送 `preservePlan: true`，不把客户端旧快照的 Plan 值当真相。
++- 迟到 ACK/transport 结果按会话隔离；会话切换后不得写回当前草稿或状态。
++
++### 失败后的 unknown 状态
++
++rejected/stale 重试耗尽/transport 失败后：
++
++- **不猜测当前生效模式，不回写旧 mode**；草稿保留用户意图但不标作已生效。
++- 显示可见提示：“权限切换未确认，当前生效模式待确认，请刷新或重试”（文案与编排在 `mode-switch` 模块，SessionPane 只注入 toast/error 呈现）。
++- 去重基线转为 unknown。同值选择不能被旧基线吞掉；同一陈旧 snapshot 不能解除 unknown。
++- unknown 只能由用户再次显式请求实际下发、并收到 accepted/noop/duplicate 明确成功后重新确认；普通 snapshot 的 revision/logEpoch/mode 前进不自动解除 unknown，不猜事件是否恢复。
++- transport 失败不自动重传；需要用户再次选择或刷新权威状态。
++
++## 已知边界
++
++- 事件失败后内存已生效但投影可能滞后；命令会返回错误，UI 进入 unknown，等待用户再次显式请求并收到明确成功，不根据普通快照恢复。
++- 已有待审批不会被自动放行；旧调用不因权限切换被撤销或暂停。
++- 普通 Agent 子代理不再派生孙代理；本规格只承诺默认 subagent spawn 路径。
++- child 的持久化/投影可能停留在 spawn 时 mode，但授权读取以 `getMode` 为准。
 diff --git a/docs/plan-slash-command.md b/docs/plan-slash-command.md
 index 2638266d6d8d31311f5546ffbbd2d21d41721b49..473fbbfcfbbca2f0e5783775928ab9510383b28a 100644
 --- a/docs/plan-slash-command.md
@@ -803,6 +886,193 @@ index 0000000000000000000000000000000000000000..d96224eb818762120d1663c78645537e
 +## 验收
 +
 +覆盖单项关闭/恢复、其他会话隔离、重启恢复、并发修改、保存失败、损坏策略、Skill 别名、权限等待期间关闭、DeferredToolCall/MCP App、配置不写入、旧 runtime 不支持。UI 覆盖折叠、键盘开关、忙碌/错误/空列表、中英文、深浅主题、320px/1200px，保留原 Git/任务状态栏与上下文诊断。
+diff --git a/docs/side-pane-capsule-exclusivity.md b/docs/side-pane-capsule-exclusivity.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..00a263647a33c1b8b84bcd99d9ca6e113b385fad
+--- /dev/null
++++ b/docs/side-pane-capsule-exclusivity.md
+@@ -0,0 +1,62 @@
++# Side Pane 与状态胶囊互斥
++
++## 目标
++
++右侧 Side Pane 与对话状态胶囊（`ConversationStatusPanel` 的 mini/panel 形态）不能同时展开：
++
++- Side Pane 可见时，胶囊必须是 `mini`。
++- 用户从 `mini` 展开胶囊（`panel`）时，先关闭 Side Pane；只收起面板，不删除 tabs，不清理 dirty 草稿。
++- 关闭 Side Pane 时不强制把胶囊展开；胶囊保持关闭时的状态。
++
++## 状态 owner
++
++```text
++App.tsx
++└─ summaryPanelVariantOverride / setSummaryPanelVariantOverride   ← 胶囊显式形态
++
++useAppPanels.ts
++└─ isSidePaneCollapsed / setIsSidePaneCollapsed                   ← Side Pane 开关
++   └─ WorkspaceShellLayout: isSidePaneOpen + handleToggleSidePane
++```
++
++Side Pane 的 `isSidePaneOpen` 由单一 `isSidePaneCollapsed` 派生，所有打开入口、scope 切换和恢复都汇入这一状态；胶囊形态继续由 `summaryPanelVariantOverride` 单一 owner 持有。
++
++## 接入边界
++
++`WorkspaceShellLayout.tsx` 是唯一桥接点：
++
++- 继续把 `summaryPanelVariantOverride` 原样传给 `SessionPane` / `ConversationStatusPanel`。
++- 把 `onSummaryPanelVariantOverrideChange` 包装为互斥 hook 返回的 `handleVariantChange`。
++- `SessionPane` 和 `ConversationStatusPanel` 不新增互斥逻辑；不修改它们的 variant 状态模型。
++
++实现归属：`packages/ui/src/v4/status-capsule/sidePaneCapsuleExclusivity.ts`（managed
++`status-capsule-ui`），由 `status-capsule/index.ts` 公开；不修改 `SessionPane` 的胶囊状态模型。
++
++`useSidePaneCapsuleExclusivity`：
++
++```text
++isSidePaneOpen=true 且 variant != mini
++  → onChangeVariant("mini")                       // 覆盖所有打开入口/scope 恢复
++
++用户 variant → panel 且 isSidePaneOpen=true
++  → onCloseSidePane()                             // 只收起，保留 tabs/dirty
++  → onChangeVariant("panel")
++
++isSidePaneOpen=false
++  → 不强制 onChangeVariant，胶囊保持现状
++```
++
++`scopeKey = workspaceKey + activeTaskId`：scope 切换或恢复时重新执行“打开必折叠”，不沿用上一个 scope 的用户展开标记。
++
++## 验收
++
++- 从任意入口打开 Side Pane（文件、Agent、计划、浏览器、终端、launcher、快捷键、恢复的 sidePaneState）后胶囊均为 `mini`。
++- 胶囊 `mini` 点击展开为 `panel` 时 Side Pane 收起；已打开 tabs、dirty 草稿和选中文件保持不变。
++- 关闭 Side Pane 不自动把胶囊从 `mini` 改成 `panel`。
++- workspace/task scope 切换后，若 Side Pane 可见，胶囊仍为 `mini`。
++- 互斥不改变 side pane tabs、dirty registry、原文件查看器逻辑。
++
++## 测试
++
++- `packages/ui/test/sidePaneCapsuleExclusivity.test.ts`
++- 集成入口：`WorkspaceShellLayout` 的两个 `SessionPane` 实例（主对话、workbench）。
+diff --git a/docs/side-pane-viewer-tabs.md b/docs/side-pane-viewer-tabs.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9450be6c918a20ca418f6fc45030b575965ac00
+--- /dev/null
++++ b/docs/side-pane-viewer-tabs.md
+@@ -0,0 +1,113 @@
++# Side Pane 共享查看 Tab
++
++## 目标
++
++右侧 Side Pane 原先按“被打开对象”建 tab：不同文件、不同子智能体、不同计划各自新增一个
++tab，连续浏览会堆出一排同质 tab。本规格把**只读查看类**入口收口为三个稳定类别：
++
++| 类别 | tab 类型 | 并列出的对象 |
++| --- | --- | --- |
++| 文件查看 | `code-viewer` / `file-manager` | 工作区文件、Markdown、图片、媒体、PDF、PPTX |
++| Agent 查看 | `subagent-session` | 同一 root 下的子智能体会话 |
++| 消息/计划查看 | `plan-detail` | 同一父会话中的 ExitPlanMode 计划 |
++
++同一类别内切换对象时，**替换当前类别 tab 的内容**，不新建 tab；不同类别各自保留自己的
++tab。Diff（`patch` / `multi-file-diff`）、代码评审（`code-review`）、子智能体目录、
++框选副屏、工作流、浏览器、终端等仍是独立类别，不并入上述三个查看 tab。
++
++实现归属：类别选择与文件查看器 dirty 登记集中在 managed 模块
++`packages/ui/src/side-pane-viewer-tabs/`（`side-pane-viewer-tabs-ui`），
++`packages/ui/src/lib/workspaceSidePane.ts` 只保留打开/激活委托。原
++`getCodeViewerTabSourceKey` / `hashCodeViewerContent` / `sidePaneOwnerKey` 仍留在
++`workspaceSidePane.ts`，通过 `ViewerCategorySelectionPorts` 注入给新模块，不搬迁实现。
++
++## 状态模型
++
++```text
++Side Pane tabs
++├─ file viewer        (workspace + owner)
++├─ agent viewer       (workspace + rootSessionId)
++├─ plan viewer        (workspace + parentSessionId)
++├─ diff / review      (既有 source key 规则)
++├─ subagent-directory (既有 root+parent 规则)
++└─ browser / workflow / terminal / ...
++```
++
++- 文件查看按 `workspaceKey = workspaceIdentity?.trim() || workspacePath` 与当前 owner 隔离；
++  远程同路径不同主机不得共用。`file-manager` 与 `code-viewer` 是同一个文件查看类别。
++- Agent 查看按 `workspaceKey + rootSessionId` 隔离；同一 root 下不同 parent 的 child 共用
++  同一个 tab，切回 root 时仍恢复该 tab。
++- 计划查看按 `workspaceKey + parentSessionId` 隔离。
++- 上述 tab 仍遵守既有 `ownerTaskId` 可见性与 `stampSidePaneTabsOwnership` 归属规则。
++
++## 打开与复用规则
++
++### 文件
++
++1. 若已有同类 tab 正在显示**同一 sourceKey**，直接激活它；同路径刷新只更新 source，不新建。
++2. 否则优先复用当前 active 的文件查看 tab（`file-manager` 或普通文件 `code-viewer`）。
++3. active 不是文件查看 tab 时，复用最近打开且未处于 dirty 状态的文件查看 tab。
++4. `file-manager` 被文件预览复用时保持 `file-manager` 类型并更新 `source`；普通文件预览
++   被目录入口复用时转换为 `file-manager` 并更新 `target`。两者渲染同一 `FileManagerPane`。
++5. `patch`、`multi-file-diff`、`code-review` 以及无路径的 inline `text` 不参与文件查看复用，
++   继续按既有 source key 规则打开。
++6. `openCodeViewerSidePanes` 的批量自动打开（如生成的多份 PPTX）属于显式批量入口，保持
++   逐份 tab 语义，不并入单文件查看 tab。
++
++### Agent
++
++1. 按 `workspaceKey + rootSessionId` 找 active 的 `subagent-session` tab；没有则取该 root
++   最近打开的。
++2. 命中时原地更新 `childSessionId`、`parentSessionId`、`subagentType`、`title` 与会话来源
++   字段，tab id 不变。
++3. 未命中时新建一个 Agent 查看 tab。不同 root 各自一个。
++4. `syncSubagentSessionSidePaneTabs` 仍只回收当前显示 child 已失效的 tab；命中时回退到
++   已打开的子智能体目录，再退回相邻可见 tab。
++
++### 消息/计划
++
++1. 按 `workspaceKey + parentSessionId` 找 active 的 `plan-detail` tab；没有则取最近打开的。
++2. 命中时原地更新 `toolCallId`、`markdown`、`planFilePath`（新计划没有路径时删除旧键）。
++3. 未命中时新建一个计划查看 tab。不同父会话各自一个。
++
++## Dirty 保护
++
++文件查看器允许在代码行上打开评论草稿，草稿未提交前属于未保存编辑。
++
++- `CodeViewer` 通过 `onCodeCommentDraftDirtyChange` 上报当前草稿是否 dirty；Side Pane
++  以 tab id 登记，并通过 dirty 版本订阅触发重渲染。
++- dirty tab 失活、Side Pane 收起或窗口 resize 时仍继续挂载 `CodeViewer`，不能因
++  `renderHeavyContent=false` 卸载局部草稿。
++- 同一文件以新 source 对象重开时按文档身份（workspace + remote session + type + path）
++  判断，不重复清空 `filePreview` 进入 loading；草稿与选中行范围保持。
++- 打开新文件或文件树内导航时，若目标文件查看 tab 为 dirty：
++  - 不改写该 tab 的 `source`；
++  - 不改写或关闭该 tab；
++  - 新建一个文件查看 tab 展示目标文件（或复用其他非 dirty 文件查看 tab）。
++- 同一文件再次打开不算覆盖，可直接激活原 tab 并保留草稿。
++- Agent 与计划查看为只读，不产生未保存编辑；仍不得因此关闭其他历史 tab。
++
++## 历史 tab 与显式入口
++
++- 已存在的旧式每对象 tab 不做迁移、不批量关闭。打开新对象时最多复用其中一个作为类别 tab，
++  其余历史 tab 原样保留。
++- 新建、关闭、关闭其他、关闭全部、拖拽排序、显式 `new-tab` launcher 与浏览器显式新开
++  语义保持不变。
++- 不修改外层 workspace tabs、主聊天会话 tab 或 `packages/ui/src/store/tabStore.ts`。
++
++## 验收
++
++- 同一 workspace/owner 连续打开两个不同文件：仍只有 1 个文件查看 tab，内容为后打开文件。
++- 文件树、Markdown 链接、消息文件链接共用同一个文件查看 tab。
++- 同一 root 连续打开两个 Agent：仍只有 1 个 Agent 查看 tab，标题与 child 更新。
++- 同一父会话连续打开两个计划：仍只有 1 个计划查看 tab，正文与 toolCall 更新。
++- 不同类别、不同 workspace、不同 owner、不同 root/parent 各自保留 tab。
++- 旧式历史 tab 不被关闭。
++- 文件查看 tab 存在未提交评论草稿时，打开另一文件不会覆盖该 tab，草稿仍保留。
++- 批量 PPTX 自动打开、diff/review、显式子智能体目录行为不变。
++
++## 测试
++
++- `packages/ui/test/sidePaneViewerCategoryTabs.test.ts`
++- `packages/ui/test/codeViewerDraftDirty.test.ts`
++- `packages/ui/test/workspaceSidePane.test.ts` 中与复用直接相关的用例
 diff --git a/docs/status-panel-header-layout.md b/docs/status-panel-header-layout.md
 index a23429459d7c8728f8d768df158dbdbfe05645b8..dc594409a4a9fcce772b070e47de728816242b6b 100644
 --- a/docs/status-panel-header-layout.md
@@ -816,6 +1086,91 @@ index a23429459d7c8728f8d768df158dbdbfe05645b8..dc594409a4a9fcce772b070e47de7288
  - Mini 胶囊展示运行中的后台任务时，只显示任务类型图标和运行中任务数量，不显示已运行时长或计时器；展开态 Run 区块及任务明细继续显示耗时。
  
  ## 兼容性
+diff --git a/docs/subagent-session-directory.md b/docs/subagent-session-directory.md
+index ae8524f95825493bd6bf78a1f9fd5c3d09be3a1b..46348f028bae03dfa2d468dd1226286df9351fb1 100644
+--- a/docs/subagent-session-directory.md
++++ b/docs/subagent-session-directory.md
+@@ -93,13 +93,14 @@ Subagent directory（桌面 / 普通 Web）
+ - live completion 由 V4 投影把同一项移出 running 并更新 `endedTotal`；目录随后按 ended-only
+   查询把该项合并到顶部，但保留已加载页面和滚动位置。
+ - 目录 tab 稳定身份为
+-  `subagent-directory:{workspaceKey}:{rootSessionId}:{parentSessionId}`；child tab 为
+-  `subagent-session:{workspaceKey}:{rootSessionId}:{childSessionId}`。
+-- 点击目录项复用统一 child 详情打开请求。同一 root 内重复点击复用；原 Session 与 fork
+-  root 不同，因此可以各自持有指向同一历史 child 的 tab。
+-- edit/retry 使 child 失效时自动关闭对应详情 tab，不进入“最近关闭”；若当前激活的是该 tab，
+-  优先回到已打开的目录，否则回到前一个可见 tab。compact 不关闭 tab。
+-- 目录 tab 和 child tabs 都只保存在 renderer 内存，不跨刷新恢复。
++  `subagent-directory:{workspaceKey}:{rootSessionId}:{parentSessionId}`；child 详情按
++  `workspaceKey + rootSessionId` 共用一个 Agent 查看 tab，`childSessionId` 是当前显示内容，
++  见 [side-pane-viewer-tabs.md](./side-pane-viewer-tabs.md)。
++- 点击目录项复用统一 child 详情打开请求。同一 root 内切换 child 只替换当前 Agent 查看 tab
++  的内容；原 Session 与 fork root 不同，因此可以各自持有指向同一历史 child 的 tab。
++- edit/retry 使当前显示的 child 失效时自动关闭对应详情 tab，不进入“最近关闭”；若当前激活的是
++  该 tab，优先回到已打开的目录，否则回到前一个可见 tab。compact 不关闭 tab。
++- 目录 tab 和 Agent 查看 tab 都只保存在 renderer 内存，不跨刷新恢复。
+ 
+ ## 多端边界
+ 
+diff --git a/docs/subagent-session-side-tabs.md b/docs/subagent-session-side-tabs.md
+index 614152e91fc80bdcbd91fbf9c19f17ee101cb1d7..f0932a23139bb99f39743004c3b2095a5cf1ccff 100644
+--- a/docs/subagent-session-side-tabs.md
++++ b/docs/subagent-session-side-tabs.md
+@@ -4,9 +4,10 @@
+ 
+ 父会话 Agent 工具块中的子智能体详情入口使用 workspace 右侧共享面板，而不是
+ workbench 分屏。拿到 child session 目标后，用户点击 Agent 摘要行或按 Enter/Space
+-直接创建或激活右侧 tab，不再先展开工具详情再点击二级按钮。每个 `childSessionId`
+-对应一个完整只读会话 tab，从而不受 workbench 最多 4 pane 的限制，同时保持普通
+-session 分屏能力不变。
++直接创建或激活右侧 tab，不再先展开工具详情再点击二级按钮。同一 root 下所有
++`childSessionId` 共用一个只读 Agent 查看 tab：切换到另一 child 时原地替换内容，不新建；
++详见 [side-pane-viewer-tabs.md](./side-pane-viewer-tabs.md)。这样不受 workbench 最多 4 pane
++的限制，同时保持普通 session 分屏能力不变。
+ 
+ 适用范围：桌面端、普通 Web 和手机 `/remote` 的 child 详情入口。桌面端和普通 Web
+ 使用右侧 tab；手机
+@@ -26,22 +27,23 @@ workspaceKey = workspaceIdentity?.trim() || workspacePath
+    └─ child B1 -> Explore source code features
+ 
+ 切换父 task：
+-  tab 条 = workspace 共享 tabs + 当前 parent session 的 child tabs
+-  其他 parent 的 child tabs 继续挂载和订阅，但隐藏且不获取焦点
+-  切回 parent 时恢复该组顺序和最后激活项
++  tab 条 = workspace 共享 tabs + 当前 root 的 Agent 查看 tab
++  其他 root 的 Agent 查看 tab 继续挂载和订阅，但隐藏且不获取焦点
++  切回 root 时恢复该 tab 的顺序和最后激活项
+ ```
+ 
+ - UI 显式区分 `rootSessionId`（tab 分组）、`parentSessionId`（直属 lineage）和
+-  `childSessionId`（详情订阅目标）。一级 child 中 root 与 parent 相同； subagent tab 的
+-  稳定身份为 `workspaceKey + rootSessionId + childSessionId`，重复点击只激活。
++  `childSessionId`（详情订阅目标）。一级 child 中 root 与 parent 相同； Agent 查看 tab 的
++  稳定身份为 `workspaceKey + rootSessionId`，`childSessionId` 是当前显示内容。重复点击同一
++  child 只激活，切换 child 原地替换内容。
+ - 标题统一使用入口提供的任务 `title`：Agent 摘要行传递其可见标题，Running 面板传递
+   `session/subagents` 投影标题。重复打开同一 child 时同步最新非空 title；仅在 title 为空时
+   回退到本地化“子智能体”，不得再拼接 `subagentType` 或编号。
+ - subagent tabs 只保存在 renderer 内存，不跨刷新恢复。workspace 共享 tabs 沿用现有
+   workspace 级内存语义，不改成 session 级。
+-- 关闭、关闭其他和关闭全部只作用于当前可见集合；其他 parent 的隐藏 child tabs 不受影响。
++- 关闭、关闭其他和关闭全部只作用于当前可见集合；其他 root 的隐藏 Agent 查看 tab 不受影响。
+   最近关闭记录按 parent session 隔离。
+-- 所有未关闭 child tabs 保持 `SessionDataLayer` lease。相同 child 的行内预览与右侧详情复用
++- 所有未关闭 Agent 查看 tab 保持 `SessionDataLayer` lease。相同 child 的行内预览与右侧详情复用
+   数据层引用计数，不建立重复 transport subscription。
+ 
+ ## 摘要行交互边界
+@@ -162,7 +164,8 @@ publisher(parent) -> parent timeline/index/legacy delivery
+ 
+ ## 验收
+ 
+-- 同一父 task 可打开至少 6 个 child tabs，workbench pane 数不增加，重复点击不重复建 tab。
++- 同一 root 连续切换多个 child 仍只有一个 Agent 查看 tab，workbench pane 数不增加；重复点击同一
++  child 不重复建 tab，切换 child 只替换当前 tab 内容。
+ - Agent 摘要行与 Running 面板打开的 tab 均逐字使用各自权威 title；不得显示
+   `Explore 1`、`general-purpose 2` 等类型加编号标题。
+ - 有 child 目标时，Agent/Task 摘要行的点击、Enter 和 Space 直接打开或激活详情，且不会展开
 diff --git a/docs/task-output-contract.md b/docs/task-output-contract.md
 index ab2eabebbe12fa9db42a723bc847007ee5227f0f..d69ef164f111116ecae1230472acc7571bcd2ef9 100644
 --- a/docs/task-output-contract.md
@@ -973,6 +1328,214 @@ index 2d36f5662f9f00d709fb6d4bcfba8d5eb976a97b..1ea22df936dcde234913c900701c7eaa
  - 收起态胶囊跟随摘要内容宽度，单条摘要内容高度为 `h-8`，宽度上限即 shell 的容器上限；内部摘要内容使用 `truncate`，避免长 goal / todo / 工作流标题撑开布局。
  - 收起态摘要行 hover / focus 时左侧状态图标切换为 `maximize-2`，提示点击可展开完整 status panel。
  - 用户点击面板右上角收起按钮或收起态摘要行写入当前 workspace shell 的手动偏好：`panel` 表示始终展开，`mini` 表示始终收起，`null` 表示 CSS 自动响应。自动模式下展开内容和 mini 摘要同时保持在同一个 shell 内，由 `@container/conversation` 互斥显示；React 不根据宽度切换 variant。展开态右上角的更多菜单只显示“自动”选项，选择后把偏好恢复为 `null`；“始终展开 / 始终收起”不再作为菜单选项，但既有收起/展开按钮及内部 `panel` / `mini` 逻辑继续保留。偏好只保存在当前 renderer 的 workspace shell 内，不写入 task、session、relay 或 main process，因此不会影响 desktop continuous 和 web remote replayable 的实时链路语义。
+diff --git a/docs/ui/composer-session-model-selection-intent.md b/docs/ui/composer-session-model-selection-intent.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f72da18389ee9a7dc181489845d0a9551f6b09b
+--- /dev/null
++++ b/docs/ui/composer-session-model-selection-intent.md
+@@ -0,0 +1,202 @@
++# Composer 会话待用模型选择（显式意图）
++
++> 2026-10-27。本文补充 [Composer 仅持久化文字草稿](composer-text-draft-persistence.md)：
++> 正文草稿仍只持久化非空文字；但**已有 Session** 的显式模型选择独立于正文保存，
++> 属于该会话下一次发送的待用意图。`__draft__` Root/New Task 不适用本规则，继续使用
++> Recent 与正文草稿语义。
++
++## 术语与语义边界
++
++| 概念 | 含义 | 事实来源 |
++| --- | --- | --- |
++| 活跃执行模型 | 当前 turn 已固定的模型/档位 | CLI/Core 该 turn 入口捕获的执行配置；投影为 `snapshot.config` |
++| pending 意图 | 用户最后一次手选、尚未被会话权威投影确认的完整 `ModelSelection` | `model-selection-intent` 模块（内存 + 每会话持久化） |
++| confirmed 副本 | 已被会话事实接纳的历史选择；只用于恢复兜底，不再压过新事实 | 同一记录，状态为 `confirmed` |
++| 会话事实 | 该 Session 当前配置与下一次 turn 的默认值 | 权威 `ConversationSnapshot.config` / `ModelSelected` |
++
++两条不变量：
++
++1. **手选优先且立即保存**：点击菜单后，选择框展示并保留该选择；不等待发送、不回到
++   活跃 turn 的旧模型、不回到最近已提交模型。
++2. **只影响下一次提交**：选择只进入 renderer 的待用意图，不发送 `switchModelConfig`、
++   `setModel`、`setThoughtLevel`，不重启 runtime，不改变正在运行的 turn。
++
++## 作用域与存储
++
++- 作用域：`workspaceIdentity?.trim() || workspacePath` + `sessionId`；Root 传 `null`，
++  不产生意图。
++- 模块：`packages/ui/src/v4/composer/model-selection-intent/`（managed 模块）。
++  - `contract.ts`：记录/作用域/状态类型；
++  - `store.ts`：读写、严格 schema 校验、条件写入与选择等价比较；
++  - `index.ts`：对外唯一入口；
++  - `module.ts`：managed 模块清单（requires 与 policy 一致）；
++  - `contract.example.ts` / `contract.test.ts` / `CONTRACT.md`：标准调用、契约回归与长期约定。
++- 记录结构：`{ version: string, state: "pending" | "confirmed", selection: ModelSelection }`。
++  - `version` 是每次显式选择生成的令牌，用于旧 ACK 条件写入；
++  - `selection` 完整保存 `providerId`、`modelId`、`options.reasoningLevel`；
++  - 不保存 `thought` 等旧别名，不保存投影派生的 provider 名称。
++- 存储键独立于正文草稿：`zcode-v4-composer-model-intent:v1:` + `[workspaceKey, sessionId]`。
++- 读取时校验；损坏/旧格式按无记录处理。写入失败只降级为不持久化，不阻断输入/发送。
++- 正文草稿不受影响：空白文字仍不产生正文草稿记录；删除正文不会连带抹掉模型意图。
++
++## 恢复优先级
++
++重新进入已有 Session（切任务、切窗口、卸载重挂、关闭再打开）时：
++
++1. 正文/编辑器状态：从该会话文字草稿恢复（若有）。
++2. 模型：
++   - 记录为 **pending**：使用记录中的显式选择，压过正文草稿模型和旧快照；
++   - 记录为 **confirmed**：正文里的模型只是已确认副本，使用当前
++     `snapshot.config.modelSelection`；快照缺席时才回退到副本；
++   - 无记录：使用文字草稿中的显式模型，再回退到当前快照（兼容旧草稿）。
++3. 权限/Plan：沿用现有规则，采用该 Session 当前 Snapshot；历史授权只用于识别本次打开后的
++   新变化，不持久化。权限即时切换与模型延迟生效是不同语义，互不替代。
++
++```mermaid
++flowchart LR
++    A[用户手动选择模型 B] --> B[写入 pending 意图]
++    B --> C[下一次 sendText 冻结 Submission 使用 B]
++    A --> D[当前 running turn 继续使用 A]
++    C -->|accepted| E[条件写回归一化选择，仍为 pending]
++    E -->|权威 snapshot 等于意图| F[标记 confirmed 副本]
++    F -->|后续权威 C| G[跟随 C，不被 B 压住]
++```
++
++## 收敛规则（ACK / snapshot 任意顺序）
++
++- **选择时**：立即写 pending；即使正文为空、即使当前 turn 正在运行。
++- **ACK 先到**：仅当记录仍是发起提交时的 pending 版本才写回；写回后等快照匹配。
++- **snapshot 先到**：pending 与快照一致时改为 confirmed；迟到的 ACK 不得把它改回 pending。
++- **ACK 与 snapshot 同时/交错**：`acceptModelSelectionIntent` 只接受 pending + 版本匹配；
++  `confirmModelSelectionIntent` 只接受 pending + 版本匹配 + 选择一致。任一顺序最终都是
++  confirmed，不会在两个状态间来回。
++- **confirmed 之后**：后续权威值（自动回退、其它端切换）可以直接更新 Composer 当前模型，
++  不再被历史副本覆盖。
++- **内存与存储同源**：每次写入返回记录，Hook 同步更新内存 `intentState`；首帧快照前
++  重新读存储，避免挂载时的 confirmed 内存状态覆盖挂载后新写的 pending。
++- **存储失败只降级持久性**：配额/隐私模式导致写盘失败时，内存中的本次显式选择仍保持
++  pending owner；首帧与 confirmed 收敛 effect 都不得用旧磁盘 confirmed 覆盖当前编辑。
++- **一致性比较**：只比较 `providerId/modelId/reasoningLevel`，对象键顺序不参与语义。
++- **文本草稿**：confirmed 后正文里的旧模型是已确认副本；恢复时不能因此复活旧模型。
++  pending 意图则必须保留，未发送前不能被快照或正文旧值删除。
++
++## 旧 ACK 与跨实例保护
++
++- `captureAcceptedModelSelection` 在提交发起时冻结当前 pending 意图的 `version`。
++- **所有 intent 副作用**（select/replace/promote/ACK）在写存储前统一经过活跃 scope guard
++  （`isCurrentScope()` + 当前 `scopeKey`）；卸载后的旧回调不会先写 localStorage 再被丢弃。
++- 返回的 accepted callback 还要求当前草稿选择仍是发起时的选择。
++- `acceptModelSelectionIntent` 条件写入：仅当存储仍是同一 pending 版本时生效。
++  期间任何新选择（本窗口、重挂载后的新实例或另一窗口）都会生成新版本，旧 ACK 直接放弃。
++- 同会话多实例/多窗口共享同一 localStorage；版本令牌保证最后的手选优先。
++
++## 目录、只读与错误边界
++
++- 目录合法性仍由目标 Host 的 `ModelSelectionView` 解析：`effectiveSelection` 不合法时
++  `draftConfig.modelSelection` 为空，提交门禁继续阻断；意图本身保留，目录恢复后重新有效。
++- 只读会话不因本功能新增 Host 写路径；菜单可用性沿用既有 `readOnly`/`disabled` 门禁。
++- 不新增 Host/CLI 协议字段、不新增同步定时器、不建立第二份全局选择权威。
++
++## 自定义 Provider 恢复路径（SessionPane）
++
++review 确认：`handleRecoverCustomModelSelection` 会回收整个 workspace runtime（provider 不隔离），
++能杀掉运行中的 turn，也影响同 workspace 的其它会话。修复采用最小 guard，不扩大进程管理源码：
++
++1. **I/O 之前先保存选模意图**：restart/prepare 失败时选择仍在；之后迟到完成也不再二次选模，
++   不能覆盖期间更新的手选。
++2. reasoning 优先级：本次菜单显式目标档位 > 同模型既有档位 > 目标目录默认；
++   跨模型不沿用源档位。Toolbar 的 optional target reasoning 原样透传。
++3. 重启前检查整个 workspace：任意 runtime 处于 creating/restoring/streaming 或带
++   `activeInputId`，或当前 snapshot `phase === "running"`，都视为忙碌；不按当前 pane/provider
++   推断 workspace 空闲。
++4. 忙碌时**不重启**，直接返回；目录错误状态保留，用户空闲后可重选触发恢复，或走既有发送
++   前安全边界。
++5. 只有确认空闲才执行原有 `restartWorkspaceProcess` + `prepareWorkspace`；不再在 I/O 后选模。
++   这不改变运行中 turn 的模型，也不新增进程管理逻辑。
++
++## 影响面
++
++| 场景 / 入口 | Owner / 路径 | 变化 | 级别 |
++| --- | --- | --- | --- |
++| 已有 Session 模型菜单 | `useDraftConfigControl` → intent 模块 → 发送时 Submission | 手选立即持久化；不发配置命令 | must-inspect |
++| 切任务/切窗口/重挂载 | `loadedScope` 恢复顺序 | pending 优先；confirmed 让位快照 | must-inspect |
++| 发送被接纳 | `captureAcceptedModelSelection` | 活跃 scope guard + 版本条件写回 | must-inspect |
++| ACK/快照交错 | intent 模块条件写入 | 任一顺序收敛到 confirmed | must-inspect |
++| 自定义 Provider 恢复 | `SessionPane.handleRecoverCustomModelSelection` | workspace 忙碌时延后重启 | must-inspect |
++| New Task / Root 草稿 | Recent + 文字草稿 | 不变 | invariant-only |
++| 权限/Plan 切换 | 既有即时切换链路 | 不变；与模型延迟生效分离 | invariant-only |
++| 队列、子智能体、自动化 | 原有提交/CLI owner | 不消费 Composer 意图，不改变已冻结 Submission | invariant-only |
++
++## 非目标
++
++- 不恢复“空白页保存完整配置”的旧行为；Root/New Task 仍只在有文字时写正文草稿。
++- 不把模型选择同步成运行中 Session 的当前配置；当前 turn 不被改写或重启。
++- 不新增全局模型偏好；不改变 Recent 的 accepted-only 更新语义。
++- 不改动 desktop continuous / mobile replayable 的传输、lease、队列协议。
++
++## 用例
++
++| ID | 前置与操作 | 断言 | 层次 |
++| --- | --- | --- | --- |
++| MI01 | 运行中 Session 手选 B + reasoning | 选择框立即显示 B；不下发命令、不重建目录；下一次 Submission 使用 B | Hook |
++| MI02 | 空白正文手选 B 后卸载重挂/关闭再打开 | 仍显示 B 与档位；live snapshot 的旧模型不覆盖 | Hook |
++| MI03 | 正文草稿旧模型，随后手选 B 并模拟旧写入回流 | 重挂后正文保留，模型仍为 B | Hook |
++| MI04 | Session A 选 B，切到 Session B 再返回 | A 恢复 B；B 不被注入 A 的选择 | Hook |
++| MI05 | 快照先确认 B，迟到 ACK 再到达 | 记录保持 confirmed；后续权威 C 在重挂后生效 | Hook |
++| MI06 | ACK 先到，快照后确认 | 收敛到 confirmed；后续权威 C 生效 | Hook |
++| MI07 | 旧实例卸载后的迟到 ACK | 不写存储；重挂后的新选择不被覆盖 | Hook |
++| MI08 | 同会话并行实例的旧 ACK | 版本不符，不覆盖新意图 | Hook |
++| MI09 | confirmed 副本 + 正文旧模型 + 新权威 C | 重挂后模型 C，正文保留 | Hook |
++| MI10 | 目录未就绪/不认可目标选择 | 意图保留但提交门禁阻断；目录恢复后重新有效 | Hook |
++| MI11 | Root/无 session | 不产生意图，作用域为空 | storage |
++| MI12 | confirmed B 无快照挂载后手选 C，首帧旧快照 B 到达 | 存储与内存同源，首帧仍采用 pending C | Hook |
++| MI13 | 旧实例卸载后调用旧 select/replace 回调 | 不写存储，不覆盖重挂后的新手选 C | Hook |
++| MI14 | confirmed B、无快照；setItem 抛 QuotaExceeded 后手选 C，首帧 B 到达 | 磁盘仍为旧 B，但内存当前编辑 C 保持 pending，首帧不覆盖 | Hook |
++| SP01 | 运行中 Session 触发自定义 Provider 恢复 | 不调用 `restartWorkspaceProcess`，只保存待用模型 | SessionPane |
++| SP02 | 同 workspace 其它会话 running | 同样不重启；不假设当前 pane 空闲即可安全 | SessionPane |
++| SP03 | 同模型恢复重选 | 保留 reasoning 传入选模 | SessionPane |
++| SP04 | 空闲且确有错误 | 保留原有 restart + prepare 恢复 | SessionPane |
++| SP05 | provider 未知的 background streaming（无 activeInputId） | 仍禁止重启；不能按 provider 过滤判空闲 | SessionPane |
++| SP06 | restart 失败 | 选模在 I/O 前已保存；失败不丢意图 | SessionPane |
++| SP07 | 恢复 I/O 未完成时手选新模型 | 迟到完成不二次选模，不覆盖新选择 | SessionPane |
++| SP08 | 菜单显式目标 reasoning + 忙碌恢复 | 显式档位优先并完整传入选模 | SessionPane + Toolbar |
++| CT01 | managed 模块契约 | manifest、作用域、版本条件写入、ACK/snapshot 顺序 | contract |
++
++## 验证记录
++
++2026-10-27，基线 `d0bf97b7`：
++
++```
++# 六项主路径复验（P2 前）
++pnpm exec vitest run \
++  packages/ui/src/v4/composer/model-selection-intent/contract.test.ts \
++  packages/ui/test/useDraftConfigControlModelIntentPersistence.test.ts \
++  packages/ui/test/v4SessionPaneModelSwitchRecovery.test.ts \
++  packages/ui/test/v4ComposerToolbarRecovery.test.ts \
++  packages/ui/test/useDraftConfigControl.test.ts \
++  packages/ui/test/composerDraftStore.test.ts \
++  packages/ui/test/composerSubmissionConfig.test.ts
++# 7 files / 233 tests passed, exit 0
++
++# P2（QuotaExceeded）定向复验
++pnpm exec vitest run \
++  packages/ui/src/v4/composer/model-selection-intent/contract.test.ts \
++  packages/ui/test/useDraftConfigControlModelIntentPersistence.test.ts \
++  packages/ui/test/useDraftConfigControl.test.ts
++# 3 files / 65 tests passed, exit 0
++
++pnpm --dir packages/ui exec oxlint <P2 touched files>
++# 0 warnings / 0 errors, exit 0
++
++pnpm architecture:check -- --changed
++# architecture: OK, violations: 0
++
++pnpm exec tsc -p packages/ui/tsconfig.json --noEmit
++# exit 0；完整日志 C:/Users/xb/AppData/Local/Temp/ui-tsc-p2-quota.log（0 行）
++```
++
++类型导出修正：`contract.ts` 重新导出 `ModelSelection`，`index.ts` 一并导出；
++`contract.example.ts` / `contract.test.ts` 的公开入口导入恢复合法。
++
++未执行：UI 整包 `tsc`、桌面 E2E、真实授权与真实用户数据；由协调者统一安排。
++桌面交互 E2E 仍为 pending，Hook/SessionPane 单测不替代真实 Host 验证。
 diff --git a/docs/ui/conversation-selection-side-chat.md b/docs/ui/conversation-selection-side-chat.md
 index 5250c4398c9a96fc057464081f68dc2abf2fc51f..655903025298d0fcf3baa2cda80d665dd9e96a2d 100644
 --- a/docs/ui/conversation-selection-side-chat.md

@@ -235,7 +235,7 @@ index 0000000000000000000000000000000000000000..0d34381a98d50ea7bd46f199da01f76e
 +  effectiveThresholdTokens: z.number().nonnegative(),
 +});
 diff --git a/packages/shared/src/zcode-protocol-v4/command.ts b/packages/shared/src/zcode-protocol-v4/command.ts
-index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..b65fb178d3f7a77e8d4769b5b6549acf0600a5ef 100644
+index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..6809b8ca112ebdfdac536f273cec62619c7cbfa5 100644
 --- a/packages/shared/src/zcode-protocol-v4/command.ts
 +++ b/packages/shared/src/zcode-protocol-v4/command.ts
 @@ -1,3 +1,7 @@
@@ -277,8 +277,16 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..b65fb178d3f7a77e8d4769b5b6549acf
      })
      .superRefine(requireModelSelectionForExecution),
    retryTurn: z.object({ target: conversationRowTargetSchema }),
-@@ -262,6 +267,12 @@ export const commandPayloadSchemas = {
+@@ -258,10 +263,20 @@ export const commandPayloadSchemas = {
+   }),
+   // additive（冻结面按黄金测试背书演进）：agent 协作模式切换。
+   // 值域 = core CollaborationMode 的可切换子集（auto 非用户可切，不进 UI 命令面）。
++  // planEnabled 可选：旧发送端显式传 Plan 位；preservePlan 由权限-only 调用方使用，
++  // 服务端在执行时保留权威 Plan 位，避免客户端用旧快照值误退出 Plan。
+   switchCollaborationMode: z.object({
      mode: z.enum(["build", "edit", "plan", "yolo", "guarded"]),
++    planEnabled: z.boolean().optional(),
++    preservePlan: z.boolean().optional(),
    }),
    setFollowupMode: z.object({ mode: z.enum(["queue", "guide"]) }),
 +  getSessionResources: z.object({}),
@@ -290,7 +298,7 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..b65fb178d3f7a77e8d4769b5b6549acf
    pauseGoal: z.object({}),
    resumeGoal: z.object({}),
    cancelBackgroundWork: z.object({ workId: z.string() }),
-@@ -288,6 +299,8 @@ export const commandPayloadSchemas = {
+@@ -288,6 +303,8 @@ export const commandPayloadSchemas = {
    // 词表见 workflow-run-settings-command.ts；能力缺席 → V4CapabilityUnsupportedError。
    amendWorkflowRunSettings: amendWorkflowRunSettingsPayloadSchema,
    renameSession: z.object({ title: z.string() }),
@@ -299,7 +307,7 @@ index 64f91aa4490cd3da811435987e25d2c17cbbe3fd..b65fb178d3f7a77e8d4769b5b6549acf
    deleteSession: z.object({}),
    discardSharedContext: z.object({ contextId: z.string().trim().min(1) }).strict(),
  } as const;
-@@ -388,6 +401,7 @@ export function parseCommandEnvelope(
+@@ -388,6 +405,7 @@ export function parseCommandEnvelope(
  
  // ── ACK ──
  export const commandResultSchema = z.discriminatedUnion("type", [
