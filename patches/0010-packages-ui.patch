@@ -9290,7 +9290,7 @@ index 0000000000000000000000000000000000000000..6132c388c00923089999fbbacaebea81
 +}
 diff --git a/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..7341e3fc878863ffc4c3e9734d7f38bc97823174
+index 0000000000000000000000000000000000000000..915af9372177f1251ff8264ff575a38ebb76dbed
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
 @@ -0,0 +1,631 @@
@@ -9809,8 +9809,8 @@ index 0000000000000000000000000000000000000000..7341e3fc878863ffc4c3e9734d7f38bc
 +      ref={configureButtonRef}
 +      type="button"
 +      variant="outline"
-+      size="sm"
-+      className="shrink-0"
++      size="lg"
++      className="h-9 shrink-0"
 +      data-testid={TID_OPEN}
 +      disabled={!selectedTarget}
 +      onClick={openDialog}
@@ -28638,10 +28638,10 @@ index 0000000000000000000000000000000000000000..c8885869ab3de6dac24fe363edf90288
 +});
 diff --git a/packages/ui/test/modelSystemPromptIndependentCard.test.ts b/packages/ui/test/modelSystemPromptIndependentCard.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..fc059b64c324bca8023701c7cb7b59f98028dca0
+index 0000000000000000000000000000000000000000..155cfa77f156417bf4ffcc52d38b7803d41b3cf3
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptIndependentCard.test.ts
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,57 @@
 +// @vitest-environment jsdom
 +import { createElement } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -28674,6 +28674,11 @@ index 0000000000000000000000000000000000000000..fc059b64c324bca8023701c7cb7b59f9
 +  );
 +  const card = screen.getByTestId("model-system-prompt-settings-card");
 +  const select = within(card).getByTestId("model-system-prompt-model-select");
++  const configureButton = within(card).getByTestId("model-system-prompt-open-dialog");
++  expect(select.className).toContain("h-9");
++  expect(configureButton.className).toContain("h-9");
++  expect(configureButton.className).toContain("shrink-0");
++  expect(configureButton.parentElement?.className).toContain("items-end");
 +  await waitFor(() =>
 +    expect(
 +      (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,

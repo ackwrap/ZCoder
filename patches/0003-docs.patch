@@ -1952,10 +1952,10 @@ index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7
 +验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
 diff --git a/docs/ui/model-system-prompts.md b/docs/ui/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..28538323c7f9462edeac0132e5e52e5c088a6b86
+index 0000000000000000000000000000000000000000..9401aa4b7457476fb2865d8e845aaeaf82331297
 --- /dev/null
 +++ b/docs/ui/model-system-prompts.md
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,251 @@
 +# 模型自定义系统 Agent 提示词（UI 范围）
 +
 +> 2026-10-27。本文只定义 `packages/ui/**` 的可观察行为、状态归属、接入点和回归边界。
@@ -2048,6 +2048,7 @@ index 0000000000000000000000000000000000000000..28538323c7f9462edeac0132e5e52e5c
 +用户在卡片内换模型只编辑该 pair 的提示词，**不读写也不改变** `titleGenerationModel`，
 +标题生成 runtime 继续使用独立 `buildTitleMessages`，不套用本功能。
 +按钮没有可选模型（无显式标题模型、无已保存条目、目录为空或读取失败）时禁用。
++编辑按钮与模型选择框等高并底部对齐，窄屏下保持按钮可见。
 +
 +### 条目规则
 +
