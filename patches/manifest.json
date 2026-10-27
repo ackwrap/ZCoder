@@ -5,9 +5,11 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "8eab4f7c2186229cb33846869330e25444b6a6f3",
-  "tree": "0c0d6be6511446b1013e16a7863e83c4e280e024",
-  "excludedChangedPaths": [],
+  "sourceHead": "045f2ef124e695daeb2912ad317ba15108d16e36",
+  "tree": "3ce4353ea0198a3bb1fe7a499ac05b4552ed6214",
+  "excludedChangedPaths": [
+    "packages/zcode-cua/test/computer-op.windows.mjs"
+  ],
   "patches": [
     {
       "file": "0001-root.patch",
@@ -985,7 +987,7 @@
     {
       "file": "0011-packages-zcode-cua.patch",
       "directory": "packages/zcode-cua",
-      "sha256": "1222217cc21654a33279bbb0196d233c15bb40fb45c5ae957182be3685e0a613",
+      "sha256": "7c3397e8386b1bf70fa2f6a52ac979ff67a27f19c5a19487dba0de298fffb3b4",
       "paths": [
         "packages/zcode-cua/README.md",
         "packages/zcode-cua/broker-helper-constants.d.ts",
@@ -1009,6 +1011,7 @@
         "packages/zcode-cua/test/lazy-launch.windows.mjs",
         "packages/zcode-cua/test/no-dev-mode.windows.mjs",
         "packages/zcode-cua/test/product-loop.windows.mjs",
+        "packages/zcode-cua/test/reconnect.test.ts",
         "packages/zcode-cua/test/staged-runtime.windows.mjs"
       ]
     },

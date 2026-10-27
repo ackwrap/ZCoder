@@ -36954,10 +36954,10 @@ index 0a88a41f3a09e2f6f86ba2c37b94fbbd8d6b9452..c68e7364ae5e4dade858ed3436827b11
    options?: ComputerUseRuntimeOptions,
  ): ComputerUseRuntime;
 diff --git a/packages/zcode-cua/index.js b/packages/zcode-cua/index.js
-index f1481fa5de6a36d7a8056162e53fcd2d5bf9ee25..0635529c29d84f48787798ccdc3d233414dea5ae 100644
+index f1481fa5de6a36d7a8056162e53fcd2d5bf9ee25..a92b23f9fe3ba314c2b1cc2927e3f6ad2d91d2c0 100644
 --- a/packages/zcode-cua/index.js
 +++ b/packages/zcode-cua/index.js
-@@ -1,14 +1,301 @@
+@@ -1,14 +1,306 @@
 -const UNAVAILABLE_TEXT = "Computer Use is not available in this build.";
 +/**
 + * Computer Use runtime —— 模型可见的 14 个 capability method（官方同名同参）。
@@ -37124,7 +37124,8 @@ index f1481fa5de6a36d7a8056162e53fcd2d5bf9ee25..0635529c29d84f48787798ccdc3d2334
 +  async function sessionFor(context, signal) {
 +    const key = sessionKeyOf(context);
 +    const existing = sessions.get(key);
-+    if (existing && !existing.stopped) return existing;
++    if (existing && !existing.stopped && !existing.connection.closed) return existing;
++    if (existing) sessions.delete(key);
 +    const active = await connect(context, signal);
 +    const session = new ComputerUseSession({
 +      connection: active,
@@ -37233,6 +37234,10 @@ index f1481fa5de6a36d7a8056162e53fcd2d5bf9ee25..0635529c29d84f48787798ccdc3d2334
 +      try {
 +        return await dispatch(session, toolName, args);
 +      } catch (error) {
++        const key = sessionKeyOf(input?.context);
++        if (session.connection.closed && sessions.get(key) === session) {
++          sessions.delete(key);
++        }
 +        return errorEnvelope(
 +          error?.code ?? "internal",
 +          error instanceof Error ? error.message : String(error),
@@ -38086,10 +38091,11 @@ index 0000000000000000000000000000000000000000..44c2fe58a0db3e1a2f16bc9589616895
 +  return { x: Math.round(x + width / 2), y: Math.round(y + height / 2) };
 +}
 diff --git a/packages/zcode-cua/test/availability.test.ts b/packages/zcode-cua/test/availability.test.ts
-index 5a8e42e150b1dacaaadef03bc28135608795a1b7..c9f5f31ca53e9349eaa13abb485dd404cebf6319 100644
+index 5a8e42e150b1dacaaadef03bc28135608795a1b7..ffd9a09eeaa435a4530a937f3aa8c35805a6b3e5 100644
 --- a/packages/zcode-cua/test/availability.test.ts
 +++ b/packages/zcode-cua/test/availability.test.ts
-@@ -1,29 +1,91 @@
+@@ -1,29 +1,93 @@
++import { randomUUID } from "node:crypto";
  import { describe, expect, it } from "vitest";
 +
 +import {
@@ -38137,7 +38143,8 @@ index 5a8e42e150b1dacaaadef03bc28135608795a1b7..c9f5f31ca53e9349eaa13abb485dd404
 -  it("broker 方法拒绝执行真实系统能力", async () => {
 +  it("Helper 未就绪时返回可重试的 CUA_NOT_READY 而不是崩溃", async () => {
 +    const runtime = createComputerUseRuntime({
-+      brokerSocketPath: "\\\\.\\pipe\\zcode-cua-missing-transport",
++      brokerSocketPath: `\\\\.\\pipe\\zcode-cua-missing-${randomUUID()}`,
++      ensureBrokerAvailable: async () => {},
 +      brokerReadyWaitMs: 300,
 +      brokerRetryIntervalMs: 50,
 +      connectTimeoutMs: 100,
@@ -38681,6 +38688,160 @@ index 0000000000000000000000000000000000000000..4b0e7a365aef008afa30a4c09f7b729e
 +  helper.kill();
 +  process.exit(ok ? 0 : 1);
 +}
+diff --git a/packages/zcode-cua/test/reconnect.test.ts b/packages/zcode-cua/test/reconnect.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f75adca1e05c0c78637422b8553bede7b368745a
+--- /dev/null
++++ b/packages/zcode-cua/test/reconnect.test.ts
+@@ -0,0 +1,148 @@
++import { randomUUID } from "node:crypto";
++import { createServer, type Server, type Socket } from "node:net";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { BrokerConnection } from "../broker.js";
++import { createComputerUseRuntime, type ComputerUseRuntime } from "../index.js";
++
++const context = { sessionId: "reconnect", runtimeScope: "main" as const, workspaceKey: "fixture" };
++type Request = { id: number; method: string; params: Record<string, unknown> };
++type Result = { isError?: boolean; content: Array<{ text: string }> };
++
++function payload(result: unknown) {
++  return JSON.parse((result as Result).content[0]!.text);
++}
++
++describe("Computer Use broker reconnect", () => {
++  let server: Server;
++  let runtime: ComputerUseRuntime;
++  let sockets: Set<Socket>;
++  let connections: BrokerConnection[];
++  let requests: Request[];
++  let intercept: ((request: Request, socket: Socket) => boolean) | undefined;
++
++  beforeEach(async () => {
++    sockets = new Set();
++    connections = [];
++    requests = [];
++    intercept = undefined;
++    const connect = BrokerConnection.connect.bind(BrokerConnection);
++    vi.spyOn(BrokerConnection, "connect").mockImplementation(async (...args) => {
++      const connection = await connect(...args);
++      connections.push(connection);
++      return connection;
++    });
++    const socketPath = process.platform === "win32"
++      ? `\\\\.\\pipe\\zcode-reconnect-${randomUUID()}`
++      : join(tmpdir(), `zcode-reconnect-${randomUUID()}.sock`);
++    server = createServer((socket) => {
++      sockets.add(socket);
++      socket.on("close", () => sockets.delete(socket));
++      socket.on("error", () => {});
++      socket.setEncoding("utf8");
++      let buffer = "";
++      socket.on("data", (chunk) => {
++        buffer += chunk;
++        for (;;) {
++          const end = buffer.indexOf("\n");
++          if (end < 0) break;
++          const request = JSON.parse(buffer.slice(0, end)) as Request;
++          buffer = buffer.slice(end + 1);
++          requests.push(request);
++          if (intercept?.(request, socket)) continue;
++          const result = request.method === "authenticate"
++            ? { authenticated: true }
++            : request.method === "capture_app"
++              ? { app: { pid: 7 }, state_id: "old-state", elements: [{ native: "old-token", editable: true }] }
++              : request.method === "list_applications"
++                ? [{ pid: 7, name: "Fixture", active: true }]
++                : { ok: true };
++          socket.write(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
++        }
++      });
++    });
++    await new Promise<void>((resolve, reject) => {
++      server.once("error", reject);
++      server.listen(socketPath, resolve);
++    });
++    runtime = createComputerUseRuntime({
++      brokerSocketPath: socketPath,
++      ensureBrokerAvailable: async () => {},
++      connectTimeoutMs: 200,
++    });
++  });
++
++  afterEach(async () => {
++    await runtime?.dispose();
++    for (const socket of sockets) socket.destroy();
++    if (server.listening) {
++      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
++    }
++    vi.restoreAllMocks();
++  });
++
++  async function disconnect() {
++    for (const socket of sockets) socket.destroy();
++    await expect.poll(() => connections.every((connection) => connection.closed)).toBe(true);
++  }
++
++  it("reconnects an existing session after the transport closes", async () => {
++    expect(payload(await runtime.execute({ toolName: "list_apps", context }))).toHaveLength(1);
++    await disconnect();
++    expect(payload(await runtime.execute({ toolName: "list_apps", context }))).toHaveLength(1);
++    expect(connections).toHaveLength(2);
++    expect(requests.filter((request) => request.method === "authenticate")).toHaveLength(2);
++  });
++
++  it("does not replay an action whose reply was lost, but reconnects on the next call", async () => {
++    intercept = (request, socket) => {
++      if (request.method !== "type_text") return false;
++      socket.destroy();
++      return true;
++    };
++    const failed = await runtime.execute({ toolName: "type", arguments: { text: "once" }, context });
++    expect((failed as Result).isError).toBe(true);
++    expect(payload(failed).code).toBe("broker_unavailable");
++    expect(requests.filter((request) => request.method === "type_text")).toHaveLength(1);
++    expect(connections).toHaveLength(1);
++    await expect.poll(() => connections[0]!.closed).toBe(true);
++    expect(payload(await runtime.execute({ toolName: "list_apps", context }))).toHaveLength(1);
++    expect(connections).toHaveLength(2);
++    expect(requests.filter((request) => request.method === "type_text")).toHaveLength(1);
++  });
++
++  it("drops stale element observations and requires a fresh capture after reconnect", async () => {
++    await runtime.execute({ toolName: "get_app_state", arguments: { app_ref: { pid: 7 } }, context });
++    await disconnect();
++    const input = {
++      toolName: "type",
++      arguments: { app_ref: { pid: 7 }, target: { type: "element", index: 0 }, text: "fresh only" },
++      context,
++    };
++    expect(payload(await runtime.execute(input)).code).toBe("element_unavailable");
++    expect(requests.some((request) => request.method === "element_set_value")).toBe(false);
++    await runtime.execute({ toolName: "get_app_state", arguments: { app_ref: { pid: 7 } }, context });
++    expect((await runtime.execute(input) as Result).isError).toBeFalsy();
++    expect(requests.filter((request) => request.method === "element_set_value")).toHaveLength(1);
++  });
++
++  it("returns retryable not-ready when the broker remains unavailable", async () => {
++    await runtime.execute({ toolName: "list_apps", context });
++    await disconnect();
++    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
++    const result = await runtime.execute({ toolName: "list_apps", context });
++    expect((result as Result).isError).toBeFalsy();
++    expect(payload(result)).toMatchObject({ kind: "CUA_NOT_READY", retryable: true });
++  });
++
++  it("refreshes every stale session while reusing the new live connection", async () => {
++    const otherContext = { ...context, sessionId: "other" };
++    await runtime.execute({ toolName: "list_apps", context });
++    await runtime.execute({ toolName: "list_apps", context: otherContext });
++    await disconnect();
++    expect(payload(await runtime.execute({ toolName: "list_apps", context }))).toHaveLength(1);
++    expect(payload(await runtime.execute({ toolName: "list_apps", context: otherContext }))).toHaveLength(1);
++    expect(connections).toHaveLength(2);
++  });
++});
 diff --git a/packages/zcode-cua/test/staged-runtime.windows.mjs b/packages/zcode-cua/test/staged-runtime.windows.mjs
 new file mode 100644
 index 0000000000000000000000000000000000000000..e269d71fd6f6f346df7df6cd1afc55c0ee11ac55
