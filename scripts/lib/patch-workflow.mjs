@@ -15,6 +15,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { includedExclusion, validateIncludes } from "./patch-include.mjs";
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const PATCH_NAME = /^\d{4}-[a-z0-9-]+\.patch$/;
@@ -126,6 +127,7 @@ async function settings(configPath, sourceOverride) {
     )
   )
     throw new Error("exclude 必须是相对路径 glob 数组");
+  validateIncludes(config.include, credentialPath);
   const source = resolve(root, sourceOverride ?? config.source);
   const output = resolve(root, config.output);
   const fromSource = relative(source, output);
@@ -234,7 +236,7 @@ async function candidates(options) {
       ...paths(await git(source, ["ls-files", "--others", "--exclude-standard", "-z"])),
     ]),
   ].sort(compare);
-  const excluded = excludedBy(config.exclude);
+  const excluded = includedExclusion(excludedBy(config.exclude), config.include);
   const files = all.filter((path) => !excluded(path));
   for (const path of files) {
     assertRelative(path, "源码文件");

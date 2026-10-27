@@ -5,15 +5,16 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "9d025b6715a2fb1445fd2bb533d08f775166c3b4",
-  "tree": "e0d934fe2f112dbf632783cf91a6d4d4fc21b25a",
+  "sourceHead": "2acbb4bbd8e88bee280dc18c7b62f3c173d169f1",
+  "tree": "58562c0b437b9177ffe9d9799b9cd85e31e7b78f",
   "excludedChangedPaths": [],
   "patches": [
     {
       "file": "0001-root.patch",
       "directory": ".",
-      "sha256": "dc2e09e3e5d4367a824746e31b1a57e462361b0aa5955ce215c78f9eb6fdee48",
+      "sha256": "d306493b31fe6994f01cc7b1519202cc26ebe3dbc88ad5d0df2ba24e462d53c6",
       "paths": [
+        ".gitignore",
         ".oxlintrc.json",
         "architecture-policy.yaml",
         "package.json",
@@ -340,7 +341,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "8e8a2cfebca5b01509dd3f14009b6a42d499e28ed1ee41ef142f341a3424fcec",
+      "sha256": "44b89361d191794634e189e62d4866a809a846628cbaecdf02c4bff3ed3d6421",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -351,6 +352,7 @@
         "docs/command-output-file-preview.md",
         "docs/compaction-profiles.md",
         "docs/conversation-session-case-catalog.md",
+        "docs/cua/2026-10-28-windows-cua-open-source-restore.md",
         "docs/design/compact-result-details.md",
         "docs/design/context-source-update-notices.md",
         "docs/design/desktop-compaction-bridge.md",
@@ -364,6 +366,7 @@
         "docs/provider-codex.md",
         "docs/provider-model-discovery.md",
         "docs/rename-slash-command.md",
+        "docs/request-security-edition-restore.md",
         "docs/session-context-and-mcp-diagnostics.md",
         "docs/session-resource-controls.md",
         "docs/side-pane-capsule-exclusivity.md",
@@ -535,7 +538,7 @@
     {
       "file": "0009-packages-shared.patch",
       "directory": "packages/shared",
-      "sha256": "71dac667b78db8d17ac7de62e2f8f0c5ca0a7746f890b9b8f6b78428f2b80ce3",
+      "sha256": "54b3e724fdcd9ce3e38e5b053b3a5ca6c6f7d654670b0a75f81e2324a7119587",
       "paths": [
         "packages/shared/src/app-runtime-preferences.ts",
         "packages/shared/src/channels.ts",
@@ -548,6 +551,8 @@
         "packages/shared/src/model-system-prompts/index.ts",
         "packages/shared/src/model-system-prompts/module.ts",
         "packages/shared/src/protocol.ts",
+        "packages/shared/src/request-security-edition/policy.ts",
+        "packages/shared/src/request-security-edition/verification-policy.ts",
         "packages/shared/src/validationAppSettings.ts",
         "packages/shared/src/zcode-protocol-v4/autocompact-schema.ts",
         "packages/shared/src/zcode-protocol-v4/command.ts",
@@ -569,6 +574,7 @@
         "packages/shared/test/appSettings.test.ts",
         "packages/shared/test/context-schemas/contract.test.ts",
         "packages/shared/test/conversationShareToolPresentation.test.ts",
+        "packages/shared/test/requestVerificationPolicy.test.ts",
         "packages/shared/test/zcodeProtocol.test.ts",
         "packages/shared/test/zcodeProtocolV4Command.test.ts",
         "packages/shared/test/zcodeProtocolV4CompactSummary.test.ts",
@@ -578,7 +584,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "05357ed4563801b9cf3298439dfa358d8c17326e15cedc38247d04c2b82626e1",
+      "sha256": "536fcb76f6abca4f162bab84cbb028ae3ab82bdc985b0b6714af7f7e1bb17724",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/PreviewPane.tsx",
@@ -672,6 +678,12 @@
         "packages/ui/src/provider-model-discovery/contract.ts",
         "packages/ui/src/provider-model-discovery/index.ts",
         "packages/ui/src/provider-model-discovery/module.ts",
+        "packages/ui/src/request-security-edition/bridge.ts",
+        "packages/ui/src/request-security-edition/captcha.ts",
+        "packages/ui/src/request-security-edition/claim.ts",
+        "packages/ui/src/request-security-edition/errors.ts",
+        "packages/ui/src/request-security-edition/index.ts",
+        "packages/ui/src/request-security-edition/index.tsx",
         "packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts",
         "packages/ui/src/session-diagnostics/CONTRACT.md",
         "packages/ui/src/session-diagnostics/ContextDiagnostics.tsx",
@@ -923,6 +935,7 @@
         "packages/ui/test/readScopeToolCallBlock.test.ts",
         "packages/ui/test/renameSlashCommand.test.ts",
         "packages/ui/test/replaceableConversationTransport.test.ts",
+        "packages/ui/test/requestVerificationErrors.test.ts",
         "packages/ui/test/selectionSideChatLoading.test.ts",
         "packages/ui/test/sessionDiagnostics.test.ts",
         "packages/ui/test/sessionFocusMode.test.ts",
@@ -965,7 +978,35 @@
       ]
     },
     {
-      "file": "0011-patches.patch",
+      "file": "0011-packages-zcode-cua.patch",
+      "directory": "packages/zcode-cua",
+      "sha256": "77964ee0b04d74faaa7a9f1bd01f0d7ac1a290ce154c4b3731210ee3e543c86f",
+      "paths": [
+        "packages/zcode-cua/README.md",
+        "packages/zcode-cua/broker-helper-constants.d.ts",
+        "packages/zcode-cua/broker-helper-constants.js",
+        "packages/zcode-cua/broker-server.js",
+        "packages/zcode-cua/broker.d.ts",
+        "packages/zcode-cua/broker.js",
+        "packages/zcode-cua/helper/build/Release/ax_native.node",
+        "packages/zcode-cua/helper/dist/windows-helper.js",
+        "packages/zcode-cua/helper/runtime-manifest.json",
+        "packages/zcode-cua/index.d.ts",
+        "packages/zcode-cua/index.js",
+        "packages/zcode-cua/package.json",
+        "packages/zcode-cua/runtime/envelope.js",
+        "packages/zcode-cua/runtime/session.js",
+        "packages/zcode-cua/runtime/tree-text.js",
+        "packages/zcode-cua/test/availability.test.ts",
+        "packages/zcode-cua/test/host-integration.windows.mjs",
+        "packages/zcode-cua/test/integration.windows.mjs",
+        "packages/zcode-cua/test/no-dev-mode.windows.mjs",
+        "packages/zcode-cua/test/product-loop.windows.mjs",
+        "packages/zcode-cua/test/staged-runtime.windows.mjs"
+      ]
+    },
+    {
+      "file": "0012-patches.patch",
       "directory": "patches",
       "sha256": "fd79a99473661822ab5cd0d2ee56ad6fa4c7983825a33f6c0857629aee94dd23",
       "paths": [
@@ -973,7 +1014,7 @@
       ]
     },
     {
-      "file": "0012-scripts.patch",
+      "file": "0013-scripts.patch",
       "directory": "scripts",
       "sha256": "e2c5a69a28bf4f76a4e9c96ef81970a2ff56563f19ff029f474a3768b387ab60",
       "paths": [
@@ -981,7 +1022,7 @@
       ]
     },
     {
-      "file": "0013-third-party.patch",
+      "file": "0014-third-party.patch",
       "directory": "third-party",
       "sha256": "b7ef6de5244ee31a8c4d9a9858f4f96ff14d2fd386d3ec16f8d91ea79c591afc",
       "paths": [

@@ -511,6 +511,265 @@ index 79057e7e3954d431b9edc3d09c68d2639983007c..6c4b92fee5807e407f8614521ada9fcc
    /**
     * 用户选的动态工作流模式（docs/dynamic-workflow/launch.md「The user's choice」）。缺席 = 跟随服务端
     * 提供的模式；只在功能已提供时生效。选回提供的模式时删除该字段，未改动的安装继续跟随服务端翻转。
+diff --git a/packages/shared/src/request-security-edition/policy.ts b/packages/shared/src/request-security-edition/policy.ts
+index 9279d52b04d35bb235e427be5792da807ccb2f45..22d32ce8b2d1ba575c3a5d1bc89a0b128b080567 100644
+--- a/packages/shared/src/request-security-edition/policy.ts
++++ b/packages/shared/src/request-security-edition/policy.ts
+@@ -1,7 +1,64 @@
+-export const requestSecuritySensitiveHeaders: readonly string[] = [];
++/**
++ * 请求安全失败（客户端签名 / 网关安全校验）的判定与敏感头清单。
++ *
++ * 官方 3.16.3 对齐：
++ *   - 失败原因从响应包 `msg` / `reason` / `data.reason` / `error.reason` / `error.message`
++ *     里取，只有 `VERIFY_SIGNATURE_INVALID` 与 `VERIFY_APIKEY_EXPIRED` 两种算安全失败
++ *   - 业务码侧同样认 `VERIFY_APIKEY_EXPIRED` / `VERIFY_SIGNATURE_INVALID` / `3007`
++ *   - 敏感头（禁止落日志/网络抓包）：客户端签名三元 + 阿里云验证码证明
++ */
++
++const VERIFY_SIGNATURE_INVALID = "VERIFY_SIGNATURE_INVALID";
++const VERIFY_APIKEY_EXPIRED = "VERIFY_APIKEY_EXPIRED";
++
++/** 客户端签名握手用头，读完后从请求里剔除。 */
++export const clientSigningHeaders: readonly string[] = [
++  "X-Client-Ts",
++  "X-Client-Version",
++  "X-Client-Sig",
++  "X-Client-Nonce",
++  "X-Client-Pow",
++  "X-App-Id",
++  "X-Client-Sign-Verified",
++];
++
++/**
++ * 不得出现在日志 / 网络抓包里的请求头（小写比较）。
++ *
++ * `x-aliyun-captcha-verify-param` 是验证码证明：它等同于一次验证的凭证，
++ * 泄漏后可在有效期内被复用，所以与客户端签名同等对待。
++ */
++export const requestSecuritySensitiveHeaders: readonly string[] = [
++  "x-client-sig",
++  "x-client-pow",
++  "x-aliyun-captcha-verify-param",
++];
++
++function asRecord(value: unknown): Record<string, unknown> | undefined {
++  return typeof value === "object" && value !== null && !Array.isArray(value)
++    ? (value as Record<string, unknown>)
++    : undefined;
++}
++
++/** 从响应包任意一层读出签名/凭据失效原因。 */
++function readClientSignatureFailureReason(body: unknown): string | undefined {
++  const outer = asRecord(body);
++  if (!outer) return undefined;
++  const data = asRecord(outer.data);
++  const error = asRecord(outer.error);
++  const reason = [outer.msg, outer.reason, data?.reason, error?.reason, error?.message].find(
++    (value) => value === VERIFY_SIGNATURE_INVALID || value === VERIFY_APIKEY_EXPIRED,
++  );
++  return typeof reason === "string" ? reason : undefined;
++}
++
++/** 这次 provider 失败是否属于"请求安全"（签名/凭据/网关 3007），可据此换一份新证明重试。 */
+ export function isRequestSecurityFailure(
+-  _body: unknown,
+-  _codes: readonly (string | undefined)[],
++  body: unknown,
++  codes: readonly (string | undefined)[],
+ ): boolean {
+-  return false;
++  if (readClientSignatureFailureReason(body)) return true;
++  return codes.some((code) =>
++    [VERIFY_APIKEY_EXPIRED, VERIFY_SIGNATURE_INVALID, "3007"].includes(code ?? ""),
++  );
+ }
+diff --git a/packages/shared/src/request-security-edition/verification-policy.ts b/packages/shared/src/request-security-edition/verification-policy.ts
+index 0c11622256f18cf2b589f77858c45df8a9248015..fe9f19953cd89da2bcca9b40acee175ecd7ae19f 100644
+--- a/packages/shared/src/request-security-edition/verification-policy.ts
++++ b/packages/shared/src/request-security-edition/verification-policy.ts
+@@ -1,46 +1,159 @@
+-export type RequestVerificationConfig = Readonly<Record<string, unknown>>;
+-export type RequestVerificationProof = Record<never, never>;
+-export type RequestVerificationClientConfig = Record<never, never>;
+-export const requestVerificationReasons = ["model-request"] as const;
++/**
++ * 请求安全验证（阿里云验证码）—— 客户端策略。
++ *
++ * 事实来源：官方 ZCode 3.16.3 里 `request-security-edition` 同名模块（逐条对齐）：
++ *   - 配置从客户端配置的 `captcha` 段读取，`skip_model_request` 映射为 `skipModelRequest`
++ *   - proof → 请求头：`X-Aliyun-Captcha-Verify-Param`（+ 可选 `X-Aliyun-Captcha-Verify-Region`）
++ *   - 只有 `access.mode === "start-plan"` 的账号会走模型请求前的验证码挑战
++ *   - 网关拒绝文案：`请完成安全验证` / `security verification`
++ *   - 错误码：`coding_plan_security_verification_required`
++ *
++ * 这一层是纯策略（无 DOM、无网络）；渲染层的验证码交互在 `@zcode/ui` 的
++ * `request-security-edition/captcha` 里。
++ */
++
++/** 服务端下发的验证码配置（`client configs.captcha` 归一化之后的形状）。 */
++export interface RequestVerificationConfig {
++  enabled?: boolean;
++  region?: string;
++  prefix?: string;
++  sceneId?: string;
++  mode?: string;
++  language?: string;
++  captchaLogoImg?: string;
++  /** true 表示模型请求不需要验证码（只有领取等敏感动作需要）。 */
++  skipModelRequest?: boolean;
++  [key: string]: unknown;
++}
++
++/** 客户端配置外壳：验证码配置挂在 `captcha` 段。 */
++export interface RequestVerificationClientConfig {
++  captcha?: {
++    enabled?: boolean;
++    region?: string;
++    prefix?: string;
++    sceneId?: string;
++    mode?: string;
++    language?: string;
++    captcha_logo_img?: string;
++    skip_model_request?: boolean;
++    [key: string]: unknown;
++  } | null;
++  [key: string]: unknown;
++}
++
++/** 验证码证明：提交给服务端的头材料。 */
++export interface RequestVerificationProof {
++  captchaVerifyParam?: string;
++  captchaRegion?: string;
++  [key: string]: unknown;
++}
++
++export const requestVerificationReasons = ["model-request", "captcha-retry"] as const;
+ export type RequestVerificationReason = (typeof requestVerificationReasons)[number];
++
+ export const requestVerificationTimeoutMessage =
+-  "Provider runtime headers request timed out. Please send your message again.";
+-export const REQUEST_VERIFICATION_REQUIRED = "request_verification_unavailable";
++  "Captcha verification request timed out. Please send your message again.";
++
++/** 网关要求完成安全验证时使用的错误码。 */
++export const REQUEST_VERIFICATION_REQUIRED = "coding_plan_security_verification_required";
++
++export const CAPTCHA_VERIFY_PARAM_HEADER = "X-Aliyun-Captcha-Verify-Param";
++export const CAPTCHA_VERIFY_REGION_HEADER = "X-Aliyun-Captcha-Verify-Region";
++
++const REQUEST_VERIFICATION_HEADERS: readonly string[] = [
++  CAPTCHA_VERIFY_PARAM_HEADER,
++  CAPTCHA_VERIFY_REGION_HEADER,
++];
++
++/** 从客户端配置里读出验证码配置；没有 `captcha` 段即视为未启用。 */
+ export function readRequestVerificationConfig(
+-  _configs: RequestVerificationClientConfig | null | undefined,
++  configs: RequestVerificationClientConfig | null | undefined,
+ ): RequestVerificationConfig | null {
+-  return null;
++  const captcha = configs?.captcha;
++  if (!captcha) return null;
++  const { skip_model_request: skipModelRequestSnake, ...rest } = captcha;
++  return {
++    ...rest,
++    ...(typeof skipModelRequestSnake === "boolean" ? { skipModelRequest: skipModelRequestSnake } : {}),
++  };
+ }
++
++/** proof → 请求头。 */
+ export function requestVerificationClaimHeaders(
+-  _proof: RequestVerificationProof,
++  proof: RequestVerificationProof,
+ ): Record<string, string> {
+-  return {};
++  const region = proof.captchaRegion?.trim();
++  return {
++    [CAPTCHA_VERIFY_PARAM_HEADER]: proof.captchaVerifyParam ?? "",
++    ...(region ? { [CAPTCHA_VERIFY_REGION_HEADER]: region } : {}),
++  };
+ }
++
++/** 剥掉验证码头（模型请求默认不允许携带，只有显式放行的路径才加回去）。 */
+ export function withoutRequestVerificationHeaders(
+   headers: Record<string, string> | undefined,
+ ): Record<string, string> {
+-  return { ...headers };
++  return Object.fromEntries(
++    Object.entries(headers ?? {}).filter(
++      ([name]) =>
++        !REQUEST_VERIFICATION_HEADERS.some((known) => known.toLowerCase() === name.toLowerCase()),
++    ),
++  );
+ }
++
++/** 只保留验证码头（大小写归一 + 去空白）。 */
+ export function allowRequestVerificationHeaders(
+-  _headers: Record<string, string>,
++  headers: Record<string, string>,
+ ): Record<string, string> {
+-  return {};
++  const allowed: Record<string, string> = {};
++  for (const [name, value] of Object.entries(headers)) {
++    const canonical = REQUEST_VERIFICATION_HEADERS.find(
++      (known) => known.toLowerCase() === name.trim().toLowerCase(),
++    );
++    if (canonical && typeof value === "string" && value.trim()) {
++      allowed[canonical] = value.trim();
++    }
++  }
++  return allowed;
+ }
+-export function requiresRequestVerification(_access: { mode: string } | undefined): boolean {
+-  return false;
++
++/** `start-plan` 账号 + 服务端没关掉 + 没声明跳过模型请求 → 需要验证码。 */
++export function requiresRequestVerification(
++  access: { mode: string } | undefined,
++  config?: RequestVerificationConfig | null,
++): boolean {
++  return (
++    access?.mode === "start-plan" &&
++    config?.enabled !== false &&
++    config?.skipModelRequest !== true
++  );
+ }
+-export function isRequestVerificationMessage(_message: string): boolean {
+-  return false;
++
++/** 网关的验证码拒绝文案。 */
++export function isRequestVerificationMessage(message: string): boolean {
++  return message.includes("请完成安全验证") || /security verification/i.test(message);
+ }
++
++/** 诊断：只统计有没有材料、多长，绝不记录内容。 */
+ export function summarizeRequestVerificationHeaders(
+-  _headers: Record<string, string>,
++  headers: Record<string, string>,
+ ): Record<string, unknown> {
+-  return {};
++  const key = Object.keys(headers).find(
++    (name) => name.toLowerCase() === CAPTCHA_VERIFY_PARAM_HEADER.toLowerCase(),
++  );
++  const param = key ? (headers[key]?.trim() ?? "") : "";
++  return { hasCaptchaVerifyParam: param.length > 0, captchaParamLength: param.length };
+ }
++
+ export function requestVerificationDiagnostics(
+-  _input: Record<string, unknown>,
++  input: Record<string, unknown>,
+ ): Record<string, unknown> {
+-  return {};
++  return {
++    hasCaptchaVerifyParam: input.hasCaptchaVerifyParam === true,
++    captchaParamLength: input.captchaParamLength ?? 0,
++  };
+ }
+ 
+-export const requestVerificationInteractionAvailable = false;
++/** 渲染层是否具备交互式验证码能力（本构建提供）。 */
++export const requestVerificationInteractionAvailable = true;
 diff --git a/packages/shared/src/validationAppSettings.ts b/packages/shared/src/validationAppSettings.ts
 index e35baf7d861aaf467d3aba5c785823dfe4626920..a09adea79e94bf58d6b78163d34b22dab98d5636 100644
 --- a/packages/shared/src/validationAppSettings.ts
@@ -1534,6 +1793,139 @@ index 7b4168c9b542781c9b499b722143472a9acb0549..daca14892de7e86402616e4dc6297cd8
    it("rejects unclosed image references and falls back on unknown versions", () => {
      expect(
        conversationShareContentBlockSchema.safeParse({
+diff --git a/packages/shared/test/requestVerificationPolicy.test.ts b/packages/shared/test/requestVerificationPolicy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..61cb4fb6adf50648c5d43563a671155b519ff83a
+--- /dev/null
++++ b/packages/shared/test/requestVerificationPolicy.test.ts
+@@ -0,0 +1,127 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  isRequestSecurityFailure,
++  requestSecuritySensitiveHeaders,
++} from "../src/request-security-edition/policy.js";
++import {
++  CAPTCHA_VERIFY_PARAM_HEADER,
++  CAPTCHA_VERIFY_REGION_HEADER,
++  REQUEST_VERIFICATION_REQUIRED,
++  allowRequestVerificationHeaders,
++  isRequestVerificationMessage,
++  readRequestVerificationConfig,
++  requestVerificationClaimHeaders,
++  requestVerificationDiagnostics,
++  requestVerificationInteractionAvailable,
++  requestVerificationReasons,
++  requestVerificationTimeoutMessage,
++  requiresRequestVerification,
++  summarizeRequestVerificationHeaders,
++  withoutRequestVerificationHeaders,
++} from "../src/request-security-edition/verification-policy.js";
++
++describe("request verification policy", () => {
++  it("没有 captcha 段即未启用", () => {
++    expect(readRequestVerificationConfig(null)).toBeNull();
++    expect(readRequestVerificationConfig({})).toBeNull();
++    expect(readRequestVerificationConfig({ captcha: null })).toBeNull();
++  });
++
++  it("把服务端 snake_case 配置归一化", () => {
++    expect(
++      readRequestVerificationConfig({
++        captcha: {
++          enabled: true,
++          region: "cn",
++          prefix: "abc",
++          sceneId: "scene-1",
++          skip_model_request: true,
++        },
++      }),
++    ).toEqual({
++      enabled: true,
++      region: "cn",
++      prefix: "abc",
++      sceneId: "scene-1",
++      skipModelRequest: true,
++    });
++  });
++
++  it("proof 转请求头，region 可选", () => {
++    expect(requestVerificationClaimHeaders({ captchaVerifyParam: "p" })).toEqual({
++      [CAPTCHA_VERIFY_PARAM_HEADER]: "p",
++    });
++    expect(requestVerificationClaimHeaders({ captchaVerifyParam: "p", captchaRegion: "cn" })).toEqual({
++      [CAPTCHA_VERIFY_PARAM_HEADER]: "p",
++      [CAPTCHA_VERIFY_REGION_HEADER]: "cn",
++    });
++  });
++
++  it("允许/剥离验证码头，大小写不敏感", () => {
++    const mixed = {
++      "x-aliyun-captcha-verify-param": "  p  ",
++      "X-Aliyun-Captcha-Verify-Region": "cn",
++      Authorization: "Bearer t",
++    };
++    expect(allowRequestVerificationHeaders(mixed)).toEqual({
++      [CAPTCHA_VERIFY_PARAM_HEADER]: "p",
++      [CAPTCHA_VERIFY_REGION_HEADER]: "cn",
++    });
++    expect(withoutRequestVerificationHeaders(mixed)).toEqual({ Authorization: "Bearer t" });
++  });
++
++  it("只有 start-plan 账号需要验证码，且服务端可关闭/跳过模型请求", () => {
++    expect(requiresRequestVerification({ mode: "start-plan" })).toBe(true);
++    expect(requiresRequestVerification({ mode: "api-key" })).toBe(false);
++    expect(requiresRequestVerification({ mode: "start-plan" }, { enabled: false })).toBe(false);
++    expect(requiresRequestVerification({ mode: "start-plan" }, { skipModelRequest: true })).toBe(
++      false,
++    );
++    expect(requiresRequestVerification(undefined)).toBe(false);
++  });
++
++  it("识别网关的验证码拒绝文案", () => {
++    expect(isRequestVerificationMessage("请完成安全验证后重试")).toBe(true);
++    expect(isRequestVerificationMessage("Security verification required")).toBe(true);
++    expect(isRequestVerificationMessage("model overloaded")).toBe(false);
++  });
++
++  it("诊断只暴露长度，不暴露材料", () => {
++    const summary = summarizeRequestVerificationHeaders({
++      [CAPTCHA_VERIFY_PARAM_HEADER]: "abcdef",
++    });
++    expect(summary).toEqual({ hasCaptchaVerifyParam: true, captchaParamLength: 6 });
++    expect(requestVerificationDiagnostics(summary)).toEqual(summary);
++  });
++
++  it("常量与官方对齐", () => {
++    expect(requestVerificationReasons).toEqual(["model-request", "captcha-retry"]);
++    expect(REQUEST_VERIFICATION_REQUIRED).toBe("coding_plan_security_verification_required");
++    expect(requestVerificationTimeoutMessage).toContain("Captcha verification request timed out");
++    expect(requestVerificationInteractionAvailable).toBe(true);
++  });
++});
++
++describe("request security failure policy", () => {
++  it("识别签名/凭据失效原因（任意一层 envelope）", () => {
++    expect(isRequestSecurityFailure({ reason: "VERIFY_SIGNATURE_INVALID" }, [])).toBe(true);
++    expect(isRequestSecurityFailure({ data: { reason: "VERIFY_APIKEY_EXPIRED" } }, [])).toBe(true);
++    expect(isRequestSecurityFailure({ error: { message: "VERIFY_SIGNATURE_INVALID" } }, [])).toBe(
++      true,
++    );
++    expect(isRequestSecurityFailure({ message: "model overloaded" }, [])).toBe(false);
++  });
++
++  it("业务码侧认 3007 / 两种 VERIFY 码", () => {
++    expect(isRequestSecurityFailure(null, ["3007"])).toBe(true);
++    expect(isRequestSecurityFailure(null, ["CAPTCHA_VERIFY_FAILED"])).toBe(false);
++    expect(isRequestSecurityFailure(null, ["1005"])).toBe(false);
++    expect(isRequestSecurityFailure(null, [undefined])).toBe(false);
++  });
++
++  it("验证码证明属于敏感头，不能被记录", () => {
++    expect(requestSecuritySensitiveHeaders).toContain("x-aliyun-captcha-verify-param");
++    expect(requestSecuritySensitiveHeaders).toContain("x-client-sig");
++  });
++});
 diff --git a/packages/shared/test/zcodeProtocol.test.ts b/packages/shared/test/zcodeProtocol.test.ts
 index db6aa538b5db57579d6245c3e97277a9fb4b30b4..3a67f58b3bca85a985f3fc848df6526daa281240 100644
 --- a/packages/shared/test/zcodeProtocol.test.ts

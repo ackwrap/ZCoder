@@ -336,6 +336,134 @@ index 7325653d6ce87bcbfe53e0b67edd8530f398defd..78568724f18f7f991864227f4f792709
  
  PL 维护真实键盘和鼠标操作、draft/existing、重复选择、附件标准发送、窄屏退出和原始文本发送。
  parser / SessionPane / catalog focused tests 补充只读、mobile props 和旧目录兼容；PSC05 复用标准
+diff --git a/docs/cua/2026-10-28-windows-cua-open-source-restore.md b/docs/cua/2026-10-28-windows-cua-open-source-restore.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..0eece3aeced6b33c7c27241d4e88a00ee3a53de1
+--- /dev/null
++++ b/docs/cua/2026-10-28-windows-cua-open-source-restore.md
+@@ -0,0 +1,122 @@
++# Windows 上把 Computer Use 接回开源版
++
++本文记录开源树里恢复 Computer Use（CUA）的最小改动面，以及验收方式。
++结论：**只需要把 `packages/zcode-cua` 从占位包换成真实 producer**，其余链路（services 的
++Windows Helper Host、node-repl 的 cua-broker、desktop 的打包 staging）在开源树里本来就是真实的，
++只是一直被「占了位就跳过」的 gate 挡掉。
++
++## 1. 改动面
++
++| 位置 | 改动 |
++| --- | --- |
++| `packages/zcode-cua/package.json` | 删除 `zcodeCuaPlaceholder: true`，新增 `zcodeCuaRuntime`（entry / nativeAddon 契约） |
++| `packages/zcode-cua/helper/` | 随包携带官方 Windows Helper 运行时（`dist/windows-helper.js` + `build/Release/ax_native.node` + `runtime-manifest.json`） |
++| `packages/zcode-cua/index.js` | 真实 `createComputerUseRuntime`（14 个 capability method，broker NDJSON，观测台账） |
++| `packages/zcode-cua/broker.js` | 真实 broker 协议层（43 个 method、socket 规则、`probeHelperHealth`、`callBrokerMethod`） |
++| `packages/zcode-cua/broker-server.js` | Helper 常量、refresh marker、MCP broker 注入、`createCuaProductMcpServerResolver` |
++| `apps/zcode-cli/packages/zcode-cua-plugin/skills/computer-use/SKILL.md` | 补回插件 skill（plugin.json 早就声明了 `"skills": "skills"`，开源树缺这个目录） |
++
++`broker-server.js` 里 macOS 专属能力（LaunchServices 拉起、codesign/TeamID、TCC 权限引导、
++Helper 安装下载、PiP）保持显式 fail-closed：`CuaHelperError{ code: "unsupported_platform" }`。
++
++## 2. gate 为什么自动打开
++
++`packages/desktop/scripts/computer-use-producer.mjs#isRealComputerUseProducerInstalled`
++只检查「装了 `@zcode/zcode-cua` 且 `zcodeCuaPlaceholder !== true`」。去掉占位标记后：
++
++- `scripts/stage-dev-cua-plugin-runtime.mjs` 会为 dev 暂存插件原生依赖
++- `packages/desktop/electron-builder.config.js` 的 `afterPack` 会执行
++  `prepareWindowsCuaHelperAssets` / `finalizePackagedWindowsCuaHelper`，把 Helper 落到
++  `resources/tools/cua-helper`（源 = 本包 `zcodeCuaRuntime` 契约）
++- `packages/services/src/cua-permission-broker/windowsCuaDevRuntime.ts` 在 dev 下解析
++  `ZCODE_CUA_DEV_ROOT`（默认 `scripts/dev-desktop-cua-env.mjs` 注入的 `packages/zcode-cua`）
++
++## 3. 运行开关
++
++| 变量 | 作用 |
++| --- | --- |
++| `ZCODE_CUA_DEV_MODE=1` | dev 下让 `stage-dev-cua-plugin-runtime` 暂存插件原生依赖（CUA Helper 自身不依赖它；官方 Windows 构建的 peer gate 已放开） |
++| `ZCODE_CUA_PRODUCT_HELPER=1` / `=0` | 默认开启；显式 0/false/off 关闭产品 Helper（`isZCodeCuaInternalFeatureEnabled`） |
++| `ZCODE_CUA_DEV_ROOT` | 指定 Windows Helper runtime 根（dev 默认即 `packages/zcode-cua`） |
++| `ZCODE_CUA_PERMISSION_BROKER_SOCKET` | 宿主注入给 node_repl 的 broker 管道名（运行时自动填） |
++
++## 4. 打包前提（build 机）
++
++`packages/desktop/scripts/windows-cua-helper-assets.mjs` 在 staging 时会从 producer 包里收集
++Helper 的运行时依赖闭包（`express` + 当前平台 `sharp` 的 `@img/*`）。因此：
++
++- `packages/zcode-cua/package.json` 声明了 `express@5.2.1` 与 `sharp@0.34.5`（与官方 Helper
++  运行时同版本），`pnpm-lock.yaml` 已随之更新；
++- 根 `package.json` 的 `pnpm.onlyBuiltDependencies` 加入 `sharp`，让 sharp 的
++  `install/check.js` 在 pnpm 10 的 build-script 策略下正常执行（否则 pnpm 会 skip 它并告警）；
++- 该 checkout 已执行 `pnpm install --filter @zcode/zcode-cua`：`sharp`（vips 8.17.3，来自
++  `@img/sharp-win32-x64`）与 `express` 都能从 `packages/zcode-cua` 解析。
++
++staging 已验证：`prepareWindowsCuaHelperAssets` 输出到
++`packages/desktop/bundled-tools/win32-x64/cua-helper`，包含 `helper/`、
++`node_modules/{express,sharp,@img/sharp-win32-x64,…}`、`runtime-manifest.json` 与
++`{"type":"module"}` 的 `package.json`；entry/addon 的 SHA-256 与官方 Helper 完全一致。
++缺 `sharp` 时 staging 会直接报 `missing runtime dependency: sharp`；dev 启动不受影响
++（Helper 的 `sharp` 只影响截图编码路径）。
++
++## 5. 验收
++
++```bash
++# 1) 包内单测：方法表/socket 规则/帧解析/fail-closed 语义
++npx vitest run packages/zcode-cua/test/availability.test.ts
++
++# 2) 真机端到端：起 Helper → 记事本 AX 观察 → AXExpand → 旧索引 fail-closed
++node packages/zcode-cua/test/integration.windows.mjs --shot
++
++# 3) 不注入 dev 位时仍可用（验证 peer gate 状态）
++node packages/zcode-cua/test/no-dev-mode.windows.mjs
++
++# 3.5) 打包形态：验证 bundled-tools 里那份 Helper（含 sharp 闭包）能独立跑
++node packages/zcode-cua/test/staged-runtime.windows.mjs ../desktop/bundled-tools/win32-x64/cua-helper
++
++# 3.6) 产品链路：真实 node_repl 宿主 + 官方插件 SDK（不经过 Electron UI）
++node packages/zcode-cua/test/product-loop.windows.mjs
++
++# 4) dev runtime 解析（services 的真实解析器）
++node -e "import('./packages/services/dist/cua-permission-broker/windowsCuaDevRuntime.js').then(m=>m.resolveWindowsCuaRuntime({platform:'win32',env:{...process.env,ZCODE_CUA_DEV_ROOT:'packages/zcode-cua'}})).then(r=>console.log(r.entryPath))"
++```
++
++2026-10 实测（Windows 11 + Node 26，ZCode 3.16.3 官方包抽取的 Helper）：
++
++- `helper_health` → `{bundleId: "dev.zcode.cua-helper", pid: <helper pid>}`
++- `list_apps` → 12 个运行中应用
++- `get_app_state` → 25 个元素；`perform_action(AXExpand)` 后 29 个
++- 截图块：dev（无 sharp 时代）约 15.8 KB base64；staging 产物（sharp 生效）整窗约 247 KB，
++  说明 `sharp` 闭包真的被加载
++- 旧索引 → `{code: "element_unavailable"}`（fail closed）
++- 未开 dev 位同样可用，Helper 输出
++  `peer identity verification temporarily disabled (WINDOWS_PEER_IDENTITY_GATE_TEMPORARILY_OPEN)`
++- 产品链路（`product-loop.windows.mjs`）：宿主 `tools/list` = `js`，模型侧
++  `setupComputerUseRuntime` + `agent.computerUse.listApps()` 返回真实应用清单（含 notepad），
++  `agent.computerUse.computer.target = "windows"`
++
++## 6. 与官方保持一致的边界（明确不做的事）
++
++**Helper 入站鉴权按官方现状保留，不做自定义加固。**
++
++- 官方 3.16.3 的 Windows Helper 编译期 `WINDOWS_PEER_IDENTITY_GATE_TEMPORARILY_OPEN = true`，
++  启动即打印 `peer identity verification temporarily disabled … any local process can drive
++  Computer Use`；`assertPeerIdentityAuthCapable` 要求的 native 原语
++  （`getPeerCredentials` / `verifyProcessCodeSignature*` / `parentProcessPid`）在官方
++  `ax_native.node` 里**一个都没有**，官方注释也写明 "Windows peer verification lands separately"。
++- 因此本仓库不 patch `windows-helper.js`、不加共享密钥握手、不改 `verifyPeer` 接线：
++  Helper 字节与官方 sha256 一致（`def39fc9…`），行为也一致（同用户本地进程可驱动）。
++- node_repl 的 broker token 只保护 Worker↔host 本地 socket，从来不是 Helper 入站认证；
++  不要据此声称"未授权进程已被阻止"。
++
++**runtime 的 not-ready 语义也与官方一致**：默认 `brokerReadyWaitMs = 0`，连不上立即返回
++`CUA_NOT_READY`（retryable），由 SDK 自己按 6 次退避重试。若现场出现"先注入 socket 后 bind"
++或 Helper 代际重启导致的冷启动竞态，可用 `ZCODE_CUA_BROKER_READY_WAIT_MS=<ms>` 显式开启
++runtime 侧等待（默认关闭，避免语义漂移）。
++
++## 7. 已知差异（不影响驱动能力）
++
++- 未实现 `ax_snapshot: delta|no_change` 的树文本压缩：每次观察返回完整树。
++- 未实现 frame raster 注册表（`frame_id` 像素投影）：坐标目标按 Helper 返回的 raster 像素直传。
++- 未实现 PiP 呈现会话与 controller lease 的完整状态机：`stop_computer_control` 走 `controller_stop`。
++- 权限 onboarding 只透传 Helper 的 `permission_status`，不做引导 UI。
 diff --git a/docs/design/compact-result-details.md b/docs/design/compact-result-details.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..86519a1cb04e6e66f56ee702207d0bf93910f102
@@ -1003,6 +1131,101 @@ index 0000000000000000000000000000000000000000..2db79e560289d73da0bdc58fc23f2fa5
 +- sidecar 测试断言实际传给 `model.generateText` 的 messages：conversation 不被 1200 二次截断，message 仍为 1200。
 +- SessionPane 测试覆盖面板 `insertText`、pending/成功/失败/被取代 toast、草稿与只读门禁、附件透传。
 +- 不改动既有 `/plan`、`/mcp`、`/side` 命令行为。
+diff --git a/docs/request-security-edition-restore.md b/docs/request-security-edition-restore.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..22f09141e12035149e49dfb1daa106c3aa7cd6a7
+--- /dev/null
++++ b/docs/request-security-edition-restore.md
+@@ -0,0 +1,89 @@
++# 官方福利（领 token / 奖励中心）验证码层还原
++
++## 1. 现象
++
++官方版有「限时领取体验套餐 / 每日额度」横幅、「奖励中心 / 邀请好友」入口、活动弹窗。
++开源导出里这些 UI、i18n、服务端调用都还在，但**领 token 之前那道阿里云验证码证明层被整层
++换成了空实现**，表现是：
++
++- 点「领取」直接失败（网关 3007），文案落到 `manualClaimPlan.claim.failure.generic`
++- 正常对话被网关安全校验挑战时，host 直接回 `headersApplied:false` +
++  `"Provider request auth is unavailable"`（`zcodeAgentService` 里
++  `requestVerificationInteractionAvailable === false` 的分支）
++- 未登录时左下角没有「邀请好友」入口（这是产品预期：福利绑定账号）
++
++## 2. 还原清单
++
++| 文件 | 还原内容 |
++| --- | --- |
++| `packages/shared/src/request-security-edition/verification-policy.ts` | 配置解析（`captcha` 段 / `skip_model_request`）、proof → `X-Aliyun-Captcha-Verify-Param`（+ Region）、头过滤、`start-plan` 判定、3007 文案识别、诊断摘要、`requestVerificationInteractionAvailable = true` |
++| `packages/shared/src/request-security-edition/policy.ts` | `isRequestSecurityFailure`（`VERIFY_SIGNATURE_INVALID` / `VERIFY_APIKEY_EXPIRED` / `3007`）、敏感头清单含 `x-aliyun-captcha-verify-param` |
++| `packages/ui/src/request-security-edition/captcha.ts`（新增） | 阿里云验证码控制器：脚本单例加载、`initAliyunCaptcha`、无感优先 + 隐藏按钮点开交互、F008/F015/T006 语义、10s/2s/120s 三档超时、串行队列、60s 配置缓存、ARMS 上报 |
++| `packages/ui/src/request-security-edition/claim.ts` | `prepareRequestVerificationClaim`（`onVerifying` → 配置 → 验证码 → `{captchaVerifyParam, captchaRegion}`）、`useRequestVerificationPrewarm`（横幅可见时预热） |
++| `packages/ui/src/request-security-edition/bridge.ts`（新增） | `providerRuntimeHeaders.request` 处理：账号判定、按需跑验证码、`respondProviderRuntimeHeaders({headersApplied:true, runtimeProviderHeaders})`、同请求合并、取消通知 abort |
++| `packages/ui/src/request-security-edition/index.tsx` | `RequestSecurityHost`（三个验证码 DOM 节点）、`RequestSecurityWorkspaceBridge`（每 workspace 一个订阅者）、`setRequestSecurityReporter` |
++| `packages/ui/src/request-security-edition/errors.ts` | 3007 归一、`retry-captcha` 恢复动作、`manualClaimPlan.claim.failure.captcha`、错误归因、验证码浮层选择器 |
++| `packages/ui/src/i18n/locales/{zh-CN,en-US}.ts` | 补 `manualClaimPlan.claim.failure.captcha`、`chat.error.action.retryCaptcha` |
++
++## 3. 关键协议事实（官方 3.16.3 逐条核对）
++
++| 项 | 值 |
++| --- | --- |
++| 验证码脚本 | `https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js` |
++| 全局握手 | `window.AliyunRequestVerificationConfig = { region, prefix }` |
++| init 参数 | `{ SceneId, mode, language, captchaLogoImg, showErrorTip:false, element:"#zcode-aliyun-captcha-element", button:"#zcode-aliyun-captcha-button" }` |
++| 证明头 | `X-Aliyun-Captcha-Verify-Param`（+ 可选 `X-Aliyun-Captcha-Verify-Region`） |
++| 配置来源 | 客户端配置 `captcha` 段：`{ enabled, region, prefix, sceneId, mode, language, captcha_logo_img, skip_model_request }` |
++| 触发条件 | `access.type === "zhipu-account" && access.mode === "start-plan"` 且配置没关、没 `skip_model_request` |
++| 结果语义 | `success && verifyResult` 或 `verifyCode === "T006"` = 通过；`success && !verifyResult`（`F015`/空）= 等待升级；`F008` = 重复提交 |
++| 网关拒绝 | 业务码 `3007` / `CAPTCHA_VERIFY_FAILED` / 文案 `请完成安全验证`、`captcha verification failed` |
++| 错误码常量 | `coding_plan_security_verification_required` |
++| 领取失败文案 | `manualClaimPlan.claim.failure.captcha` |
++
++## 4. 数据流
++
++```
++领取（活动横幅）
++  MarketingTouchProvider.claim
++    → prepareRequestVerificationClaim(service, signal, onVerifying)
++    → captcha.runCaptcha（traceless → 交互）
++    → proof { captchaVerifyParam, captchaRegion }
++    → codingPlanSubscriptionService.claimManualPlan(proof)
++       headers: X-Aliyun-Captcha-Verify-Param / Region
++
++模型请求（start-plan 账号被网关挑战）
++  CLI 端口 refreshBeforeModelRequest
++    → interaction/requestProviderRuntimeHeaders
++    → services emit "providerRuntimeHeaders.request"
++    → RequestSecurityWorkspaceBridge → bridge.handleProviderRuntimeHeadersRequest
++    → 跑验证码 → respondProviderRuntimeHeaders({headersApplied:true, runtimeProviderHeaders})
++```
++
++## 5. 验证
++
++```bash
++npx vitest run \
++  packages/shared/test/requestVerificationPolicy.test.ts \
++  packages/ui/test/requestVerificationErrors.test.ts \
++  packages/ui/test/manualClaimPlanStartUsing.test.ts \
++  packages/ui/test/manualClaimFailureMessage.test.ts \
++  packages/ui/test/marketingTouchProvider.test.ts \
++  packages/ui/test/chatErrorBannerTelemetry.test.ts \
++  packages/services/test/zcodeAgentService.accountRequestAuth.test.ts
++# 7 files / 126 tests passed
++
++npx tsc --noEmit -p packages/ui/tsconfig.json          # 通过
++npx tsc --noEmit -p packages/services/tsconfig.json    # 通过
++npx tsc --noEmit -p apps/zcode-cli/packages/{core,adapters,debug,bootstrap}/tsconfig.json  # 通过
++npx tsc -b packages/shared                              # 重生成 d.ts
++```
++
++真机联调需要**已登录的官方账号**（`sceneId` 等配置由服务端下发）；未登录时活动横幅与
++奖励入口按产品设计不出现。
++
++## 6. 与官方的差异
++
++- 验证码 SDK 的弹窗样式由阿里云脚本自己渲染，我们只提供容器与隐藏按钮，与官方一致。
++- 官方还带 `certifyId` 复用台账（用于诊断 F008）；本实现保留最小版（记录/清理，不参与判定）。
++- `mode`（popup / embed 等）完全按服务端下发透传，未额外硬编码。
++- PiP 呈现、macOS TCC 权限引导等与本主题无关的能力仍按各自模块的边界处理。
 diff --git a/docs/session-context-and-mcp-diagnostics.md b/docs/session-context-and-mcp-diagnostics.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..c9b95885eaa845407b09725bcd8cce89e1f0cc1c
@@ -2209,20 +2432,19 @@ index 0000000000000000000000000000000000000000..9401aa4b7457476fb2865d8e845aaeaf
 +| MSP-I01 | 中英文案                   | 键集合一致；新模块接入现有 i18n                   |
 diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080f9de2638
+index 0000000000000000000000000000000000000000..7a5baa5bdc351cbb45f0d008a181b88653454e95
 --- /dev/null
 +++ b/docs/ui/navigation-entry-removals.md
-@@ -0,0 +1,10 @@
-+# Navigation entry removals
+@@ -0,0 +1,9 @@
++# Navigation entry visibility
 +
-+This fork intentionally hides entries that do not lead to a supported product flow:
++- Computer Use is listed after remote devices in desktop Settings (macOS, Windows and Linux), but not in Web Settings. Existing platform, workspace and permission checks in ComputerUseSection remain authoritative; showing navigation does not enable the capability or grant permission.
++- The desktop project sidebar footer shows the existing phone remote-control trigger only when a workspace path exists and the existing Web remote-control feature gate permits it. It passes the workspace identity, remote session and current task to the existing trigger; it does not start a remote session on render.
++- Project and Settings footers show the existing account menu for signed-in and signed-out users. Rendering does not initiate authentication; actions remain explicit.
++- The sidebar activity slot shows a renderable marketing banner in preference to the highspeed notice, and restores the notice when no banner is renderable. Existing controller, delivery and action checks remain authoritative; no claim or action runs on render.
++- Other hidden Settings sections, including Start Plan navigation, remain unchanged.
 +
-+- The Settings sidebar does not show `computerUse` / 「电脑控制」 on any platform. The section id, history preference and old navigation intents are retained for compatibility; any remaining intent resolves to `general`. The underlying Computer Use implementation is not deleted, so the entry can be restored by removing `computerUse` from `HIDDEN_SETTINGS_SECTIONS`.
-+- The desktop sidebar footer does not render the phone / Web remote-control trigger. The remote-control dialog, host services and mobile `/remote` flow are unchanged; only this desktop entry is removed.
-+- The account entry (avatar plus 「连接使用」 / "Connect") is not rendered in either sidebar footer. `WorkspaceSidebarFooter` takes `hideAccountEntry`, and both the project sidebar and the Settings sidebar set it, so the Settings page keeps only its navigation and the back button. The footer account menu was the only place that grouped account identity, logout, locale, theme and zoom; with it gone those controls come from the sections that own the state — model settings owns coding-plan login, and app appearance/language live in 「外观」 and 「常规」. The onboarding flow is unchanged.
-+- The sidebar activity slot does not render marketing banners (the seasonal claim-token card). `SidebarBottomActivity` now shows only the highspeed share notice from `GlobalNoticeSurface`. Marketing popups, delivery queries, reporting and the `/mcp`-style surfaces are untouched; restore the banner by rendering `<MarketingBanner />` when `useMarketingBannerVisible()` is true.
-+
-+Verification: `settingsPageConfig.test.ts` checks the section is absent on desktop and Web and that residual `computerUse` navigation falls back to `general`; `workspaceSidebarFooterWebRemoteControlTooltip.test.ts` checks the footer no longer renders a remote-control trigger and that `hideAccountEntry` drops the account trigger while keeping the settings button; `sidebarBottomActivity.test.ts` checks the slot never renders the marketing banner but still arbitrates highspeed notices.
++Verification covers desktop/Web Settings selection and navigation fallback, account and remote trigger gates, and banner/highspeed arbitration; browser preview uses mock services and fictional account and delivery data without real network actions.
 diff --git a/docs/ui/status-capsule-side-pane.md b/docs/ui/status-capsule-side-pane.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..b0d7b583e9b0ec24a8652b45776bb27bc6eaace4

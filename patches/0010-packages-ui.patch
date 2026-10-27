@@ -549,7 +549,7 @@ index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..0310ec81a8c9a102a6b2e05c89e8cf60
        isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
        providerFamilyDomain: appSettings?.providerFamilyDomain,
 diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
-index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd47059267388 100644
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..32e12f48c7169b156e0fe624d8c3df3310cc7fb8 100644
 --- a/packages/ui/src/SettingsPage.tsx
 +++ b/packages/ui/src/SettingsPage.tsx
 @@ -1,3 +1,5 @@
@@ -566,24 +566,21 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd470
  import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
  import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
  import {
-@@ -323,15 +324,7 @@ export function SettingsPage({
-   user?: UserInfo | null;
+@@ -324,12 +325,7 @@ export function SettingsPage({
  }) {
    const { intl, localePreference, setLocalePreference } = useZCodeIntl();
--  const { settingsSectionGroups, settingsSections } = useMemo(
+   const { settingsSectionGroups, settingsSections } = useMemo(
 -    () =>
 -      createSettingsPageConfig({
 -        isDesktop: Boolean(isDesktop),
 -        isMacDesktop: Boolean(isMacDesktop),
 -        isWindowsDesktop: Boolean(isWindowsDesktop),
 -      }),
--    [isDesktop, isMacDesktop, isWindowsDesktop],
--  );
-+  const { settingsSectionGroups, settingsSections } = useMemo(() => createSettingsPageConfig(), []);
++    () => createSettingsPageConfig({ isDesktop, isMacDesktop, isWindowsDesktop }),
+     [isDesktop, isMacDesktop, isWindowsDesktop],
+   );
    const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
-   const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
-   const platform = usePlatform();
-@@ -628,7 +621,6 @@ export function SettingsPage({
+@@ -628,7 +624,6 @@ export function SettingsPage({
      usageBigmodelEnterpriseProducts.loading ||
      usageZaiEnterpriseProducts.loading;
    const [initialModelProviderTarget] = useState(() => consumePendingSettingsModelProviderTarget());
@@ -591,7 +588,7 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd470
    const [pendingModelProviderTarget, setPendingModelProviderTarget] = useState<
      SettingsModelProviderTarget | undefined
    >(() => initialModelProviderTarget);
-@@ -682,18 +674,6 @@ export function SettingsPage({
+@@ -682,18 +677,6 @@ export function SettingsPage({
        setActiveSettingsSection("general");
      }
    }, [activeSection, isDesktop, setActiveSettingsSection]);
@@ -610,7 +607,7 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd470
    const handleOpenModelProviderSettings = useCallback(() => {
      setActiveSettingsSection("modelProvider");
    }, [setActiveSettingsSection]);
-@@ -1690,11 +1670,13 @@ export function SettingsPage({
+@@ -1690,7 +1673,6 @@ export function SettingsPage({
                    onThemeChange={handleFooterThemeChange}
                    onSettingsButtonClick={onBack}
                    onUsageClick={handleOpenUsageSettings}
@@ -618,13 +615,6 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd470
                    onLogin={onLogin}
                    onLogout={onLogout}
                    settingsButtonMode="back"
-                   user={user}
-+                  // 定制：设置页曾保留账号入口作为登录/登出、主题、语言的唯一聚合入口。
-+                  // 现在与主侧栏一致地隐藏它，相关设置由各自的区块承接（外观、常规、模型设置）。
-+                  hideAccountEntry
-                   // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
-                   // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
-                   isDesktop={isDesktop}
 @@ -2081,6 +2063,20 @@ export function SettingsPage({
                              />
                            ) : activeSection === "shortcuts" ? (
@@ -2183,18 +2173,10 @@ index 0000000000000000000000000000000000000000..d95566855949b379ed2735b2167a0901
 +  publicEntrypoints: ["index.ts", "contract.ts"],
 +} as const;
 diff --git a/packages/ui/src/WorkspaceSidebarFooter.tsx b/packages/ui/src/WorkspaceSidebarFooter.tsx
-index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c613a18fbe1 100644
+index ff88957fc0640fcb88340396c57f44f2257f5e0e..5f2919df4cf82cc831177e101e1b7025e3a6ff06 100644
 --- a/packages/ui/src/WorkspaceSidebarFooter.tsx
 +++ b/packages/ui/src/WorkspaceSidebarFooter.tsx
-@@ -49,7 +49,6 @@ import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
- import { useZCodeStore } from "@/store/StoreProvider.js";
- import { normalizeInterfaceMode } from "@/lib/interfaceMode.js";
- import type { Theme } from "@/useTheme.js";
--import { WorkspaceWebRemoteControlTrigger } from "@/WorkspaceWebRemoteControlTrigger.js";
- import {
-   WorkspaceSidebarFooterPlanBadge,
-   WorkspaceSidebarFooterUsageSummaryContent,
-@@ -96,17 +95,15 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -96,7 +96,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
    onThemeChange,
    onSettingsButtonClick,
    onUsageClick,
@@ -2202,18 +2184,15 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
    onLogin,
    onLogout,
    settingsButtonMode = "settings",
-   user,
-   workspacePath,
-   workspaceIdentity,
--  workspaceRemoteSessionId,
--  activeTaskId,
+@@ -107,6 +106,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   activeTaskId,
    isDesktop = false,
    banner,
 +  hideAccountEntry = false,
    className,
  }: {
    theme: Theme;
-@@ -115,19 +112,19 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -115,9 +115,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
    onThemeChange: (value: string) => void;
    onSettingsButtonClick?: () => void;
    onUsageClick?: () => void;
@@ -2223,22 +2202,16 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
    onLogin?: () => void;
    onLogout?: () => void;
    settingsButtonMode?: "settings" | "back";
-   user?: UserInfo | null;
-   workspacePath?: string;
-   workspaceIdentity?: string;
--  workspaceRemoteSessionId?: string;
--  activeTaskId?: string | null;
+@@ -128,6 +125,8 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+   activeTaskId?: string | null;
    isDesktop?: boolean;
    banner?: ReactNode;
-+  /**
-+   * ZCode-plus 定制：主侧栏不再展示左下角账号入口（头像与「连接使用」）。
-+   * 设置页仍复用本组件并保留账号菜单，登出与账号信息不失去入口。
-+   */
++  /** 可选隐藏账号菜单，默认显示。 */
 +  hideAccountEntry?: boolean;
    className?: string;
  }) {
    const { intl } = useZCodeIntl();
-@@ -234,247 +231,246 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
+@@ -234,238 +233,246 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
      <footer className={cn("flex shrink-0 flex-col gap-2.5 px-4 pt-2 pb-4", className)}>
        {banner}
        <div className="flex min-w-0 gap-2">
@@ -2515,11 +2488,17 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 +                  </DropdownMenuRadioGroup>
 +                </DropdownMenuSubContent>
 +              </DropdownMenuSub>
-+              <DropdownMenuSub>
-+                <DropdownMenuSubTrigger>
+               <DropdownMenuSub>
+                 <DropdownMenuSubTrigger>
+-                  <ZoomIn className="size-4" />
+-                  {intl.formatMessage({ id: "sidebar.settings.interfaceZoom" })}
 +                  <Palette className="size-4" />
 +                  {intl.formatMessage({ id: "settings.themeMode" })}
-+                </DropdownMenuSubTrigger>
+                 </DropdownMenuSubTrigger>
+-                <DropdownMenuSubContent className="w-50">
+-                  <DropdownMenuItem
+-                    disabled={!canZoomIn}
+-                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomIn)}
 +                <DropdownMenuSubContent className="w-48">
 +                  <DropdownMenuRadioGroup value={theme} onValueChange={onThemeChange}>
 +                    <DropdownMenuRadioItem value="system">
@@ -2540,17 +2519,11 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 +                  </DropdownMenuRadioGroup>
 +                </DropdownMenuSubContent>
 +              </DropdownMenuSub>
-               <DropdownMenuSub>
-                 <DropdownMenuSubTrigger>
--                  <ZoomIn className="size-4" />
--                  {intl.formatMessage({ id: "sidebar.settings.interfaceZoom" })}
++              <DropdownMenuSub>
++                <DropdownMenuSubTrigger>
 +                  <PencilRuler className="size-4" />
 +                  {intl.formatMessage({ id: "settings.interfaceMode" })}
-                 </DropdownMenuSubTrigger>
--                <DropdownMenuSubContent className="w-50">
--                  <DropdownMenuItem
--                    disabled={!canZoomIn}
--                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomIn)}
++                </DropdownMenuSubTrigger>
 +                <DropdownMenuSubContent className="w-48">
 +                  <DropdownMenuRadioGroup
 +                    value={interfaceMode}
@@ -2581,14 +2554,6 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 -                  <DropdownMenuItem
 -                    disabled={!canZoomOut}
 -                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomOut)}
--                  >
--                    <ZoomOut className="size-4" />
--                    {intl.formatMessage({ id: "titleBar.menu.view.zoomOut" })}
--                    <DropdownMenuShortcut>{zoomOutShortcutLabel}</DropdownMenuShortcut>
--                  </DropdownMenuItem>
--                  <DropdownMenuItem
--                    disabled={!canResetDesktopZoom}
--                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ResetZoom)}
 +                    {intl.formatMessage({ id: "sidebar.settings.interfaceZoom" })}
 +                  </DropdownMenuSubTrigger>
 +                  <DropdownMenuSubContent className="w-50">
@@ -2629,6 +2594,14 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 +                    data-testid="rewards-reward-badge"
 +                    className="-ml-0.5 h-auto border-0 px-1.5 py-0.5 text-ui-sm leading-none bg-[var(--color-plugin-paid-plan-badge)] text-[var(--color-plugin-paid-plan-badge-foreground)]"
                    >
+-                    <ZoomOut className="size-4" />
+-                    {intl.formatMessage({ id: "titleBar.menu.view.zoomOut" })}
+-                    <DropdownMenuShortcut>{zoomOutShortcutLabel}</DropdownMenuShortcut>
+-                  </DropdownMenuItem>
+-                  <DropdownMenuItem
+-                    disabled={!canResetDesktopZoom}
+-                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ResetZoom)}
+-                  >
 -                    <Maximize className="size-4" />
 -                    {intl.formatMessage({ id: "titleBar.menu.view.actualSize" })}
 -                    <DropdownMenuShortcut>{resetZoomShortcutLabel}</DropdownMenuShortcut>
@@ -2690,15 +2663,6 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 -          </DropdownMenuContent>
 -        </DropdownMenu>
 -        <div className="flex shrink-0 items-center gap-1.5">
--          {isDesktop && workspacePath ? (
--            <WorkspaceWebRemoteControlTrigger
--              workspacePath={workspacePath}
--              workspaceIdentity={workspaceIdentity}
--              remoteSessionId={workspaceRemoteSessionId}
--              initialTaskId={activeTaskId ?? undefined}
--              compact
--            />
--          ) : null}
 +              ) : null}
 +            </DropdownMenuContent>
 +          </DropdownMenu>
@@ -2709,9 +2673,9 @@ index ff88957fc0640fcb88340396c57f44f2257f5e0e..7443c6d9d4c5dd0b37e95eac72b44c61
 +            hideAccountEntry && "ml-auto justify-end",
 +          )}
 +        >
-           <ControlHintTooltip title={settingsButtonLabel}>
-             <Button
-               type="button"
+           {isDesktop && workspacePath ? (
+             <WorkspaceWebRemoteControlTrigger
+               workspacePath={workspacePath}
 diff --git a/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx b/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx
 index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..c71d46141b76069b165192e73ae3bfd0099fc626 100644
 --- a/packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx
@@ -5341,7 +5305,7 @@ index 0000000000000000000000000000000000000000..7fdc6263b78e7933dc7055db0ce85a74
 +    "Earlier conversations could not be completed; retry available.",
 +} as const;
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..6abf523239a85cfe2667fde7fa3e59ccf09c17ef 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..6e14ec037c9fb14650334e4b7eb5657cfef1f06c 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,12 @@
@@ -5357,7 +5321,15 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..6abf523239a85cfe2667fde7fa3e59cc
    "preview.image.copy": "Copy image",
    "preview.image.actions": "Image actions",
    "preview.image.added": "Added to chat",
-@@ -4558,8 +4564,6 @@ const enUS: Record<string, string> = {
+@@ -580,6 +586,7 @@ const enUS: Record<string, string> = {
+   "manualClaimPlan.claim.failure.invalidRequest": "Invalid claim request. Refresh and try again.",
+   "manualClaimPlan.claim.failure.loginRequired": "Sign in before claiming this plan.",
+   "manualClaimPlan.claim.failure.generic": "Claim failed. Please try again later.",
++  "manualClaimPlan.claim.failure.captcha": "Security verification failed. Please verify again before claiming.",
+   "manualClaimPlan.claim.startUsingUnavailable":
+     "Start Plan is not ready yet. Your model settings were not changed; refresh and try again later.",
+   "manualClaimPlan.claim.dialog.confirm": "Start using",
+@@ -4558,8 +4565,6 @@ const enUS: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "Not configured",
    "sidebar.usage.summaryTitle": "Last 30 days",
    "sidebar.usage.plan.title": "Usage remaining",
@@ -5366,8 +5338,16 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..6abf523239a85cfe2667fde7fa3e59cc
    "sidebar.usage.plan.codingPlanTitle": "Coding Plan",
    "sidebar.usage.plan.audienceIndividual": "Individual",
    "sidebar.usage.plan.audienceTeam": "Team",
+@@ -6937,6 +6942,7 @@ const enUS: Record<string, string> = {
+   "chat.error.action.relogin": "Sign in again",
+   "chat.error.action.refreshQuota": "Refresh quota",
+   "chat.error.action.switchModel": "Switch model",
++  "chat.error.action.retryCaptcha": "Verify again",
+   "chat.error.action.retryLater": "Try again later",
+   "chat.error.copyTraceId": "Copy TraceID",
+   "chat.error.copyFull": "Copy",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..355515ae44b8c2d2607e06ee7028e7db8fa1770b 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..6e53a83385f039b1000001ef6a3092c9216ebc29 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,12 @@
@@ -5383,7 +5363,15 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..355515ae44b8c2d2607e06ee7028e7db
    "preview.image.copy": "复制图片",
    "preview.image.actions": "图片操作",
    "preview.image.added": "已添加到聊天",
-@@ -4281,8 +4287,6 @@ const zhCN: Record<string, string> = {
+@@ -531,6 +537,7 @@ const zhCN: Record<string, string> = {
+   "manualClaimPlan.claim.failure.invalidRequest": "领取参数错误，请刷新后重试。",
+   "manualClaimPlan.claim.failure.loginRequired": "请先登录后再领取。",
+   "manualClaimPlan.claim.failure.generic": "领取失败，请稍后重试。",
++  "manualClaimPlan.claim.failure.captcha": "安全验证未通过，请重新验证后再领取。",
+   "manualClaimPlan.claim.startUsingUnavailable":
+     "Start Plan 当前还不可用，模型设置未改变，请稍后刷新重试。",
+   "manualClaimPlan.claim.dialog.confirm": "开始体验",
+@@ -4281,8 +4288,6 @@ const zhCN: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "未配置",
    "sidebar.usage.summaryTitle": "最近 30 天",
    "sidebar.usage.plan.title": "剩余额度",
@@ -5392,6 +5380,14 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..355515ae44b8c2d2607e06ee7028e7db
    "sidebar.usage.plan.codingPlanTitle": "编程套餐",
    "sidebar.usage.plan.audienceIndividual": "个人",
    "sidebar.usage.plan.audienceTeam": "团队",
+@@ -6601,6 +6606,7 @@ const zhCN: Record<string, string> = {
+   "chat.error.action.relogin": "重新登录",
+   "chat.error.action.refreshQuota": "刷新额度",
+   "chat.error.action.switchModel": "切换模型",
++  "chat.error.action.retryCaptcha": "重新验证",
+   "chat.error.action.retryLater": "稍后重试",
+   "chat.error.copyTraceId": "复制 TraceID",
+   "chat.error.copyFull": "复制",
 diff --git a/packages/ui/src/i18n/model-system-prompts/index.ts b/packages/ui/src/i18n/model-system-prompts/index.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..6c2e5503b7f1981eafaa6a59cbfcbb09314b9655
@@ -5539,7 +5535,7 @@ index cd9673fba0915597ef780a080bf6cdde7484925e..d749ae49bb4005061923b7df34a9698c
    create: () => Promise<string>,
  ): Promise<string> {
 diff --git a/packages/ui/src/lib/settingsNavigation.ts b/packages/ui/src/lib/settingsNavigation.ts
-index 637dcfa5f47cd90bff2897653bfae916169d4e0d..ccc8d6b6b48ffcc5bf85f285c447e4c37bc64a95 100644
+index 637dcfa5f47cd90bff2897653bfae916169d4e0d..b557e0eb92587e58b023f800827740eea6b4ddd6 100644
 --- a/packages/ui/src/lib/settingsNavigation.ts
 +++ b/packages/ui/src/lib/settingsNavigation.ts
 @@ -21,7 +21,8 @@ export type SettingsSectionId =
@@ -5552,17 +5548,7 @@ index 637dcfa5f47cd90bff2897653bfae916169d4e0d..ccc8d6b6b48ffcc5bf85f285c447e4c3
  
  export type SettingsUsageTabTarget = "app" | "codingPlan";
  export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
-@@ -46,6 +47,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
-   // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
-   // 编辑页代码保留，放开时从这里移除即可。
-   "workspaceFileSearch",
-+  // ZCode-plus 不提供「电脑控制」入口；保留 section id 以兼容历史偏好和旧调用，
-+  // 任何残留 intent 都会回退到 general，底层 CUA 能力代码不在此处删除。
-+  "computerUse",
- ]);
- 
- export interface SettingsSectionIntentEventDetail {
-@@ -84,7 +88,8 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
+@@ -84,7 +85,8 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
      value === "workspaceFileSearch" ||
      value === "computerUse" ||
      value === "automations" ||
@@ -6070,7 +6056,7 @@ index 5705f781f00d0923d586c330e00a01bb5c4f41ad..f9e97a258ef13e43a48d39f959fbee7f
        scrollContainerRef={scrollContainerRef}
      />
 diff --git a/packages/ui/src/project-sidebar/index.tsx b/packages/ui/src/project-sidebar/index.tsx
-index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e686d35637 100644
+index ac83de395db20471bf978cc7753fc779d91bb91f..091e8e56596e7c43cd278c0a3d12f5ba94e677dd 100644
 --- a/packages/ui/src/project-sidebar/index.tsx
 +++ b/packages/ui/src/project-sidebar/index.tsx
 @@ -54,7 +54,6 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -6089,7 +6075,18 @@ index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e6
    const { view, setView } = preferences;
    const scrollRef = useRef<HTMLDivElement>(null);
    const [groupedToolbar, setGroupedToolbar] = useState<HTMLDivElement | null>(null);
-@@ -205,12 +203,6 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
+@@ -93,6 +91,10 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
+   const [creating, setCreating] = useState(false);
+   // 当前任务只影响远端“创建项目”的默认设备；分组继承在点击时读，
+   // 避免本地会话/草稿切换让全部项目的菜单与 Tooltip 重渲染。
++  const activeTaskId = useZCodeSessionStore(
++    (state) =>
++      state.workspaces[props.workspaceIdentity?.trim() || props.workspacePath]?.activeTaskId,
++  );
+   const hasActiveRemoteTask = useZCodeSessionStore((state) =>
+     Boolean(
+       props.workspaceIdentity &&
+@@ -205,12 +207,6 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
      [setLocalePreference],
    );
    const changeTheme = useCallback((value: string) => setTheme(value as Theme), [setTheme]);
@@ -6102,7 +6099,7 @@ index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e6
    const banner = useMemo(() => <SidebarBottomActivity />, []);
    // 手机远控 home-only 没有 base attachment，也就没有项目契约；改用 relay 层工作区列表与重连入口。
    const homeOnlySwitcher = service ? undefined : props.webRemoteControlWorkspaceSwitcher;
-@@ -332,16 +324,14 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
+@@ -332,14 +328,13 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
                  onThemeChange={changeTheme}
                  onSettingsButtonClick={openSettings}
                  onUsageClick={openSettings}
@@ -6113,13 +6110,11 @@ index ac83de395db20471bf978cc7753fc779d91bb91f..2c4d1d35b17a73591a0ae415650d64e6
                  workspacePath={props.workspacePath}
 -                // 项目侧栏不再从 tab 反推身份；远控入口必须沿用当前 attachment 的精确 scope。
                  workspaceIdentity={props.workspaceIdentity}
--                workspaceRemoteSessionId={props.workspaceRemoteSessionId}
+                 workspaceRemoteSessionId={props.workspaceRemoteSessionId}
++                activeTaskId={activeTaskId}
                  isDesktop={props.isDesktop}
                  banner={banner}
-+                hideAccountEntry
                />
-             </div>
-           </div>
 diff --git a/packages/ui/src/provider-model-discovery/CONTRACT.md b/packages/ui/src/provider-model-discovery/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..d6d535f51659ded5c088638b52032bb432bcf28c
@@ -6230,6 +6225,1489 @@ index 0000000000000000000000000000000000000000..de8a61e4abc37e008c10fda0066517ff
 +  provides: ["provider-model-discovery-ui"],
 +  publicEntrypoints: ["index.ts", "contract.ts"],
 +} as const;
+diff --git a/packages/ui/src/request-security-edition/bridge.ts b/packages/ui/src/request-security-edition/bridge.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b897a0febf64c62617fc981fe6b16a0c2ac4bb6
+--- /dev/null
++++ b/packages/ui/src/request-security-edition/bridge.ts
+@@ -0,0 +1,243 @@
++/**
++ * 模型请求前的运行时鉴权桥：把 Agent 的 `providerRuntimeHeaders.request` 变成
++ * "跑验证码 → 回填 `X-Aliyun-Captcha-Verify-*` 头"。
++ *
++ * 官方实现（`request-security-edition` 的 CTt / wTt / TTt）三条语义，逐条保留：
++ *   - 同一 (workspace, sessionId, requestId) 的重复请求只应答一次（合并），避免 workspace 级
++ *     与 session 级两个订阅者各跑一次验证码；
++ *   - 账号不需要验证码时也要回 `headersApplied:true + 空 headers`，否则 CLI 会判失败；
++ *   - 取消通知必须 abort 正在跑的验证码，否则 CLI 已失败而 Helper 仍占着队列。
++ */
++
++import {
++  isRequestVerificationMessage,
++  requiresRequestVerification,
++  type RequestVerificationConfig,
++  type ZCodeProviderRuntimeHeadersRequestParams,
++} from "@zcode/shared";
++import type { IServiceAccessor } from "@zcode/services";
++
++import { logger } from "@/logger.js";
++
++import { prepareCaptchaVerification } from "./captcha.js";
++
++const VERIFICATION_FAILED_MESSAGE = "Captcha verification failed. Please try again.";
++
++type ProviderSettingsService = IServiceAccessor["providerSettingsService"];
++type CodingPlanService = IServiceAccessor["codingPlanSubscriptionService"];
++type ZCodeAgentService = IServiceAccessor["zcodeAgentService"];
++
++export interface ProviderRuntimeAuthBridgeInput {
++  request: ZCodeProviderRuntimeHeadersRequestParams;
++  zcodeAgentService: ZCodeAgentService;
++  codingPlanSubscriptionService: CodingPlanService;
++  providerSettingsService: ProviderSettingsService;
++  signal?: AbortSignal;
++}
++
++interface InFlightEntry {
++  promise: Promise<void>;
++  controller: AbortController;
++}
++
++const inFlight = new Map<string, InFlightEntry>();
++/** certifyId 台账：只用于诊断「同一 certifyId 被复用」这种 F008 预兆。 */
++const lastCertifyId = new Map<string, string | null>();
++
++function requestKey(request: ZCodeProviderRuntimeHeadersRequestParams): string {
++  const workspaceKey = request.workspace.workspaceIdentity?.trim() || request.workspace.workspacePath;
++  return [workspaceKey, request.sessionId, request.requestId].join("::");
++}
++
++function errorKindOf(error: unknown): string {
++  const message = error instanceof Error ? error.message : "";
++  if (message.startsWith("Captcha instance timed out after ")) return "instance_timeout";
++  if (message.startsWith("Captcha initialization timed out.")) return "initialization_timeout";
++  if (message === "Failed to load captcha script.") return "script_load_failed";
++  if (message.startsWith("Captcha verification timed out after ")) return "verification_timeout";
++  if (message.startsWith("Traceless captcha timed out after ")) return "traceless_timeout";
++  return "unknown";
++}
++
++/** 从 provider 设置里读该 provider 的 access（请求没带 accountAccess 时用）。 */
++async function resolveAccess(
++  input: ProviderRuntimeAuthBridgeInput,
++): Promise<{ type?: string; mode?: string } | undefined> {
++  const direct = input.request.accountAccess;
++  if (direct) return direct as { type?: string; mode?: string };
++  const view = await input.providerSettingsService.getView();
++  const provider = view.providers.find((item) => item.providerId === input.request.providerId);
++  return provider?.effectiveConfig?.access as { type?: string; mode?: string } | undefined;
++}
++
++function isStartPlanAccount(access: { type?: string; mode?: string } | undefined): boolean {
++  return access?.type === "zhipu-account" && requiresRequestVerification(access as { mode: string });
++}
++
++/**
++ * 跑一次验证码并给出要回填的 headers。
++ *
++ * `skipModelRequest` / `enabled:false` 时返回空 headers（仍然 headersApplied=true，
++ * 让服务端把账号本身的鉴权材料下发）。
++ */
++async function resolveVerificationHeaders(input: {
++  request: ZCodeProviderRuntimeHeadersRequestParams;
++  codingPlanSubscriptionService: CodingPlanService;
++  source: string;
++  signal: AbortSignal;
++}): Promise<Record<string, string>> {
++  const config: RequestVerificationConfig | null =
++    await input.codingPlanSubscriptionService.getRequestVerificationConfig();
++  input.signal.throwIfAborted();
++
++  const providerId = input.request.providerId;
++  if (config?.enabled === false || config?.skipModelRequest === true) {
++    lastCertifyId.delete(providerId);
++    return {};
++  }
++  if (!config || !config.region || !config.prefix || !config.sceneId) {
++    throw new Error(VERIFICATION_FAILED_MESSAGE);
++  }
++
++  const captchaVerifyParam = await prepareCaptchaVerification(input.codingPlanSubscriptionService, {
++    providerId,
++    requestId: input.request.requestId,
++    source: input.source,
++    signal: input.signal,
++  });
++  if (!captchaVerifyParam?.trim()) throw new Error(VERIFICATION_FAILED_MESSAGE);
++
++  const region = config.region?.trim();
++  lastCertifyId.set(providerId, null);
++  return {
++    "X-Aliyun-Captcha-Verify-Param": captchaVerifyParam,
++    ...(region ? { "X-Aliyun-Captcha-Verify-Region": region } : {}),
++  };
++}
++
++async function respond(input: ProviderRuntimeAuthBridgeInput, signal: AbortSignal): Promise<void> {
++  let errorKind: string | undefined;
++  let errorMessage: string | undefined;
++  let headers: Record<string, string> | undefined;
++  const startedAt = Date.now();
++
++  logger.lifecycle.info("[captcha-diagnostics]", {
++    event: "request.received",
++    requestId: input.request.requestId,
++    providerId: input.request.providerId,
++    source: input.request.reason,
++  });
++
++  try {
++    const access = await resolveAccess(input);
++    signal.throwIfAborted();
++    if (isStartPlanAccount(access)) {
++      headers = await resolveVerificationHeaders({
++        request: input.request,
++        codingPlanSubscriptionService: input.codingPlanSubscriptionService,
++        source: input.request.reason === "captcha-retry" ? "captcha_retry" : "send_preflight",
++        signal,
++      });
++    } else {
++      // 账号不需要验证码：回空 headers，但仍然是 headersApplied=true。
++      headers = {};
++    }
++  } catch (error) {
++    if (signal.aborted) {
++      logger.lifecycle.info("[captcha-diagnostics]", {
++        event: "request.cancelled",
++        requestId: input.request.requestId,
++      });
++      return;
++    }
++    errorKind = errorKindOf(error);
++    errorMessage = error instanceof Error ? error.message : String(error);
++    logger.warn("[captcha] provider runtime headers refresh failed", {
++      providerId: input.request.providerId,
++      requestId: input.request.requestId,
++      error: errorMessage,
++    });
++  }
++
++  if (signal.aborted) return;
++
++  logger.lifecycle.info("[captcha-diagnostics]", {
++    event: "request.respond",
++    requestId: input.request.requestId,
++    headersApplied: headers !== undefined,
++    errorKind,
++    elapsedMs: Date.now() - startedAt,
++  });
++
++  await input.zcodeAgentService.respondProviderRuntimeHeaders({
++    workspacePath: input.request.workspace.workspacePath,
++    ...(input.request.workspace.workspaceIdentity
++      ? { workspaceIdentity: input.request.workspace.workspaceIdentity }
++      : {}),
++    sessionId: input.request.sessionId,
++    requestId: input.request.requestId,
++    response:
++      headers !== undefined
++        ? { headersApplied: true, runtimeProviderHeaders: headers }
++        : {
++            headersApplied: false,
++            ...(errorMessage ? { errorMessage } : {}),
++          },
++  });
++}
++
++/** 处理一次请求；同一 key 的重复请求合并到同一个 promise。 */
++export async function handleProviderRuntimeHeadersRequest(
++  input: ProviderRuntimeAuthBridgeInput,
++): Promise<void> {
++  const key = requestKey(input.request);
++  const existing = inFlight.get(key);
++  if (existing) {
++    logger.info("[captcha] provider runtime headers request coalesced", {
++      providerId: input.request.providerId,
++      requestId: input.request.requestId,
++      sessionId: input.request.sessionId,
++    });
++    await existing.promise.catch((error: unknown) => {
++      logger.warn("[captcha] provider runtime headers coalesced response failed", {
++        error: error instanceof Error ? error.message : String(error),
++      });
++    });
++    return;
++  }
++  const controller = new AbortController();
++  const promise = respond(input, controller.signal).finally(() => {
++    inFlight.delete(key);
++  });
++  inFlight.set(key, { promise, controller });
++  await promise.catch((error: unknown) => {
++    logger.warn("[captcha] provider runtime headers response failed", {
++      error: error instanceof Error ? error.message : String(error),
++      providerId: input.request.providerId,
++      requestId: input.request.requestId,
++      sessionId: input.request.sessionId,
++    });
++  });
++}
++
++/** 取消通知：只 abort 同一个 key 的在途请求。 */
++export function cancelProviderRuntimeHeadersRequest(request: {
++  requestId: string;
++  sessionId: string;
++  workspace: { workspacePath: string; workspaceIdentity?: string };
++}): void {
++  const workspaceKey = request.workspace.workspaceIdentity?.trim() || request.workspace.workspacePath;
++  const key = [workspaceKey, request.sessionId, request.requestId].join("::");
++  const entry = inFlight.get(key);
++  if (!entry || entry.controller.signal.aborted) return;
++  logger.info("[captcha] provider runtime headers cancelled", {
++    requestId: request.requestId,
++    sessionId: request.sessionId,
++  });
++  entry.controller.abort(new DOMException("Captcha request cancelled", "AbortError"));
++}
++
++/** 网关 3007 类拒绝是否属于"需要安全验证"，供 UI 决定是否提示重试。 */
++export function isVerificationRejection(message: string): boolean {
++  return isRequestVerificationMessage(message);
++}
+diff --git a/packages/ui/src/request-security-edition/captcha.ts b/packages/ui/src/request-security-edition/captcha.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..72b0f5331ef7d7df8eac10378f5e8df5fcfc7478
+--- /dev/null
++++ b/packages/ui/src/request-security-edition/captcha.ts
+@@ -0,0 +1,898 @@
++/**
++ * 阿里云验证码（aliyunCaptcha）控制器 —— 从官方 3.16.3 的 `request-security-edition` 逐条还原。
++ *
++ * 官方行为（关键点，全部保留）：
++ *   - 脚本：https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js（单例加载）
++ *   - 全局握手：window.AliyunRequestVerificationConfig = { region, prefix }
++ *   - init：initAliyunCaptcha({ SceneId, mode, language, captchaLogoImg, showErrorTip:false,
++ *           element:"#zcode-aliyun-captcha-element", button:"#zcode-aliyun-captcha-button",
++ *           getInstance, success, fail, onError })
++ *   - 优先无感：instance.startTracelessVerification()；不可用/失败且允许交互时点隐藏 button
++ *   - 结果判定：success===true && verifyResult===true 或 verifyCode==="T006" 视为通过；
++ *           success && !verifyResult 且 verifyCode 为 F015/空 视为"等待升级"（不当失败）；
++ *           F008 = 重复提交
++ *   - 超时：实例 10s、脚本就绪后 2s 触发延迟、整体 120s
++ *   - 串行队列：同时只允许一次验证码交互（多 provider 串行）
++ *   - 配置缓存：getRequestVerificationConfig() 结果缓存 60s
++ */
++
++import type { RequestVerificationConfig } from "@zcode/shared";
++
++import { logger } from "@/logger.js";
++
++const CAPTCHA_SCRIPT_URL = "https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js";
++const CAPTCHA_INIT_TIMEOUT_MS = 10_000;
++const CAPTCHA_SCRIPT_SETTLE_MS = 2_000;
++const CAPTCHA_VERIFY_TIMEOUT_MS = 120_000;
++const CAPTCHA_CONFIG_TTL_MS = 60_000;
++const CAPTCHA_INIT_REUSE_MS = 120_000;
++
++export const CAPTCHA_CONTAINER_ID = "zcode-aliyun-captcha-container";
++export const CAPTCHA_MOUNT_ID = "zcode-aliyun-captcha-element";
++export const CAPTCHA_BUTTON_ID = "zcode-aliyun-captcha-button";
++
++/** 验证码需要交互（弹窗）时抛出的类型化错误。 */
++export class CaptchaInteractiveRequiredError extends Error {
++  readonly code = "CAPTCHA_INTERACTIVE_REQUIRED";
++  constructor(message = "Captcha requires interactive verification.") {
++    super(message);
++    this.name = "CaptchaInteractiveRequiredError";
++  }
++}
++
++export interface CaptchaRuntimeConfig {
++  region: string;
++  prefix: string;
++  sceneId: string;
++  language?: string;
++  mode?: string;
++  captchaLogoImg?: string;
++}
++
++interface AliyunCaptchaInstance {
++  startTracelessVerification?: () => void;
++  show?: () => void;
++}
++
++interface AliyunCaptchaSdkResult {
++  success?: boolean;
++  verifyResult?: boolean;
++  verifyCode?: string;
++  VerifyCode?: string;
++  certifyId?: string;
++  captchaVerifyParam?: string;
++  CaptchaVerifyParam?: string;
++  [key: string]: unknown;
++}
++
++interface AliyunCaptchaSdkOptions {
++  SceneId: string;
++  mode?: string;
++  language?: string;
++  captchaLogoImg?: string;
++  showErrorTip?: boolean;
++  element: string;
++  button: string;
++  getInstance: (instance: AliyunCaptchaInstance) => void;
++  success: (captchaVerifyParam: string) => void;
++  fail: (result: AliyunCaptchaSdkResult) => void;
++  onError: (error: unknown) => void;
++}
++
++declare global {
++  interface Window {
++    initAliyunCaptcha?: (options: AliyunCaptchaSdkOptions) => Promise<unknown> | undefined;
++    AliyunRequestVerificationConfig?: { region: string; prefix: string };
++  }
++}
++
++// ───────────────────────────────────────────────────────────── 配置
++
++/** 验证码配置是否可用；缺 region/prefix/sceneId 或显式 disabled 都视为不可用。 */
++export function isCaptchaVerificationUnavailable(config: RequestVerificationConfig | null | undefined): boolean {
++  if (!config || config.enabled === false) return true;
++  return !config.region || !config.prefix || !config.sceneId;
++}
++
++function resolveCaptchaLanguage(): string {
++  try {
++    const preference = localStorage.getItem("zcode-locale-preference");
++    if (preference === "zh-CN") return "cn";
++    if (preference === "en-US") return "en";
++  } catch {
++    // localStorage 不可用时按浏览器语言
++  }
++  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("zh")
++    ? "cn"
++    : "en";
++}
++
++function toRuntimeConfig(config: RequestVerificationConfig): CaptchaRuntimeConfig {
++  return {
++    region: String(config.region),
++    prefix: String(config.prefix),
++    sceneId: String(config.sceneId),
++    language: resolveCaptchaLanguage(),
++    ...(config.mode ? { mode: config.mode } : {}),
++    ...(config.captchaLogoImg ? { captchaLogoImg: config.captchaLogoImg } : {}),
++  };
++}
++
++// ────────────────────────────────────────────────────── 结果解析（官方语义）
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
++}
++
++function readSdkResult(value: unknown): AliyunCaptchaSdkResult | null {
++  const record = asRecord(value);
++  if (!record) return null;
++  const verifyCode =
++    typeof record.verifyCode === "string"
++      ? record.verifyCode
++      : typeof record.VerifyCode === "string"
++        ? record.VerifyCode
++        : undefined;
++  return {
++    ...record,
++    success: typeof record.success === "boolean" ? record.success : undefined,
++    verifyResult: typeof record.verifyResult === "boolean" ? record.verifyResult : undefined,
++    verifyCode,
++    certifyId: typeof record.certifyId === "string" ? record.certifyId : undefined,
++  };
++}
++
++function terminalPass(value: unknown): boolean {
++  const result = readSdkResult(value);
++  if (!result) return false;
++  return (result.success === true && result.verifyResult === true) || result.verifyCode === "T006";
++}
++
++function awaitingUpgrade(value: unknown): boolean {
++  const result = readSdkResult(value);
++  if (!result) return false;
++  return (
++    result.success === true &&
++    result.verifyResult === false &&
++    (!result.verifyCode || result.verifyCode === "F015")
++  );
++}
++
++function duplicateSubmission(value: unknown): boolean {
++  return readSdkResult(value)?.verifyCode === "F008";
++}
++
++function readCaptchaParam(value: unknown): string | undefined {
++  const record = asRecord(value);
++  if (!record) return undefined;
++  const raw =
++    typeof record.captchaVerifyParam === "string"
++      ? record.captchaVerifyParam
++      : typeof record.CaptchaVerifyParam === "string"
++        ? record.CaptchaVerifyParam
++        : undefined;
++  return raw?.trim() || undefined;
++}
++
++function readCertifyId(value: unknown): string | undefined {
++  const text = typeof value === "string" ? value.trim() : "";
++  if (!text.startsWith("{")) return undefined;
++  try {
++    const parsed = JSON.parse(text) as { certifyId?: unknown };
++    return typeof parsed.certifyId === "string" ? parsed.certifyId : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++// ───────────────────────────────────────────────────────── 诊断 / 上报
++
++export type CaptchaArmsResult = "traceless_passed" | "interactive_displayed" | "interactive_passed";
++
++interface CaptchaReporter {
++  reportArmsCustomEvent(payload: {
++    name: string;
++    group: string;
++    value?: number;
++    properties?: Record<string, string | number | boolean | undefined>;
++  }): Promise<void>;
++}
++
++let captchaReporter: CaptchaReporter | null = null;
++
++/** Root 挂载时注入 platform（ARMS 上报出口）。 */
++export function setCaptchaReporter(reporter: CaptchaReporter | null): void {
++  captchaReporter = reporter;
++}
++
++function reportCaptchaOutcome(input: {
++  result: CaptchaArmsResult;
++  source: string;
++  providerId?: string;
++}): void {
++  const traceless = input.result === "traceless_passed";
++  const interactive =
++    input.result === "interactive_displayed" || input.result === "interactive_passed";
++  void captchaReporter
++    ?.reportArmsCustomEvent({
++      name: "aliyun_captcha_verification",
++      group: "captcha",
++      value: 1,
++      properties: {
++        result: input.result,
++        source: input.source,
++        provider_id: input.providerId ?? "",
++        traceless_passed: traceless,
++        captcha_displayed: interactive,
++        traceless_passed_count: traceless ? 1 : 0,
++        captcha_displayed_count: interactive ? 1 : 0,
++      },
++    })
++    .catch((error: unknown) => {
++      logger.warn("[captcha] ARMS 自定义事件上报失败", {
++        result: input.result,
++        error: error instanceof Error ? error.message : String(error),
++      });
++    });
++}
++
++function errorKindOf(error: unknown): string {
++  const message = error instanceof Error ? error.message : "";
++  if (message.startsWith("Captcha instance timed out after ")) return "instance_timeout";
++  if (message.startsWith("Captcha initialization timed out.")) return "initialization_timeout";
++  if (message === "Failed to load captcha script.") return "script_load_failed";
++  if (message.startsWith("Captcha verification timed out after ")) return "verification_timeout";
++  if (message.startsWith("Traceless captcha timed out after ")) return "traceless_timeout";
++  return "unknown";
++}
++
++function createDiagnostics(context: { requestId?: string; providerId?: string; source: string }) {
++  const attemptId =
++    globalThis.crypto?.randomUUID?.() ??
++    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
++  const startedAt = Date.now();
++  let emitted = 0;
++  let stage = "start";
++  const emit = (event: string, extra: Record<string, unknown> = {}, force = false) => {
++    if (!force && emitted++ >= 32) return;
++    logger.lifecycle.info("[captcha-diagnostics]", {
++      event,
++      attemptId,
++      requestId: context.requestId,
++      providerId: context.providerId,
++      source: context.source,
++      elapsedMs: Date.now() - startedAt,
++      stage,
++      ...extra,
++    });
++  };
++  emit("attempt.start");
++  return {
++    event: emit,
++    stage(next: string) {
++      stage = next;
++      emit("attempt.stage");
++    },
++    end(outcome: string, error?: unknown) {
++      emit(
++        "attempt.end",
++        { outcome, ...(error ? { errorKind: errorKindOf(error) } : {}) },
++        true,
++      );
++    },
++  };
++}
++
++// ─────────────────────────────────────────────────────── 脚本 / 实例管理
++
++let scriptPromise: Promise<void> | null = null;
++let scriptLoadedAt = 0;
++let controller: ControllerState | null = null;
++let initializing: { drain?: Promise<void>; completion: Promise<void> } | null = null;
++let verificationInFlight = false;
++let session: VerificationSession | null = null;
++let verifyQueue: Promise<unknown> = Promise.resolve();
++
++interface ControllerState {
++  configKey: string;
++  buttonElement: HTMLButtonElement;
++  buttonSelector: string;
++  instancePromise: Promise<AliyunCaptchaInstance>;
++  initStartedAt: number;
++}
++
++interface VerificationSession {
++  resolve: (param: string) => void;
++  reject: (error: unknown) => void;
++  allowInteractive: boolean;
++  awaitingDeferredSdkSuccess?: boolean;
++  onInteractiveChallenge?: () => void;
++}
++
++function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
++  if (!signal) return promise;
++  return new Promise<T>((resolve, reject) => {
++    const onAbort = () => {
++      cleanup();
++      reject(signal.reason);
++    };
++    const cleanup = () => signal.removeEventListener("abort", onAbort);
++    promise.then(
++      (value) => {
++        cleanup();
++        resolve(value);
++      },
++      (error) => {
++        cleanup();
++        reject(error);
++      },
++    );
++    if (signal.aborted) onAbort();
++    else signal.addEventListener("abort", onAbort, { once: true });
++  });
++}
++
++function loadCaptchaScript(): Promise<void> {
++  if (scriptPromise) return scriptPromise;
++  scriptPromise = new Promise<void>((resolve, reject) => {
++    if (typeof window === "undefined" || typeof document === "undefined") {
++      reject(new Error("Captcha requires browser environment."));
++      return;
++    }
++    if (typeof window.initAliyunCaptcha === "function") {
++      resolve();
++      return;
++    }
++    const fail = (node: HTMLScriptElement) => {
++      node.remove();
++      reject(new Error("Failed to load captcha script."));
++    };
++    const existing = document.querySelector<HTMLScriptElement>(
++      `script[src="${CAPTCHA_SCRIPT_URL}"]`,
++    );
++    if (existing) {
++      existing.addEventListener("load", () => resolve(), { once: true });
++      existing.addEventListener("error", () => fail(existing), { once: true });
++      return;
++    }
++    const script = document.createElement("script");
++    script.src = CAPTCHA_SCRIPT_URL;
++    script.async = true;
++    script.onload = () => {
++      scriptLoadedAt = Date.now();
++      resolve();
++    };
++    script.onerror = () => fail(script);
++    document.head.appendChild(script);
++  }).catch((error) => {
++    scriptPromise = null;
++    throw error;
++  });
++  return scriptPromise;
++}
++
++function requireHostElements(): { mountElement: HTMLElement; buttonElement: HTMLButtonElement } {
++  if (typeof document === "undefined") throw new Error("Captcha host container is not mounted.");
++  const mountElement = document.getElementById(CAPTCHA_MOUNT_ID);
++  const buttonElement = document.getElementById(CAPTCHA_BUTTON_ID);
++  if (!(mountElement instanceof HTMLElement)) {
++    throw new Error("Captcha host element is not mounted.");
++  }
++  if (!(buttonElement instanceof HTMLButtonElement)) {
++    throw new Error("Captcha host button is not mounted.");
++  }
++  return { mountElement, buttonElement };
++}
++
++function resetController(): void {
++  session = null;
++  controller = null;
++  if (typeof document !== "undefined") {
++    document.getElementById(CAPTCHA_MOUNT_ID)?.replaceChildren();
++  }
++}
++
++function configKeyOf(config: CaptchaRuntimeConfig): string {
++  return [
++    config.region,
++    config.prefix,
++    config.sceneId,
++    config.mode ?? "popup",
++    config.language ?? "",
++    config.captchaLogoImg,
++  ].join("::");
++}
++
++function handleSdkFail(
++  result: unknown,
++  rejectInit: (error: unknown) => void,
++  diagnostics: { event: (name: string, extra?: Record<string, unknown>) => void },
++): void {
++  const parsed = readSdkResult(result);
++  const active = session;
++  diagnostics.event("sdk.fail", { verifyCode: parsed?.verifyCode ?? null });
++  logger.info("[captcha] aliyun sdk fail", parsed ?? result);
++
++  if (terminalPass(result)) {
++    const param = readCaptchaParam(result);
++    if (param) {
++      session = null;
++      active?.resolve(param);
++      return;
++    }
++    if (active) active.awaitingDeferredSdkSuccess = true;
++    return;
++  }
++  if (awaitingUpgrade(result)) {
++    if (!active) {
++      rejectInit(new CaptchaInteractiveRequiredError());
++      return;
++    }
++    if (!active.allowInteractive) {
++      session = null;
++      active.reject(new CaptchaInteractiveRequiredError());
++      return;
++    }
++    active.awaitingDeferredSdkSuccess = true;
++    active.onInteractiveChallenge?.();
++    return;
++  }
++  if (duplicateSubmission(result)) {
++    logger.warn("[captcha] aliyun sdk duplicate submission", parsed ?? result);
++    resetController();
++    active?.reject(result ?? new Error("Captcha verification data was already submitted."));
++    return;
++  }
++  if (active && !active.allowInteractive) {
++    session = null;
++    active.reject(new CaptchaInteractiveRequiredError());
++    return;
++  }
++  rejectInit(result ?? new Error("Captcha failed before instance ready."));
++  session = null;
++  active?.reject(result ?? new Error("Captcha failed."));
++}
++
++async function drainInitialization(signal: AbortSignal | undefined): Promise<void> {
++  while (initializing) {
++    const pending = initializing;
++    pending.drain ??= new Promise<void>((resolve, reject) => {
++      const timer = window.setTimeout(() => {
++        reject(
++          new Error("Captcha initialization timed out. Please restart the app or reload the page and try again."),
++        );
++      }, CAPTCHA_INIT_TIMEOUT_MS);
++      pending.completion.then(
++        () => {
++          window.clearTimeout(timer);
++          resolve();
++        },
++        () => {
++          window.clearTimeout(timer);
++          resolve();
++        },
++      );
++    });
++    await withAbort(pending.drain, signal);
++  }
++}
++
++async function ensureController(
++  config: CaptchaRuntimeConfig,
++  diagnostics: { event: (name: string, extra?: Record<string, unknown>) => void; stage: (name: string) => void },
++  signal: AbortSignal | undefined,
++  reuseOnly = false,
++): Promise<ControllerState | null> {
++  signal?.throwIfAborted();
++  const key = configKeyOf(config);
++  const reusable = () =>
++    controller !== null &&
++    controller.configKey === key &&
++    Date.now() - controller.initStartedAt < CAPTCHA_INIT_REUSE_MS;
++
++  if (reusable()) return controller;
++  if (controller) resetController();
++  if (initializing) {
++    diagnostics.stage("initialization_drain");
++    await drainInitialization(signal);
++  }
++  if (reuseOnly) return null;
++  if (reusable()) return controller;
++
++  window.AliyunRequestVerificationConfig = { region: config.region, prefix: config.prefix };
++  diagnostics.stage("script_load");
++  await withAbort(loadCaptchaScript(), signal);
++  diagnostics.event("script.ready");
++  signal?.throwIfAborted();
++  if (initializing) {
++    diagnostics.stage("initialization_drain");
++    await drainInitialization(signal);
++  }
++  if (reusable()) return controller;
++
++  const initAliyunCaptcha = window.initAliyunCaptcha;
++  if (typeof initAliyunCaptcha !== "function") throw new Error("Captcha SDK is unavailable.");
++  const { buttonElement } = requireHostElements();
++  window.AliyunRequestVerificationConfig = { region: config.region, prefix: config.prefix };
++
++  let resolveInstance!: (instance: AliyunCaptchaInstance) => void;
++  let rejectInstance!: (error: unknown) => void;
++  const state: ControllerState = {
++    configKey: key,
++    buttonElement,
++    buttonSelector: `#${CAPTCHA_BUTTON_ID}`,
++    instancePromise: new Promise<AliyunCaptchaInstance>((resolve, reject) => {
++      resolveInstance = resolve;
++      rejectInstance = reject;
++    }),
++    initStartedAt: Date.now(),
++  };
++  controller = state;
++  const isCurrent = () => controller === state;
++  let resolveInitDone!: () => void;
++  const initDone = new Promise<void>((resolve) => {
++    resolveInitDone = resolve;
++  });
++
++  try {
++    logger.info("[captcha] aliyun sdk init start", {
++      configKey: key,
++      mode: config.mode ?? "popup",
++      language: config.language ?? null,
++    });
++    diagnostics.stage("sdk_init");
++    const started = initAliyunCaptcha({
++      SceneId: config.sceneId,
++      mode: config.mode ?? "popup",
++      language: config.language,
++      ...(config.captchaLogoImg ? { captchaLogoImg: config.captchaLogoImg } : {}),
++      showErrorTip: false,
++      element: `#${CAPTCHA_MOUNT_ID}`,
++      button: `#${CAPTCHA_BUTTON_ID}`,
++      getInstance: (instance) => {
++        diagnostics.event("sdk.callback", { callback: "getInstance", accepted: isCurrent() });
++        if (isCurrent()) resolveInstance(instance);
++      },
++      success: (param: string) => {
++        diagnostics.event("sdk.callback", { callback: "success", accepted: isCurrent() });
++        if (!isCurrent()) return;
++        const active = session;
++        session = null;
++        active?.resolve(param);
++      },
++      fail: (result: unknown) => {
++        diagnostics.event("sdk.callback", { callback: "fail", accepted: isCurrent() });
++        if (isCurrent()) handleSdkFail(result, rejectInstance, diagnostics);
++      },
++      onError: (error: unknown) => {
++        resolveInitDone();
++        diagnostics.event("sdk.callback", { callback: "onError", accepted: isCurrent() });
++        if (!isCurrent()) return;
++        logger.warn("[captcha] aliyun sdk onError", {
++          configKey: key,
++          error: error instanceof Error ? error.message : String(error),
++        });
++        const active = session;
++        if (active && !active.allowInteractive) {
++          session = null;
++          active.reject(new CaptchaInteractiveRequiredError());
++        } else {
++          session = null;
++          active?.reject(error ?? new Error("Captcha errored."));
++        }
++        rejectInstance(error ?? new Error("Captcha errored before instance ready."));
++      },
++    });
++    if (started) {
++      const completion = Promise.race([Promise.resolve(started), initDone]).then(
++        () => undefined,
++        (error: unknown) => {
++          if (isCurrent()) {
++            const active = session;
++            session = null;
++            active?.reject(error);
++            rejectInstance(error);
++          }
++        },
++      );
++      const drainState = { completion } as { drain?: Promise<void>; completion: Promise<void> };
++      initializing = drainState;
++      completion.then(() => {
++        if (initializing === drainState) initializing = null;
++      });
++    }
++  } catch (error) {
++    controller = null;
++    logger.warn("[captcha] aliyun sdk init threw", {
++      configKey: key,
++      error: error instanceof Error ? error.message : String(error),
++    });
++    throw error;
++  }
++  return state;
++}
++
++async function waitForInstance(
++  state: ControllerState,
++  signal: AbortSignal | undefined,
++): Promise<AliyunCaptchaInstance> {
++  return await new Promise<AliyunCaptchaInstance>((resolve, reject) => {
++    const timer = window.setTimeout(() => {
++      logger.warn("[captcha] aliyun sdk instance wait timed out", {
++        configKey: state.configKey,
++        timeoutMs: CAPTCHA_INIT_TIMEOUT_MS,
++      });
++      reject(new Error(`Captcha instance timed out after ${CAPTCHA_INIT_TIMEOUT_MS}ms.`));
++    }, CAPTCHA_INIT_TIMEOUT_MS);
++    withAbort(state.instancePromise, signal).then(
++      (instance) => {
++        window.clearTimeout(timer);
++        resolve(instance);
++      },
++      (error) => {
++        window.clearTimeout(timer);
++        reject(error);
++      },
++    );
++  });
++}
++
++async function waitScriptSettle(signal: AbortSignal | undefined): Promise<void> {
++  if (!scriptLoadedAt) return;
++  const elapsed = Date.now() - scriptLoadedAt;
++  if (elapsed >= CAPTCHA_SCRIPT_SETTLE_MS) return;
++  await withAbort(
++    new Promise<void>((resolve) => {
++      window.setTimeout(() => resolve(), CAPTCHA_SCRIPT_SETTLE_MS - elapsed);
++    }),
++    signal,
++  );
++}
++
++/** 跑一次验证码：先无感，失败再按需弹交互。返回 `captchaVerifyParam`。 */
++async function runCaptcha(
++  config: CaptchaRuntimeConfig,
++  options: {
++    signal?: AbortSignal;
++    allowInteractive?: boolean;
++    preferInteractive?: boolean;
++    timeoutMs?: number;
++    onInteractiveChallenge?: () => void;
++    diagnostics: ReturnType<typeof createDiagnostics>;
++  },
++): Promise<string> {
++  const { signal, diagnostics } = options;
++  if (typeof window === "undefined" || typeof document === "undefined") {
++    throw new Error("Captcha requires browser environment.");
++  }
++  if (session || verificationInFlight) {
++    throw new Error("Captcha verification is already in progress.");
++  }
++  signal?.throwIfAborted();
++  verificationInFlight = true;
++  const allowInteractive = options.allowInteractive !== false;
++  const preferInteractive = options.preferInteractive === true;
++  let controllerState: ControllerState | null = null;
++  let outcome = "success";
++  let error: unknown;
++
++  try {
++    controllerState = await ensureController(config, diagnostics, signal);
++    if (!controllerState) throw new Error("Captcha SDK is unavailable.");
++    diagnostics.event("controller.bound", { controllerId: controllerState.configKey });
++    signal?.throwIfAborted();
++    diagnostics.stage("trigger_delay");
++    await waitScriptSettle(signal);
++    signal?.throwIfAborted();
++
++    const state = controllerState;
++    const promise = new Promise<string>((resolve, reject) => {
++      const active: VerificationSession = {
++        resolve,
++        reject,
++        allowInteractive,
++        ...(allowInteractive ? { onInteractiveChallenge: options.onInteractiveChallenge } : {}),
++      };
++      session = active;
++      void (async () => {
++        let instance: AliyunCaptchaInstance;
++        try {
++          diagnostics.stage("instance_wait");
++          instance = await waitForInstance(state, signal);
++        } catch (instanceError) {
++          if (controller !== state) return;
++          if (!allowInteractive) {
++            session = null;
++            reject(
++              instanceError instanceof CaptchaInteractiveRequiredError
++                ? instanceError
++                : new CaptchaInteractiveRequiredError(
++                    "Captcha instance was not ready for traceless verification.",
++                  ),
++            );
++            return;
++          }
++          session = null;
++          reject(instanceError);
++          return;
++        }
++        if (controller !== state) return;
++        diagnostics.stage("verification");
++        try {
++          if (!preferInteractive && typeof instance.startTracelessVerification === "function") {
++            logger.info("[captcha] aliyun start traceless verification");
++            instance.startTracelessVerification();
++            return;
++          }
++          if (!allowInteractive) {
++            session = null;
++            reject(new CaptchaInteractiveRequiredError("Traceless verification is unavailable for this captcha instance."));
++            return;
++          }
++          options.onInteractiveChallenge?.();
++          logger.info("[captcha] aliyun trigger button click", {
++            buttonSelector: state.buttonSelector,
++          });
++          state.buttonElement.click();
++        } catch (triggerError) {
++          session = null;
++          reject(triggerError);
++        }
++      })();
++    });
++
++    const timeoutMs = options.timeoutMs ?? CAPTCHA_VERIFY_TIMEOUT_MS;
++    if (timeoutMs > 0) {
++      let timer: number | undefined;
++      const timeout = new Promise<never>((_resolve, reject) => {
++        timer = window.setTimeout(() => {
++          const active = session;
++          if (!active) return;
++          // 无感已受理但 SDK 还没回成功：不判超时，等 SDK 的 success/fail。
++          if (!allowInteractive && active.awaitingDeferredSdkSuccess) return;
++          session = null;
++          reject(
++            allowInteractive
++              ? new Error(`Captcha verification timed out after ${timeoutMs}ms.`)
++              : new CaptchaInteractiveRequiredError(`Traceless captcha timed out after ${timeoutMs}ms.`),
++          );
++        }, timeoutMs);
++      });
++      try {
++        return await Promise.race([promise, timeout]);
++      } finally {
++        if (timer !== undefined) window.clearTimeout(timer);
++      }
++    }
++    return await promise;
++  } catch (caught) {
++    error = caught;
++    outcome = signal?.aborted ? "cancelled" : "error";
++    session = null;
++    throw caught;
++  } finally {
++    diagnostics.end(outcome, error);
++    if (controllerState && controller === controllerState) resetController();
++    verificationInFlight = false;
++  }
++}
++
++// ─────────────────────────────────────────────── 对外入口（策略 + 队列 + 缓存）
++
++let configCache: { value: RequestVerificationConfig | null; expiresAt: number } | null = null;
++let configInFlight: Promise<RequestVerificationConfig | null> | null = null;
++
++interface VerificationConfigSource {
++  getRequestVerificationConfig(): Promise<RequestVerificationConfig | null>;
++}
++
++async function loadConfig(
++  source: VerificationConfigSource | undefined,
++  signal: AbortSignal | undefined,
++): Promise<RequestVerificationConfig | null> {
++  const now = Date.now();
++  if (configCache && configCache.expiresAt > now) return configCache.value;
++  if (configInFlight) return await withAbort(configInFlight, signal);
++  configInFlight = (async () => {
++    try {
++      const value = (await source?.getRequestVerificationConfig()) ?? null;
++      configCache = { value, expiresAt: now + CAPTCHA_CONFIG_TTL_MS };
++      return value;
++    } catch {
++      return null;
++    } finally {
++      configInFlight = null;
++    }
++  })();
++  return await withAbort(configInFlight, signal);
++}
++
++function enqueue<T>(providerId: string | undefined, run: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
++  const previous = verifyQueue;
++  let release!: () => void;
++  const slot = new Promise<void>((resolve) => {
++    release = resolve;
++  });
++  verifyQueue = previous.then(() => slot);
++  return (async () => {
++    try {
++      await withAbort(previous, signal);
++      signal?.throwIfAborted();
++      logger.debug("[captcha] zcode-plan verification queue slot acquired", {
++        providerId: providerId ?? null,
++      });
++      return await run();
++    } finally {
++      release();
++    }
++  })();
++}
++
++/**
++ * 执行一次验证并返回 `captchaVerifyParam`；配置不可用/关闭时返回 undefined。
++ *
++ * 与官方一致：串行队列、允许交互、整体 120s 预算、ARMS 记录 traceless/interactive。
++ */
++export async function prepareCaptchaVerification(
++  source: VerificationConfigSource | undefined,
++  options: {
++    providerId?: string;
++    requestId?: string;
++    source?: string;
++    signal?: AbortSignal;
++  } = {},
++): Promise<string | undefined> {
++  options.signal?.throwIfAborted();
++  const config = await loadConfig(source, options.signal);
++  options.signal?.throwIfAborted();
++  if (!config || isCaptchaVerificationUnavailable(config)) return undefined;
++  const runtimeConfig = toRuntimeConfig(config);
++  const providerId = options.providerId?.trim();
++  const sourceLabel = options.source ?? "send_preflight";
++
++  return await enqueue(
++    providerId,
++    async () => {
++      let interactive = false;
++      const diagnostics = createDiagnostics({
++        requestId: options.requestId,
++        providerId,
++        source: sourceLabel,
++      });
++      const param = await runCaptcha(runtimeConfig, {
++        signal: options.signal,
++        allowInteractive: true,
++        timeoutMs: CAPTCHA_VERIFY_TIMEOUT_MS,
++        onInteractiveChallenge: () => {
++          interactive = true;
++        },
++        diagnostics,
++      });
++      options.signal?.throwIfAborted();
++      reportCaptchaOutcome({
++        result: interactive ? "interactive_displayed" : "traceless_passed",
++        source: sourceLabel,
++        providerId,
++      });
++      return param;
++    },
++    options.signal,
++  );
++}
++
++/** 预热：只做脚本加载 + SDK init，不触发验证。 */
++export async function prewarmCaptchaVerification(
++  source: VerificationConfigSource | undefined,
++): Promise<void> {
++  const config = await loadConfig(source, undefined);
++  if (!config || isCaptchaVerificationUnavailable(config)) return;
++  const diagnostics = createDiagnostics({ source: "prewarm" });
++  try {
++    await ensureController(toRuntimeConfig(config), diagnostics, undefined, true);
++    diagnostics.end("init_dispatched");
++  } catch (error) {
++    diagnostics.end("error", error);
++    throw error;
++  }
++}
++
+diff --git a/packages/ui/src/request-security-edition/claim.ts b/packages/ui/src/request-security-edition/claim.ts
+index 04626199d9ec08153a270cfcd1ea68e73fa8a9e2..32a7aa36d0103ad834df486ff1500db920f903d9 100644
+--- a/packages/ui/src/request-security-edition/claim.ts
++++ b/packages/ui/src/request-security-edition/claim.ts
+@@ -1,11 +1,65 @@
++/**
++ * 领取体验套餐 / 敏感动作前的一次性验证码证明。
++ *
++ * 官方语义（`request-security-edition/claim`）：
++ *   1. 先调 `onVerifying()`，让 UI 立刻切到"验证中"（否则用户以为点击没生效）
++ *   2. 读服务端下发的验证码配置（确认 region，用于回传 `captchaRegion`）
++ *   3. 跑验证码拿 `captchaVerifyParam`
++ *   4. 两者合成 `RequestVerificationProof`，由调用方塞进 claim 请求（头 + 体）
++ */
++
++import { useEffect, useRef } from "react";
++
+ import type { ICodingPlanSubscriptionService } from "@zcode/services";
+ import type { RequestVerificationProof } from "@zcode/shared";
+-export function useRequestVerificationPrewarm(_visible: boolean): void {}
++
++import { useServices } from "@/hooks/useServices.js";
++import { useZCodeStore } from "@/store/StoreProvider.js";
++import { logger } from "@/logger.js";
++
++import { prepareCaptchaVerification, prewarmCaptchaVerification } from "./captcha.js";
++
++/**
++ * 跑一次验证码并给出 claim 需要的 proof；配置关闭/不可用时返回 undefined。
++ *
++ * 返回 undefined 时调用方应提示"验证不可用"，不要静默提交一个没有 proof 的 claim
++ * （服务端会以 3007 拒绝，错误文案对用户没有信息量）。
++ */
+ export async function prepareRequestVerificationClaim(
+-  _service: ICodingPlanSubscriptionService,
++  service: ICodingPlanSubscriptionService,
+   signal: AbortSignal,
+-  _onVerifying: () => void,
++  onVerifying: () => void,
+ ): Promise<RequestVerificationProof | undefined> {
++  onVerifying();
++  const config = await service.getRequestVerificationConfig();
+   signal.throwIfAborted();
+-  return {};
++  const captchaVerifyParam = await prepareCaptchaVerification(service, {
++    source: "send_preflight",
++    signal,
++  });
++  signal.throwIfAborted();
++  if (!captchaVerifyParam?.trim()) return undefined;
++  return {
++    captchaVerifyParam,
++    ...(config?.region ? { captchaRegion: config.region } : {}),
++  };
++}
++
++/**
++ * 活动横幅出现时预热验证码 SDK（脚本 + init），把"点领取"的首帧延迟压掉。
++ * 只对已登录用户执行一次；失败只记日志，点击时还会重试。
++ */
++export function useRequestVerificationPrewarm(visible: boolean): void {
++  const services = useServices();
++  const userId = useZCodeStore((state) => state.user?.id);
++  const attempted = useRef(false);
++  const enabled = visible && Boolean(userId);
++
++  useEffect(() => {
++    if (!enabled || attempted.current) return;
++    attempted.current = true;
++    prewarmCaptchaVerification(services.codingPlanSubscriptionService).catch(() => {
++      logger.warn("[marketing-touch] captcha prewarm failed; click will retry");
++    });
++  }, [enabled, services.codingPlanSubscriptionService]);
+ }
+diff --git a/packages/ui/src/request-security-edition/errors.ts b/packages/ui/src/request-security-edition/errors.ts
+index 7b634a69c86c2e3082772cff4680de0de060556a..53000eafae48b043d1c8cb3be46da2028eb5dc32 100644
+--- a/packages/ui/src/request-security-edition/errors.ts
++++ b/packages/ui/src/request-security-edition/errors.ts
+@@ -1,21 +1,79 @@
+-export const REQUEST_VERIFICATION_REJECTED_MESSAGE = "";
++/**
++ * 网关安全校验（3007 / CAPTCHA_VERIFY_FAILED）的 UI 归类与恢复动作。
++ *
++ * 官方 3.16.3 对齐要点：
++ *   - 3007 / CAPTCHA_VERIFY_FAILED / 验证码拒绝文案 一律归一到业务码 "3007"
++ *   - 3007 的恢复动作是 `retry-captcha`（重新走一次验证码），不是"稍后重试"
++ *   - 领取失败时 3007 映射到 `manualClaimPlan.claim.failure.captcha`
++ *   - 弹窗仲裁需要把阿里云验证码浮层算作"已有弹窗"，避免叠弹窗
++ */
++
++import { requestVerificationInteractionAvailable } from "@zcode/shared";
++
++export const REQUEST_VERIFICATION_REJECTED_MESSAGE =
++  "Model request was rejected by the gateway security check (3007). Please verify again.";
++
++/** 官方 X2e：网关/上游给出的验证码拒绝文案（比 `isRequestVerificationMessage` 更宽）。 */
++function matchesCaptchaRejectionText(message: string): boolean {
++  const lower = message.toLowerCase();
++  return (
++    message.includes("Captcha verification failed or the verify token was rejected.") ||
++    message.includes("verify token was rejected") ||
++    lower.includes("captcha verify failed") ||
++    message.includes("验证码校验失败") ||
++    lower.includes("captcha verification failed")
++  );
++}
++
++/** 业务码归一：3007 / CAPTCHA_VERIFY_FAILED / 拒绝文案 → "3007"。 */
+ export function resolveRequestVerificationBusinessCode(
+-  _code: string | undefined,
+-  _message: string | undefined,
++  code: string | undefined,
++  message: string | undefined,
+ ): "3007" | undefined {
+-  return undefined;
++  if (code === "3007" || code === "CAPTCHA_VERIFY_FAILED") return "3007";
++  return typeof message === "string" && matchesCaptchaRejectionText(message) ? "3007" : undefined;
++}
++
++/** 这条错误是否属于"网关要求安全验证"。 */
++export function isRequestVerificationRejectedMessage(message: string | undefined): boolean {
++  return typeof message === "string" && matchesCaptchaRejectionText(message);
+ }
++
++/**
++ * 是否是"无法恢复"的验证码错误。
++ *
++ * 只有在渲染层不具备交互式验证码能力时（本构建不会发生）才把 3007 视为终止错误；
++ * 否则一律可恢复 —— UI 应该给 `retry-captcha`，而不是让用户以为要联系支持。
++ */
+ export function isRequestVerificationTerminalError(
+-  _error: { code?: string; message?: string } | null | undefined,
++  error: { code?: string; message?: string } | null | undefined,
+ ): boolean {
+-  return false;
+-}
+-export function isRequestVerificationRejectedMessage(_message: string | undefined): boolean {
+-  return false;
++  if (!error) return false;
++  if (requestVerificationInteractionAvailable) return false;
++  return resolveRequestVerificationBusinessCode(error.code, error.message) === "3007";
+ }
+-export const requestVerificationRecoveryAction = null;
+-export type RequestVerificationRecoveryAction = never;
+-export const requestVerificationActionMessages = {};
+-export const requestVerificationErrorAttribution = {};
+-export const requestVerificationClaimFailureMessageId = "manualClaimPlan.claim.failure.generic";
+-export const additionalRequestModalSelectors: readonly string[] = [];
++
++/** 3007 的恢复动作。 */
++export const requestVerificationRecoveryAction = "retry-captcha" as const;
++export type RequestVerificationRecoveryAction = typeof requestVerificationRecoveryAction;
++
++export const requestVerificationActionMessages: Record<RequestVerificationRecoveryAction, string> = {
++  "retry-captcha": "chat.error.action.retryCaptcha",
++};
++
++/** 错误归因：让聊天错误横幅把它标成 provider 侧鉴权失败，而不是运行时异常。 */
++export const requestVerificationErrorAttribution: Record<
++  string,
++  { source: "provider"; reason: string }
++> = {
++  CAPTCHA_VERIFY_FAILED: { source: "provider", reason: "auth_failed" },
++};
++
++/** 领取失败（业务码 3007）对应的文案 id。 */
++export const requestVerificationClaimFailureMessageId = "manualClaimPlan.claim.failure.captcha";
++
++/** 阿里云验证码的浮层选择器：算作"已有弹窗"，避免再叠一个活动弹窗。 */
++export const additionalRequestModalSelectors: readonly string[] = [
++  ".aliyunCaptcha-mask",
++  ".aliyunCaptcha-window",
++];
+diff --git a/packages/ui/src/request-security-edition/index.ts b/packages/ui/src/request-security-edition/index.ts
+deleted file mode 100644
+index 82d0c13cb736ebfd4464cd990ccae91223cb1f71..0000000000000000000000000000000000000000
+--- a/packages/ui/src/request-security-edition/index.ts
++++ /dev/null
+@@ -1,11 +0,0 @@
+-import type { IPlatformService } from "@zcode/shared";
+-import type { RequestSecurityWorkspaceTab } from "@/request-security.js";
+-export function RequestSecurityHost() {
+-  return null;
+-}
+-export function RequestSecurityWorkspaceBridge(_props: {
+-  workspaceTabs: readonly RequestSecurityWorkspaceTab[];
+-}) {
+-  return null;
+-}
+-export function setRequestSecurityReporter(_reporter: IPlatformService | null): void {}
+diff --git a/packages/ui/src/request-security-edition/index.tsx b/packages/ui/src/request-security-edition/index.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e6e15be441ac886421974976c0d60c52a386316
+--- /dev/null
++++ b/packages/ui/src/request-security-edition/index.tsx
+@@ -0,0 +1,134 @@
++import type { IPlatformService } from "@zcode/shared";
++import { useEffect } from "react";
++import type { RequestSecurityWorkspaceTab } from "@/request-security.js";
++
++import { ServiceProvider, useServices } from "@/hooks/useServices.js";
++import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
++import { logger } from "@/logger.js";
++
++import { setCaptchaReporter, CAPTCHA_BUTTON_ID, CAPTCHA_CONTAINER_ID, CAPTCHA_MOUNT_ID } from "./captcha.js";
++import { cancelProviderRuntimeHeadersRequest, handleProviderRuntimeHeadersRequest } from "./bridge.js";
++
++/**
++ * 验证码宿主：阿里云 SDK 需要一个真实 DOM 容器 + 一个可点击的 button
++ * （无感失败后靠点它拉起弹窗）。这个组件只负责把三个节点挂上去，逻辑全在 captcha.ts。
++ */
++export function RequestSecurityHost() {
++  return (
++    <div
++      id={CAPTCHA_CONTAINER_ID}
++      aria-hidden="true"
++      className="fixed left-0 top-0 z-[2147483647] h-0 w-0 overflow-visible"
++    >
++      <div id={CAPTCHA_MOUNT_ID} className="absolute left-0 top-0 h-0 w-0 overflow-visible" />
++      <button
++        id={CAPTCHA_BUTTON_ID}
++        type="button"
++        tabIndex={-1}
++        aria-hidden="true"
++        className="fixed left-1/2 top-1/2 h-px w-px -translate-x-1/2 -translate-y-1/2 border-0 p-0 opacity-0"
++      />
++    </div>
++  );
++}
++
++/** ARMS 上报出口：Root 挂载时把 platform 注进来。 */
++export function setRequestSecurityReporter(reporter: IPlatformService | null): void {
++  setCaptchaReporter(reporter);
++}
++
++/**
++ * 单个 workspace 的鉴权桥：订阅 Agent 的 provider 运行时头请求 / 取消通知。
++ *
++ * 必须是 workspace 级订阅（不是 session 级）：web 远控新建的会话在桌面没有 pane，
++ * 只有 workspace 级订阅能在没有任何打开中的会话视图时也应答。
++ */
++function WorkspaceProviderRuntimeAuthBridge({
++  workspacePath,
++  workspaceIdentity,
++}: {
++  workspacePath: string;
++  workspaceIdentity?: string;
++}) {
++  const services = useServices();
++
++  useEffect(() => {
++    const target = workspaceIdentity ? { workspacePath, workspaceIdentity } : { workspacePath };
++    const requested = services.zcodeAgentService.onDynamicWorkspaceProviderRuntimeHeadersRequest(target)(
++      (request) => {
++        void handleProviderRuntimeHeadersRequest({
++          request,
++          zcodeAgentService: services.zcodeAgentService,
++          codingPlanSubscriptionService: services.codingPlanSubscriptionService,
++          providerSettingsService: services.providerSettingsService,
++        }).catch((error: unknown) => {
++          logger.warn("[captcha] provider runtime headers response failed", {
++            error: error instanceof Error ? error.message : String(error),
++            providerId: request.providerId,
++            requestId: request.requestId,
++            sessionId: request.sessionId,
++          });
++        });
++      },
++    );
++    const cancelled = services.zcodeAgentService.onDynamicWorkspaceProviderRuntimeHeadersCancelled(
++      target,
++    )((request) => {
++      cancelProviderRuntimeHeadersRequest(request);
++    });
++    return () => {
++      requested.dispose();
++      cancelled.dispose();
++    };
++  }, [services, workspacePath, workspaceIdentity]);
++
++  return null;
++}
++
++function WorkspaceTabAuthBridge({ tab }: { tab: RequestSecurityWorkspaceTab }) {
++  const resolution = useWorkspaceServicesResolution(
++    tab.workspacePath,
++    tab.remoteSessionId,
++    tab.workspaceIdentity,
++    tab.remoteTarget,
++  );
++  if (!resolution.rpcReady) return null;
++  return (
++    <ServiceProvider services={resolution.services}>
++      <WorkspaceProviderRuntimeAuthBridge
++        workspacePath={tab.workspacePath}
++        {...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {})}
++      />
++    </ServiceProvider>
++  );
++}
++
++function workspaceKeyOf(tab: RequestSecurityWorkspaceTab): string {
++  return tab.workspaceIdentity?.trim() || tab.workspacePath;
++}
++
++/**
++ * 桌面唯一权威：为每个打开的 workspace 起一个鉴权桥；Web 端不挂（Root 里已按 isDesktop 门控）。
++ * 同一个 workspace 的多个 tab 只保留一个订阅者，避免重复跑验证码。
++ */
++export function RequestSecurityWorkspaceBridge({
++  workspaceTabs,
++}: {
++  workspaceTabs: readonly RequestSecurityWorkspaceTab[];
++}) {
++  const unique: RequestSecurityWorkspaceTab[] = [];
++  const seen = new Set<string>();
++  for (const tab of workspaceTabs) {
++    const key = workspaceKeyOf(tab);
++    if (seen.has(key)) continue;
++    seen.add(key);
++    unique.push(tab);
++  }
++  return (
++    <>
++      {unique.map((tab) => (
++        <WorkspaceTabAuthBridge key={workspaceKeyOf(tab)} tab={tab} />
++      ))}
++    </>
++  );
++}
 diff --git a/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts b/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts
 index 27c580bef52afa3efb336d1dc0b228815aa46e40..7e8b56f667477d01eedaee8fa4519ebeb7a241d8 100644
 --- a/packages/ui/src/root/useProviderAvailabilityLoginEntryGuard.ts
@@ -10270,7 +11748,7 @@ index 0000000000000000000000000000000000000000..b83397ada63ad82baf12a08136bb5292
 +  titleGenerationModel?: ModelSystemPromptsTitleGenerationModel | null;
 +}
 diff --git a/packages/ui/src/settings/settingsPageConfig.ts b/packages/ui/src/settings/settingsPageConfig.ts
-index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac286d6d2df 100644
+index 845aaccc18df72db668a38e1a71331938eb7f55b..5bc7c562528af7f12e3647e0c8fec6399605576e 100644
 --- a/packages/ui/src/settings/settingsPageConfig.ts
 +++ b/packages/ui/src/settings/settingsPageConfig.ts
 @@ -20,6 +20,7 @@ import {
@@ -10290,18 +11768,18 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac2
    {
      id: "remoteDevices",
      icon: HardDrive,
-@@ -138,21 +139,20 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+@@ -138,21 +139,26 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
      contentTitleId: "settings.remoteDevicesTitle",
      groupId: "basics",
    },
 -  // 电脑控制紧跟「浏览器」：两者都是给 Agent 用的本机操控入口，
 -  // 放在基础设置里让用户在同一处理解「控制浏览器 / 控制整台电脑」的关系。
--  {
--    id: "computerUse",
--    icon: Monitor,
--    titleId: "settings.computerUse.title",
--    groupId: "basics",
--  },
+   {
+     id: "computerUse",
+     icon: Monitor,
+     titleId: "settings.computerUse.title",
+     groupId: "basics",
+   },
 -  // 键盘快捷键紧跟「电脑控制」：同属本机操控/效率配置，收纳在基础设置尾部。
 +  // 键盘快捷键收纳在基础设置尾部。
    {
@@ -10320,16 +11798,14 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac2
    // 工作区搜索范围（.zcodeignore）：面向所有用户的基础工作区行为配置，收在基础设置末尾。
    {
      id: "workspaceFileSearch",
-@@ -180,26 +180,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+@@ -180,23 +186,15 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
    // },
  ];
  
 -// 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
 -// macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
--export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
--  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
-+export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter((section) =>
-+  isSettingsSectionEnabled(section.id),
+ export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
+   (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
  );
  
 -export interface SettingsPageConfigOptions {
@@ -10338,18 +11814,15 @@ index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac2
 -  isWindowsDesktop?: boolean;
 -}
 -
--export function createSettingsPageConfig({
--  isDesktop = false,
--  isMacDesktop = false,
--  isWindowsDesktop = false,
+ export function createSettingsPageConfig({
+   isDesktop = false,
+   isMacDesktop = false,
+   isWindowsDesktop = false,
 -}: SettingsPageConfigOptions = {}) {
--  const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
-+export function createSettingsPageConfig() {
++}: { isDesktop?: boolean; isMacDesktop?: boolean; isWindowsDesktop?: boolean } = {}) {
+   const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
    const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
--    if (section.id === "computerUse" && !showComputerUse) return false;
-     return isSettingsSectionEnabled(section.id);
-   });
-   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
+     if (section.id === "computerUse" && !showComputerUse) return false;
 diff --git a/packages/ui/src/settingsPageHelpers.tsx b/packages/ui/src/settingsPageHelpers.tsx
 index 3d617806a0502502402250df86d455050b35a11a..a11899209b0bff7948b63281dee4c9791965a784 100644
 --- a/packages/ui/src/settingsPageHelpers.tsx
@@ -10766,36 +12239,20 @@ index 0000000000000000000000000000000000000000..8bf8b837cf66cdfbec1c7e26993b4557
 +  }
 +}
 diff --git a/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx b/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
-index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..b3171212ae3fa80544706ce1ffb9dd1bf553a1d9 100644
+index c4c9bd21e2656955df4851d46ebd1b88a35c8ada..edd860d19c41a853dfcad65eda454324e3a6b243 100644
 --- a/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
 +++ b/packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
-@@ -1,5 +1,3 @@
--import { MarketingBanner } from "@/components/marketing-touch/MarketingTouchProvider.js";
--import { useMarketingBannerVisible } from "@/components/marketing-touch/useMarketingBannerVisible.js";
- import { GlobalNoticeSurface } from "@/global-notice/GlobalNoticeSurface.js";
- import type { GlobalNoticeStore } from "@/global-notice/globalNoticeStore.js";
- 
-@@ -7,17 +5,15 @@ import type { GlobalNoticeStore } from "@/global-notice/globalNoticeStore.js";
+@@ -7,9 +7,7 @@ import type { GlobalNoticeStore } from "@/global-notice/globalNoticeStore.js";
   * 左下角活动共享槽位的仲裁层：整个 UI 中唯一同时依赖营销触达与全局通知两套系统的地方，
   * 以此把这份耦合收敛到单点，保持两个 feature 模块互不 import（不制造循环依赖）。
   *
 - * 纯只读投影，不持有任何状态：领 token banner 可见时独占槽位并覆盖在上；banner 消失/关闭后
 - * 才在同一槽位显示 highspeed 分享卡。优先级：领 token banner > highspeed 全局通知。
 - * 两者都不可见时 GlobalNoticeSurface 返回 null，槽位不产生多余 DOM。
-+ * ZCode-plus 定制：运营投放的营销横幅（节日领 token 等）在本 fork 中不展示，
-+ * 因此槽位只保留 highspeed 分享卡。营销弹窗、投放查询与控制器状态都不受影响；
-+ * 恢复横幅时重新引入 useMarketingBannerVisible 并在可见时渲染 <MarketingBanner />。
++ * 可渲染的营销横幅优先占据槽位；没有横幅时显示 highspeed 全局通知。
   */
  export function SidebarBottomActivity({
    noticeStore,
- }: {
-   noticeStore?: GlobalNoticeStore | null;
- } = {}) {
--  const bannerVisible = useMarketingBannerVisible();
--  if (bannerVisible) return <MarketingBanner />;
-   // 未注入时走 GlobalNoticeSurface 默认的 browserGlobalNoticeStore。
-   return <GlobalNoticeSurface store={noticeStore ?? undefined} />;
- }
 diff --git a/packages/ui/src/slashCommandHelpers.ts b/packages/ui/src/slashCommandHelpers.ts
 index 494db27ab724102344b67ab65750c4415f25eda6..f14db850be940be7194bf2b59667bbf35800a7bd 100644
 --- a/packages/ui/src/slashCommandHelpers.ts
@@ -32427,6 +33884,67 @@ index ef3ebb3245765122250fe48bea48056fee4b7bb1..8a21edceef5cd6964115c48d90761010
  describe("ReplaceableConversationTransport workflowRunEvents", () => {
    it("原样转发给当前 transport，params 一个字段不动", async () => {
      const first = stubTransport(firstPage);
+diff --git a/packages/ui/test/requestVerificationErrors.test.ts b/packages/ui/test/requestVerificationErrors.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d0fccaa90ebca4f61f4b0f1f3203482104df757
+--- /dev/null
++++ b/packages/ui/test/requestVerificationErrors.test.ts
+@@ -0,0 +1,55 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  additionalRequestModalSelectors,
++  isRequestVerificationRejectedMessage,
++  isRequestVerificationTerminalError,
++  requestVerificationActionMessages,
++  requestVerificationClaimFailureMessageId,
++  requestVerificationErrorAttribution,
++  requestVerificationRecoveryAction,
++  resolveRequestVerificationBusinessCode,
++} from "../src/request-security-edition/errors.js";
++
++describe("request verification error mapping", () => {
++  it("3007 / CAPTCHA_VERIFY_FAILED / 拒绝文案都归一到 3007", () => {
++    expect(resolveRequestVerificationBusinessCode("3007", undefined)).toBe("3007");
++    expect(resolveRequestVerificationBusinessCode("CAPTCHA_VERIFY_FAILED", undefined)).toBe("3007");
++    expect(
++      resolveRequestVerificationBusinessCode(undefined, "Captcha verification failed or the verify token was rejected."),
++    ).toBe("3007");
++    expect(resolveRequestVerificationBusinessCode(undefined, "验证码校验失败")).toBe("3007");
++    expect(resolveRequestVerificationBusinessCode("1005", "quota")).toBeUndefined();
++    expect(resolveRequestVerificationBusinessCode(undefined, undefined)).toBeUndefined();
++  });
++
++  it("拒绝文案判定只认验证码相关", () => {
++    expect(isRequestVerificationRejectedMessage("captcha verify failed")).toBe(true);
++    expect(isRequestVerificationRejectedMessage("model overloaded")).toBe(false);
++    expect(isRequestVerificationRejectedMessage(undefined)).toBe(false);
++  });
++
++  it("交互式验证码可用时 3007 是可恢复错误", () => {
++    expect(isRequestVerificationTerminalError({ code: "3007" })).toBe(false);
++    expect(isRequestVerificationTerminalError(null)).toBe(false);
++  });
++
++  it("3007 的恢复动作是重新验证，而不是稍后重试", () => {
++    expect(requestVerificationRecoveryAction).toBe("retry-captcha");
++    expect(requestVerificationActionMessages["retry-captcha"]).toBe(
++      "chat.error.action.retryCaptcha",
++    );
++    expect(requestVerificationClaimFailureMessageId).toBe("manualClaimPlan.claim.failure.captcha");
++  });
++
++  it("错误归因与弹窗仲裁选择器与官方一致", () => {
++    expect(requestVerificationErrorAttribution.CAPTCHA_VERIFY_FAILED).toEqual({
++      source: "provider",
++      reason: "auth_failed",
++    });
++    expect(additionalRequestModalSelectors).toEqual([
++      ".aliyunCaptcha-mask",
++      ".aliyunCaptcha-window",
++    ]);
++  });
++});
 diff --git a/packages/ui/test/selectionSideChatLoading.test.ts b/packages/ui/test/selectionSideChatLoading.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..a79ae512b759d2d2b55c9f24c34ee12cc4da26fd
@@ -33492,7 +35010,7 @@ index 4d871ad7f8dc0ef6c09a672901d596f4c4d3d85a..d5bfa87c80055448dfec0b81cb130c82
  
    it("通知已打开的设置页切换到新的分区意图", async () => {
 diff --git a/packages/ui/test/settingsPageConfig.test.ts b/packages/ui/test/settingsPageConfig.test.ts
-index 734479eee628063c3d21b7fac88d5eecca8ffb3c..d939b8a308f34002344ad951830a0ce3c2971705 100644
+index 734479eee628063c3d21b7fac88d5eecca8ffb3c..54193d3f7449255131b642a21e77711bfa027349 100644
 --- a/packages/ui/test/settingsPageConfig.test.ts
 +++ b/packages/ui/test/settingsPageConfig.test.ts
 @@ -28,7 +28,7 @@ describe("settingsPageConfig", () => {
@@ -33539,48 +35057,40 @@ index 734479eee628063c3d21b7fac88d5eecca8ffb3c..d939b8a308f34002344ad951830a0ce3
    it("Usage 分区文案和头像菜单使用统计入口保持一致", () => {
      expect(enUS["settings.usageTitle"]).toBe(enUS["sidebar.usage.plan.openStats"]);
      expect(enUS["settings.usage.sectionTitle"]).toBe(enUS["sidebar.usage.plan.openStats"]);
-@@ -78,20 +94,20 @@ describe("settingsPageConfig", () => {
-   });
- 
-   it.each([
--    ["macOS", { isMacDesktop: true }, true],
--    ["Windows", { isWindowsDesktop: true }, true],
--    ["Linux 桌面", { isDesktop: true }, true],
--    ["Web", {}, false],
+@@ -82,16 +98,16 @@ describe("settingsPageConfig", () => {
+     ["Windows", { isWindowsDesktop: true }, true],
+     ["Linux 桌面", { isDesktop: true }, true],
+     ["Web", {}, false],
 -  ] as const)("%s 的电脑控制入口符合桌面平台边界", async (_name, options, expected) => {
-+    ["macOS", { isMacDesktop: true }],
-+    ["Windows", { isWindowsDesktop: true }],
-+    ["Linux 桌面", { isDesktop: true }],
-+    ["Web", {}],
-+  ] as const)("%s 不展示已移除的电脑控制入口", async (_name) => {
++  ] as const)("%s 的电脑控制入口遵循桌面平台边界", async (_name, options, expected) => {
      const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
--    const { settingsSections } = createSettingsPageConfig(options);
-+    const { settingsSections } = createSettingsPageConfig();
+     const { settingsSections } = createSettingsPageConfig(options);
  
--    expect(settingsSections.some((section) => section.id === "computerUse")).toBe(expected);
-+    expect(settingsSections.some((section) => section.id === "computerUse")).toBe(false);
+     expect(settingsSections.some((section) => section.id === "computerUse")).toBe(expected);
    });
  
 -  it("桌面平台的电脑控制排在基础设置的浏览器之后", async () => {
-+  it("桌面平台的基础设置不再包含电脑控制", async () => {
++  it("桌面平台的基础设置包含电脑控制", async () => {
      const { createSettingsPageConfig } = await loadSettingsPageConfig("test");
 -    const { settingsSectionGroups } = createSettingsPageConfig({ isMacDesktop: true });
-+    const { settingsSectionGroups } = createSettingsPageConfig();
++    const { settingsSectionGroups } = createSettingsPageConfig({ isDesktop: true });
      const basics = settingsSectionGroups.find((group) => group.id === "basics");
  
      expect(basics?.sections.map((section) => section.id)).toEqual([
-@@ -100,8 +116,8 @@ describe("settingsPageConfig", () => {
-       "modelProvider",
-       "browser",
+@@ -102,6 +118,7 @@ describe("settingsPageConfig", () => {
        "remoteDevices",
--      "computerUse",
+       "computerUse",
        "shortcuts",
 +      "advanced",
      ]);
      expect(
        settingsSectionGroups
-@@ -113,7 +129,7 @@ describe("settingsPageConfig", () => {
-   it("不可见的电脑控制落点回退到 general", async () => {
+@@ -110,13 +127,17 @@ describe("settingsPageConfig", () => {
+     ).toBe(false);
+   });
+ 
+-  it("不可见的电脑控制落点回退到 general", async () => {
++  it("桌面电脑控制落点有效，Web 回退到 general", async () => {
      const { createSettingsPageConfig, resolveSettingsSectionForPlatform } =
        await loadSettingsPageConfig("test");
 -    const { settingsSections } = createSettingsPageConfig({});
@@ -33588,6 +35098,13 @@ index 734479eee628063c3d21b7fac88d5eecca8ffb3c..d939b8a308f34002344ad951830a0ce3
  
      expect(resolveSettingsSectionForPlatform("computerUse", settingsSections, "general")).toBe(
        "general",
+     );
++    const desktop = createSettingsPageConfig({ isDesktop: true }).settingsSections;
++    expect(resolveSettingsSectionForPlatform("computerUse", desktop, "general")).toBe(
++      "computerUse",
++    );
+   });
+ });
 diff --git a/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts b/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
 index 139cb9598b8541666f27fc7e0c58bc3a1f93570f..ffb6b1e7182d679650a0f1ec0274d403f8343c0e 100644
 --- a/packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
@@ -34313,42 +35830,27 @@ index 0000000000000000000000000000000000000000..1b7382bdf07604f6ecbaf9623033a0f6
 +  });
 +});
 diff --git a/packages/ui/test/sidebarBottomActivity.test.ts b/packages/ui/test/sidebarBottomActivity.test.ts
-index 66ec697ec6f65034a94862d01c8eff1fcfa53445..abc735fa0ed347e8704367e8d92c67cad2214225 100644
+index 66ec697ec6f65034a94862d01c8eff1fcfa53445..7e55e2d23ef2dd2972f6e394a2054ceca12053aa 100644
 --- a/packages/ui/test/sidebarBottomActivity.test.ts
 +++ b/packages/ui/test/sidebarBottomActivity.test.ts
-@@ -126,13 +126,14 @@ describe("isMarketingBannerRenderable", () => {
+@@ -126,7 +126,7 @@ describe("isMarketingBannerRenderable", () => {
  });
  
  describe("SidebarBottomActivity 共享槽位仲裁", () => {
 -  it("banner 可见 + highspeed 有通知 → 只渲染领 token banner，让位 highspeed", () => {
-+  it("banner 可见 + highspeed 有通知 → 不渲染营销 banner，槽位显示 highspeed", () => {
++  it("banner 可见 + highspeed 有通知 → banner 优先占据槽位", () => {
      const noticeStore = createGlobalNoticeStore({ storage: memoryStorage() });
      publishShareNotice(noticeStore);
      const { container } = renderActivity(fakeController(renderableBanner), noticeStore);
- 
--    expect(container.querySelector('[data-testid="marketing-banner-stub"]')).not.toBeNull();
--    expect(container.querySelector('[data-global-notice-type="highspeed-share"]')).toBeNull();
-+    // ZCode-plus：运营投放 banner 不在侧栏渲染，槽位让给 highspeed 通知。
-+    expect(container.querySelector('[data-testid="marketing-banner-stub"]')).toBeNull();
-+    expect(container.querySelector('[data-global-notice-type="highspeed-share"]')).not.toBeNull();
-   });
- 
-   it("banner 不可见 + highspeed 有通知 → 同一槽位渲染 highspeed 卡", () => {
-@@ -152,12 +153,12 @@ describe("SidebarBottomActivity 共享槽位仲裁", () => {
+@@ -152,7 +152,7 @@ describe("SidebarBottomActivity 共享槽位仲裁", () => {
      expect(container.querySelector('[data-global-notice-type="highspeed-share"]')).toBeNull();
    });
  
 -  it("banner 关闭后（store 更新为 null）highspeed 在同一槽位复现", () => {
-+  it("banner 状态变化后 highspeed 仍在同一槽位渲染", () => {
++  it("banner 消失后 highspeed 在同一槽位恢复", () => {
      const noticeStore = createGlobalNoticeStore({ storage: memoryStorage() });
      publishShareNotice(noticeStore);
      const controller = fakeController(renderableBanner);
-     const { container } = renderActivity(controller, noticeStore);
--    expect(container.querySelector('[data-testid="marketing-banner-stub"]')).not.toBeNull();
-+    expect(container.querySelector('[data-testid="marketing-banner-stub"]')).toBeNull();
- 
-     act(() => {
-       controller.store.setState({ banner: null } as never);
 diff --git a/packages/ui/test/slashCommandHelpers.test.ts b/packages/ui/test/slashCommandHelpers.test.ts
 index 1efa12df2e6cfa7e1d3b631718705c01abf80774..18ce3e2b8e6a8415094bdb3523dbbdfffbee6d44 100644
 --- a/packages/ui/test/slashCommandHelpers.test.ts
@@ -38167,10 +39669,25 @@ index 8aef5c85797bb09f7a57d2a95f665e535b03b6ac..e125b428a26c659d5a9a47ea253bcc0b
        getVisibleSidePaneTabs(second.tabs, {
          workspaceKey: second.tabs[0]!.workspaceKey ?? null,
 diff --git a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
-index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e9ef47f0e 100644
+index 89c77655bdbb1742897a35c679447e1ee78f2bff..fa408b18e69a030ce92e7c355f3d66807d76c195 100644
 --- a/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
 +++ b/packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts
-@@ -23,13 +23,6 @@ vi.mock("@/ControlHintTooltip.js", async (importOriginal) => ({
+@@ -17,19 +17,21 @@ const mockFooterSettings = vi.hoisted(() => ({
+   },
+ }));
+ 
++vi.mock("@/WorkspaceWebRemoteControlTrigger.js", () => ({
++  WorkspaceWebRemoteControlTrigger: (props: {
++    workspacePath: string;
++    workspaceIdentity?: string;
++    remoteSessionId?: string;
++    initialTaskId?: string;
++  }) => createElement("span", { "data-testid": "remote-entry", ...props }),
++}));
++
+ vi.mock("@/ControlHintTooltip.js", async (importOriginal) => ({
+   ...(await importOriginal<typeof import("@/ControlHintTooltip.js")>()),
+   ControlHintTooltip: ({ children, title }: { children: unknown; title: string }) =>
      createElement("span", { "data-tooltip-title": title }, children),
  }));
  
@@ -38184,16 +39701,16 @@ index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e
  vi.mock("@/hooks/usePlatform.js", () => ({
    usePlatform: () => ({
      executeDesktopCommand: vi.fn(),
-@@ -381,7 +374,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
+@@ -381,7 +383,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
      ).toBeNull();
    });
  
 -  it("does not wrap the remote control trigger in a second tooltip", () => {
-+  it("does not render the removed phone remote-control entry", () => {
++  it("does not render the phone remote-control entry without a workspace", () => {
      const html = renderToStaticMarkup(
        createElement(WorkspaceSidebarFooter, {
          theme: "dark",
-@@ -389,12 +382,35 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
+@@ -389,12 +391,58 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
          onLocaleChange: () => {},
          onThemeChange: () => {},
          onSettingsButtonClick: () => {},
@@ -38206,6 +39723,29 @@ index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e
 -    expect(html).not.toContain('data-tooltip-title="webRemoteControl.trigger"');
 +    expect(html).not.toContain("web-remote-control-trigger");
 +    expect(html).not.toContain("webRemoteControl.trigger");
++  });
++
++  it("mounts the remote trigger only for a desktop workspace and forwards its context", () => {
++    const base = {
++      theme: "dark" as const,
++      localeMenuValue: "zh-CN" as const,
++      onLocaleChange: () => {},
++      onThemeChange: () => {},
++      workspacePath: "/preview",
++      workspaceIdentity: "remote-id",
++      workspaceRemoteSessionId: "session-id",
++      activeTaskId: "task-id",
++    };
++    const desktop = renderToStaticMarkup(
++      createElement(WorkspaceSidebarFooter, { ...base, isDesktop: true }),
++    );
++    expect(desktop).toContain('data-testid="remote-entry"');
++    expect(desktop).toContain('workspaceIdentity="remote-id"');
++    expect(desktop).toContain('remoteSessionId="session-id"');
++    expect(desktop).toContain('initialTaskId="task-id"');
++    expect(renderToStaticMarkup(createElement(WorkspaceSidebarFooter, base))).not.toContain(
++      'data-testid="remote-entry"',
++    );
 +  });
 +
 +  it("keeps the account entry by default and drops it with hideAccountEntry", () => {
@@ -38228,7 +39768,7 @@ index 89c77655bdbb1742897a35c679447e1ee78f2bff..e91a37c1440329be7b7db997a77f3e1e
 +    );
 +    expect(withoutAccount).not.toContain("login-trigger");
 +    expect(withoutAccount).not.toContain("sidebar.profile.notLoggedIn");
-+    // 设置按钮留在原位，账号菜单不再出现——主侧栏与设置页一致隐藏账号入口。
++    // 显式隐藏账号入口时仍保留设置按钮。
 +    expect(withoutAccount).toContain("task-settings-button");
    });
  });
