@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "69582f75b8714e6bb90d3ca1fa7005e50111e9f3",
-  "tree": "83834f05a13cc0fa951f7263979c8941b137f096",
+  "sourceHead": "29cf5d839cf28c75a299a4b3ac1a9bd3cb4e349a",
+  "tree": "45ee21c7b6e70c9ad9670767f6eaa20b392b7af5",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -340,7 +340,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "9ecdc8cc7e268daeb2ae9f28c97d59a9396f0deb27ac192bf7291100b2ced09f",
+      "sha256": "9188a9f61b42e561ff54c80e604eb651e7d17eed80fb6c50514c85749baa3afc",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -578,7 +578,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "74d20b21086633a57fff0bea1180604148390f49d88b84fd9901895ff8d89828",
+      "sha256": "c4127991aef189984863290d5c31b87eb578cc330c28ca38fda234bd893496dd",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/PreviewPane.tsx",
@@ -806,7 +806,6 @@
         "packages/ui/src/v4/focus-mode/contract.test.ts",
         "packages/ui/src/v4/focus-mode/contract.ts",
         "packages/ui/src/v4/focus-mode/focusGroups.ts",
-        "packages/ui/src/v4/focus-mode/focusScrollPaging.ts",
         "packages/ui/src/v4/focus-mode/index.ts",
         "packages/ui/src/v4/focus-mode/module.ts",
         "packages/ui/src/v4/focus-mode/sessionFocusModeStore.ts",

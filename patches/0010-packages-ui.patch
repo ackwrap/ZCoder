@@ -5319,27 +5319,28 @@ index 0000000000000000000000000000000000000000..33edcd0313bf9a003616a976fc7e34fb
 +} as const;
 diff --git a/packages/ui/src/i18n/focus-mode/index.ts b/packages/ui/src/i18n/focus-mode/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..59ab198b8248015150f76f4e0954c23a8b5ce484
+index 0000000000000000000000000000000000000000..7fdc6263b78e7933dc7055db0ce85a74dc270fbb
 --- /dev/null
 +++ b/packages/ui/src/i18n/focus-mode/index.ts
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,19 @@
 +/** 专注模式时间线辅助控件文案；会话级开关命令文案在 slash-commands/messages.ts。 */
 +export const focusModeMessagesZhCN = {
-+  "conversation.focusMode.older": "查看更早的两个对话",
-+  "conversation.focusMode.newer": "查看更晚的两个对话",
++  "conversation.focusMode.older": "展开历史对话",
++  "conversation.focusMode.newer": "回到最新专注视图",
 +  "conversation.focusMode.retry": "重试加载更早对话",
 +  "conversation.focusMode.loadingOlder": "正在加载更早对话…",
 +  "conversation.focusMode.loadFailed": "更早对话加载失败；可重试。",
-+  "conversation.focusMode.noOlder": "没有更早的对话了。",
++  "conversation.focusMode.noOlder": "暂时无法补全更早对话，可重试。",
 +} as const;
 +
 +export const focusModeMessagesEnUS = {
-+  "conversation.focusMode.older": "Show two earlier conversations",
-+  "conversation.focusMode.newer": "Show two later conversations",
++  "conversation.focusMode.older": "Expand conversation history",
++  "conversation.focusMode.newer": "Return to latest focused view",
 +  "conversation.focusMode.retry": "Retry loading earlier conversations",
 +  "conversation.focusMode.loadingOlder": "Loading earlier conversations…",
 +  "conversation.focusMode.loadFailed": "Earlier conversations failed to load; retry available.",
-+  "conversation.focusMode.noOlder": "No earlier conversations.",
++  "conversation.focusMode.noOlder":
++    "Earlier conversations could not be completed; retry available.",
 +} as const;
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
 index c703f29dacbf53946f84e535a5752422fd8d585f..6abf523239a85cfe2667fde7fa3e59ccf09c17ef 100644
@@ -12917,7 +12918,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..67bf035973844763feb27567c79668c31fbf812d 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..ac2a2c6c0e6f63c951cb56e78c02bc2da6d46db6 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -13957,7 +13958,15 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..67bf035973844763feb27567c79668c3
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
-@@ -5800,9 +6279,9 @@ export function SessionPane({
+@@ -5778,6 +6257,7 @@ export function SessionPane({
+               isWebRemoteControl={compactForRemoteControl}
+               isMobileViewport={isMobileTextInputViewport}
+               layoutMode={statusPanelLayout}
++              className={timelineFocusModeEnabled ? "!top-10" : undefined}
+               summaryPanelVariantOverride={effectiveSummaryPanelVariantOverride}
+               onVariantChange={handleSummaryPanelVariantChange}
+               terminalSectionOpen={terminalSectionOpen}
+@@ -5800,9 +6280,9 @@ export function SessionPane({
                }
                onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
                onOpenBackgroundBash={
@@ -13969,7 +13978,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..67bf035973844763feb27567c79668c3
                          workspacePath,
                          workspaceIdentity: workspaceIdentity ?? undefined,
                          remoteSessionId: remoteSessionId ?? undefined,
-@@ -5862,7 +6341,7 @@ export function SessionPane({
+@@ -5862,7 +6342,7 @@ export function SessionPane({
                  workspacePath={workspacePath}
                  workspaceIdentity={workspaceIdentity}
                >
@@ -13978,7 +13987,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..67bf035973844763feb27567c79668c3
                    compactForRemoteControl={compactForRemoteControl}
                    scrollToBottomActionRef={timelineScrollToBottomRef}
                    scrollToQueryActionRef={timelineScrollToQueryRef}
-@@ -5909,7 +6388,7 @@ export function SessionPane({
+@@ -5909,7 +6389,7 @@ export function SessionPane({
                          codePreviewSettings={codePreviewSettings}
                          onOpenShareUrl={onOpenBrowserUrl ? handleOpenImportedShareUrl : undefined}
                          onOpenFileLink={onOpenFileLink}
@@ -13987,7 +13996,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..67bf035973844763feb27567c79668c3
                        />
                      ) : null
                    }
-@@ -5976,6 +6455,24 @@ export function SessionPane({
+@@ -5976,6 +6456,24 @@ export function SessionPane({
              </SessionPluginReferenceIconBoundary>
            )}
          </div>
@@ -17646,10 +17655,10 @@ index d52b1999b56a1a810d353d3a7324c302349ebba5..0e25f4c4a8f658dae7e93ca10086964a
    /** 当前 renderer 观察到 running → completedSuccess 后，锁定到具体 turn。 */
 diff --git a/packages/ui/src/v4/focus-mode/CONTRACT.md b/packages/ui/src/v4/focus-mode/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..6c70988a1cbd17e89c2c586b55927190eac88bc1
+index 0000000000000000000000000000000000000000..9661fd4fa9b76efc488a2cc39b52edb8d7445c7a
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/CONTRACT.md
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,27 @@
 +# conversation-focus-mode
 +
 +Renderer-only, session-scoped conversation focus mode. Public entry: `packages/ui/src/v4/focus-mode/contract.ts`. Layer: ui; requires shared and ui.
@@ -17665,13 +17674,12 @@ index 0000000000000000000000000000000000000000..6c70988a1cbd17e89c2c586b55927190
 +- A logical group closes only after `turnHeader.state === "completedSuccess"`; guided inputs never split a turn and assistant/tool completion does not close it.
 +- Interrupted/failed/unknown fragments join the following continuation (or remain the trailing group) and never consume a two-group slot.
 +- A leading `turnHeader` alone does not prove the group is complete: an interrupted prefix may belong to it. The first selected group needs one preceding success boundary or the true history start; loading stops there.
-+- Anchors are stable: complete groups anchor on the success turn that closes them, the trailing group on its first turn, and resolution matches any member turnId. Loading a prefix or finishing a trailing turn never falls back to latest.
-+- One bounded load owner serves both goals: completing a user-requested older page and completing the selected window (two groups plus leading boundary). Both phases of a manual target share one max-8 budget, including an in-flight completion carried into that target. Selecting its two groups does not reset the budget: if the boundary is still unproven at the cap, show the selected window and stop until explicit retry. One no-progress load also stops; retry retains the target.
-+- A manual older target waits until two logical groups exist before the current window or the true history start is reached. A true history start with only one group stops reasonably. The target is cancelled by newer/back/session changes, so a late completion cannot pull the old page back.
-+- `SessionPane` owns the legacy `shouldAutoLoadIncompleteLeadingTurn` effect and disables it while focus mode is active; focus mode is the single owner of its supplemental loads.
-+- Paging never remounts the timeline or the composer dock. The navigation adapter applies a window-key placement request; a RAF correction follows measurement unless the user already took over scrolling.
-+- Nested scroll containers and editable targets never page the outer window. Programmatic placement lands on the opposite boundary so wheel inertia cannot skip windows.
-+- Pending guides and runtime retry state stay on the latest window only. The turn navigator is hidden because only two groups exist.
++- The latest window is recalculated from the current projection; expanded history uses all loaded rows without maintaining historical page anchors.
++- Latest-view completion has one bounded load owner, with an eight-request budget, no-progress stop and explicit retry. Expanding suspends it without resetting the budget; an in-flight result cannot initiate another focus load while expanded.
++- Latest is locked: wheel, touch and keyboard scroll only within the two selected groups and cannot page or unlock. Only the up button expands all already-loaded rows and delegates further pagination to the normal timeline; down and the host bottom action restore the locked latest window. `/force` remains enabled in both phases, with both controls always present.
++- `SessionPane` disables its legacy `shouldAutoLoadIncompleteLeadingTurn` effect while focus is enabled; latest completion and expanded normal pagination must not issue simultaneous loads.
++- Phase changes never remount the timeline or composer dock. Controls occupy a compact centered slot outside the scroll viewport. The status panel is offset below that slot while focus is enabled, including in narrow panes; it returns to its original position when disabled.
++- Pending guides and runtime retry remain live. The turn navigator follows normal admission on loaded rows when expanded, without triggering its bulk history hydration, and is hidden in the latest window.
 +
 +## Integration points
 +
@@ -17680,10 +17688,10 @@ index 0000000000000000000000000000000000000000..6c70988a1cbd17e89c2c586b55927190
 +- `ConversationTimeline` gains one optional `navigationAdapter` (scroll element, back-to-bottom override, forced bottom button, window placement). Without it, behavior is unchanged.
 diff --git a/packages/ui/src/v4/focus-mode/FocusModeNavigationButtons.tsx b/packages/ui/src/v4/focus-mode/FocusModeNavigationButtons.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b3012e59979
+index 0000000000000000000000000000000000000000..31c52dc8b18110fb2c1334196566ee8a8a0a72fc
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/FocusModeNavigationButtons.tsx
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,88 @@
 +import { ArrowDownIcon, ArrowUpIcon, RotateCcwIcon } from "lucide-react";
 +import { Button } from "@/components/ui/button.js";
 +import { cn } from "@/components/lib/utils.js";
@@ -17695,20 +17703,15 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +export const TID_FOCUS_MODE_RETRY = "focus-mode-retry";
 +
 +/**
-+ * Keyboard/assistive paging aid. Scrolling remains the primary navigation; these
-+ * buttons only mirror the same two-group paging commands.
++ * Persistent controls for expanding history and returning to the latest focus view.
 + */
 +export function FocusModeNavigationButtons({
-+  canPageOlder,
-+  canPageNewer,
 +  isLatest,
 +  loadStatus,
 +  onOlder,
 +  onNewer,
 +  onRetry,
 +}: {
-+  canPageOlder: boolean;
-+  canPageNewer: boolean;
 +  isLatest: boolean;
 +  loadStatus: FocusOlderLoadStatus;
 +  onOlder: () => void;
@@ -17726,7 +17729,7 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +          : "";
 +
 +  return (
-+    <div className="pointer-events-none absolute right-2 top-2 z-30 flex flex-col items-end gap-1">
++    <div className="relative z-30 flex flex-col items-center gap-1">
 +      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-card/95 p-0.5 shadow-sm">
 +        <Button
 +          type="button"
@@ -17736,7 +17739,6 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +          data-testid={TID_FOCUS_MODE_OLDER}
 +          aria-label={intl.formatMessage({ id: "conversation.focusMode.older" })}
 +          title={intl.formatMessage({ id: "conversation.focusMode.older" })}
-+          disabled={!canPageOlder || loadStatus === "loading"}
 +          onClick={onOlder}
 +        >
 +          <ArrowUpIcon className="size-4" />
@@ -17749,7 +17751,6 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +          data-testid={TID_FOCUS_MODE_NEWER}
 +          aria-label={intl.formatMessage({ id: "conversation.focusMode.newer" })}
 +          title={intl.formatMessage({ id: "conversation.focusMode.newer" })}
-+          disabled={!canPageNewer}
 +          onClick={onNewer}
 +        >
 +          <ArrowDownIcon className="size-4" />
@@ -17770,11 +17771,7 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +        ) : null}
 +      </div>
 +      {statusText ? (
-+        <span
-+          role="status"
-+          aria-live="polite"
-+          className="pointer-events-none max-w-56 rounded bg-card/95 px-2 py-1 text-ui-xs text-foreground-subtle shadow-sm"
-+        >
++        <span role="status" aria-live="polite" className="sr-only">
 +          {isLatest && loadStatus === "exhausted"
 +            ? intl.formatMessage({ id: "conversation.focusMode.noOlder" })
 +            : statusText}
@@ -17785,10 +17782,10 @@ index 0000000000000000000000000000000000000000..3afe03dc306d44bac872e6ff1d022b30
 +}
 diff --git a/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx b/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..4f42561ac7d790537e91a1b444e0d8843ee3ac3b
+index 0000000000000000000000000000000000000000..05e487bcfde803336ade84a3bdee45ee9cdd45cf
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,82 @@
 +import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 +import {
 +  ConversationTimeline,
@@ -17796,14 +17793,9 @@ index 0000000000000000000000000000000000000000..4f42561ac7d790537e91a1b444e0d884
 +  type ConversationTimelineProps,
 +} from "@/v4/ConversationTimeline.js";
 +import { FocusModeNavigationButtons } from "./FocusModeNavigationButtons.js";
-+import { useFocusTimelinePaging } from "./focusScrollPaging.js";
 +import { useFocusTimelineWindow } from "./useFocusTimelineWindow.js";
 +
-+/**
-+ * Renderer-only focused conversation window. `rows` still come from the normal
-+ * projection store; hidden history never mounts. With focus mode off, SessionPane
-+ * renders the original timeline and none of this runs.
-+ */
++/** Renderer-local focus view; phase changes keep the timeline and dock mounted. */
 +export function ConversationFocusModeTimeline(props: ConversationTimelineProps) {
 +  const {
 +    rows,
@@ -17811,99 +17803,74 @@ index 0000000000000000000000000000000000000000..4f42561ac7d790537e91a1b444e0d884
 +    canLoadOlder = false,
 +    loadingOlder = false,
 +    onLoadOlder,
-+    pendingGuides,
-+    apiRetry,
 +    scrollToBottomActionRef,
-+    onLatestTurnSummaryChange,
 +    ...rest
 +  } = props;
-+
++  const [phase, setPhase] = useState({ sessionKey, expanded: false });
++  if (phase.sessionKey !== sessionKey) setPhase({ sessionKey, expanded: false });
++  const expanded = phase.sessionKey === sessionKey && phase.expanded;
 +  const focus = useFocusTimelineWindow({
 +    rows,
 +    sessionKey,
 +    canLoadOlder,
 +    loadingOlder,
 +    onLoadOlder,
++    active: !expanded,
 +  });
-+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
 +  const innerScrollToBottomRef = useRef<(() => void) | null>(null);
-+
-+  useFocusTimelinePaging({
-+    element: scrollElement,
-+    canPageOlder: focus.canPageOlder,
-+    canPageNewer: focus.canPageNewer,
-+    goOlder: focus.goOlder,
-+    goNewer: focus.goNewer,
-+  });
-+
 +  const handleBackToBottom = useCallback(() => {
-+    if (focus.isLatest) {
-+      focus.returnToLatest();
-+      innerScrollToBottomRef.current?.();
-+      return;
-+    }
-+    focus.returnToLatest();
-+  }, [focus.isLatest, focus.returnToLatest]);
-+
++    if (expanded) setPhase({ sessionKey, expanded: false });
++    else innerScrollToBottomRef.current?.();
++  }, [expanded, sessionKey]);
 +  useLayoutEffect(() => {
 +    if (!scrollToBottomActionRef) return;
 +    scrollToBottomActionRef.current = handleBackToBottom;
 +    return () => {
-+      if (scrollToBottomActionRef.current === handleBackToBottom) {
++      if (scrollToBottomActionRef.current === handleBackToBottom)
 +        scrollToBottomActionRef.current = null;
-+      }
 +    };
 +  }, [handleBackToBottom, scrollToBottomActionRef]);
-+
 +  const navigationAdapter = useMemo<ConversationTimelineNavigationAdapter>(
 +    () => ({
-+      onScrollElementChange: setScrollElement,
 +      onBackToBottom: handleBackToBottom,
-+      forceShowBackToBottom: !focus.isLatest,
-+      windowPlacement: focus.windowPlacement,
++      windowPlacement: expanded
++        ? { key: `${sessionKey}|expanded`, placement: "top" }
++        : { key: `${sessionKey}|latest`, placement: "bottom" },
 +    }),
-+    [focus.isLatest, focus.windowPlacement, handleBackToBottom],
++    [expanded, handleBackToBottom, sessionKey],
 +  );
-+
-+  const showNavigationButtons =
-+    focus.canPageOlder || focus.canPageNewer || focus.loadStatus !== "idle";
 +
 +  return (
 +    <div className="relative flex min-h-0 flex-1 flex-col">
++      <div data-focus-navigation-slot="true" className="flex shrink-0 justify-center">
++        <FocusModeNavigationButtons
++          isLatest={!expanded}
++          loadStatus={expanded ? "idle" : focus.loadStatus}
++          onOlder={() => setPhase({ sessionKey, expanded: true })}
++          onNewer={handleBackToBottom}
++          onRetry={focus.retryLoadOlder}
++        />
++      </div>
 +      <ConversationTimeline
 +        {...rest}
-+        rows={focus.visibleRows}
-+        totalCount={focus.visibleRows.length}
++        rows={expanded ? rows : focus.visibleRows}
++        totalCount={expanded ? props.totalCount : focus.visibleRows.length}
 +        sessionKey={sessionKey}
-+        canLoadOlder={false}
-+        loadingOlder={false}
-+        onLoadOlder={undefined}
++        canLoadOlder={expanded && canLoadOlder && !focus.focusLoading}
++        loadingOlder={expanded && (loadingOlder || focus.focusLoading)}
++        onLoadOlder={expanded ? onLoadOlder : undefined}
 +        onLoadAllOlder={undefined}
 +        scrollMemoryKey={null}
 +        scrollToBottomActionRef={innerScrollToBottomRef}
-+        pendingGuides={focus.isLatest ? pendingGuides : []}
-+        apiRetry={focus.isLatest ? apiRetry : null}
-+        onLatestTurnSummaryChange={focus.isLatest ? onLatestTurnSummaryChange : undefined}
-+        hideTurnNavigator={true}
++        hideTurnNavigator={expanded ? props.hideTurnNavigator : true}
 +        navigationAdapter={navigationAdapter}
 +      />
-+      {showNavigationButtons ? (
-+        <FocusModeNavigationButtons
-+          canPageOlder={focus.canPageOlder}
-+          canPageNewer={focus.canPageNewer}
-+          isLatest={focus.isLatest}
-+          loadStatus={focus.loadStatus}
-+          onOlder={focus.goOlder}
-+          onNewer={focus.goNewer}
-+          onRetry={focus.retryLoadOlder}
-+        />
-+      ) : null}
 +    </div>
 +  );
 +}
 diff --git a/packages/ui/src/v4/focus-mode/contract.example.ts b/packages/ui/src/v4/focus-mode/contract.example.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7bef485d572a7f082e648337d0fb27f31429cfc4
+index 0000000000000000000000000000000000000000..feb3a2c368d3cae38cf427e521ecc27cd28ef18a
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/contract.example.ts
 @@ -0,0 +1,18 @@
@@ -17918,7 +17885,7 @@ index 0000000000000000000000000000000000000000..7bef485d572a7f082e648337d0fb27f3
 + */
 +export function exampleFocusWindow(rows: readonly ConversationRow[]) {
 +  const groups = buildFocusLogicalGroupsFromRows(rows);
-+  return selectFocusTimelineWindow(groups, null, true);
++  return selectFocusTimelineWindow(groups, true);
 +}
 +
 +/** Host-side switch: off keeps the original timeline component untouched. */
@@ -17927,7 +17894,7 @@ index 0000000000000000000000000000000000000000..7bef485d572a7f082e648337d0fb27f3
 +}
 diff --git a/packages/ui/src/v4/focus-mode/contract.test.ts b/packages/ui/src/v4/focus-mode/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1c7ec3a1a65729165c21cb91bcd71c41ff75b34
+index 0000000000000000000000000000000000000000..4317edc6f5ee188b6bfe1b500318ee315f273215
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/contract.test.ts
 @@ -0,0 +1,77 @@
@@ -18001,7 +17968,7 @@ index 0000000000000000000000000000000000000000..c1c7ec3a1a65729165c21cb91bcd71c4
 +    expect(groups.map((group) => group.turnIds)).toEqual([["a"], ["b", "c"]]);
 +    expect(groups.map((group) => group.complete)).toEqual([true, false]);
 +
-+    const window = selectFocusTimelineWindow(groups, null, false);
++    const window = selectFocusTimelineWindow(groups, false);
 +    expect(window.turnIds).toEqual(["a", "b", "c"]);
 +    expect(
 +      resolveFocusDataRequirement({ groups, window, canLoadOlder: false }).needsOlderData,
@@ -18010,10 +17977,10 @@ index 0000000000000000000000000000000000000000..c1c7ec3a1a65729165c21cb91bcd71c4
 +});
 diff --git a/packages/ui/src/v4/focus-mode/contract.ts b/packages/ui/src/v4/focus-mode/contract.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..62db80dacce6a81465d3236795a469802e40a4d9
+index 0000000000000000000000000000000000000000..08cc97bfcaa714bcc834cff186cabf1a11a0bd35
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/contract.ts
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,34 @@
 +export type {
 +  UseFocusTimelineWindowOptions,
 +  UseFocusTimelineWindowResult,
@@ -18035,11 +18002,8 @@ index 0000000000000000000000000000000000000000..62db80dacce6a81465d3236795a46980
 +  didFocusLoadProgress,
 +  readFocusLoadProgress,
 +  resolveFocusDataRequirement,
-+  resolveNewerFocusEndGroupId,
-+  resolveOlderFocusEndGroupId,
 +  selectFocusTimelineWindow,
 +} from "./focusGroups.js";
-+export { isFocusNestedScrollTarget, useFocusTimelinePaging } from "./focusScrollPaging.js";
 +export {
 +  getSessionFocusModeEnabled,
 +  resetSessionFocusModeStoreForTest,
@@ -18053,10 +18017,10 @@ index 0000000000000000000000000000000000000000..62db80dacce6a81465d3236795a46980
 +export { FOCUS_LOGICAL_GROUP_PAGE_SIZE } from "./types.js";
 diff --git a/packages/ui/src/v4/focus-mode/focusGroups.ts b/packages/ui/src/v4/focus-mode/focusGroups.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1aac231dc7c529d4bc0915490b6aafe6747f7d6b
+index 0000000000000000000000000000000000000000..e78c957e5c5d4908aba6d9e146f9fffa66cbc2ef
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/focusGroups.ts
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,178 @@
 +import type { ConversationRow, TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
 +import {
 +  FOCUS_LOGICAL_GROUP_PAGE_SIZE,
@@ -18173,89 +18137,19 @@ index 0000000000000000000000000000000000000000..1aac231dc7c529d4bc0915490b6aafe6
 +  return buildFocusLogicalGroups(buildFocusPhysicalTurns(rows));
 +}
 +
-+/**
-+ * Resolve the rendered window. The anchor may be any turnId in the target group,
-+ * so a loaded prefix or a newly completed trailing turn never falls back to latest.
-+ */
++/** Select the latest logical groups; expanded history bypasses this window. */
 +export function selectFocusTimelineWindow(
 +  groups: readonly FocusLogicalGroup[],
-+  endGroupId: string | null,
 +  canLoadOlder: boolean,
 +  pageSize: number = FOCUS_LOGICAL_GROUP_PAGE_SIZE,
 +): FocusTimelineWindow {
-+  if (groups.length === 0) {
-+    return {
-+      groups: [],
-+      startIndex: 0,
-+      endIndex: 0,
-+      isLatest: true,
-+      canPageOlder: false,
-+      canPageNewer: false,
-+      leadingBoundaryProven: true,
-+      endGroupId: null,
-+      turnIds: [],
-+    };
-+  }
-+
-+  let resolvedEndGroupId = endGroupId;
-+  let endIndex = groups.length;
-+  if (endGroupId !== null) {
-+    const anchorIndex = findGroupIndexByAnchor(groups, endGroupId);
-+    if (anchorIndex >= 0) {
-+      endIndex = anchorIndex + 1;
-+    } else {
-+      resolvedEndGroupId = null;
-+    }
-+  }
-+  const startIndex = Math.max(0, endIndex - pageSize);
-+  const windowGroups = groups.slice(startIndex, endIndex);
-+  const isLatest = endIndex === groups.length;
++  const startIndex = Math.max(0, groups.length - pageSize);
++  const windowGroups = groups.slice(startIndex);
 +  return {
 +    groups: windowGroups,
-+    startIndex,
-+    endIndex,
-+    isLatest,
-+    // Reaching the loaded start is not the same as proving the leading boundary.
-+    canPageOlder: startIndex > 0 || canLoadOlder,
-+    canPageNewer: endIndex < groups.length,
-+    leadingBoundaryProven: startIndex > 0 || !canLoadOlder,
-+    endGroupId: resolvedEndGroupId,
++    leadingBoundaryProven: groups.length === 0 || startIndex > 0 || !canLoadOlder,
 +    turnIds: windowGroups.flatMap((group) => group.turnIds),
 +  };
-+}
-+
-+function findGroupIndexByAnchor(
-+  groups: readonly FocusLogicalGroup[],
-+  anchorTurnId: string,
-+): number {
-+  return groups.findIndex(
-+    (group) => group.id === anchorTurnId || group.turnIds.includes(anchorTurnId),
-+  );
-+}
-+
-+/** End anchor for the page immediately before the current window, if loaded. */
-+export function resolveOlderFocusEndGroupId(
-+  groups: readonly FocusLogicalGroup[],
-+  currentFirstGroupId: string,
-+  pageSize: number = FOCUS_LOGICAL_GROUP_PAGE_SIZE,
-+): string | null {
-+  const currentStartIndex = findGroupIndexByAnchor(groups, currentFirstGroupId);
-+  if (currentStartIndex <= 0) return null;
-+  const targetEndIndex = currentStartIndex;
-+  const targetStartIndex = Math.max(0, targetEndIndex - pageSize);
-+  if (targetEndIndex <= targetStartIndex) return null;
-+  return groups[targetEndIndex - 1]?.id ?? null;
-+}
-+
-+/** End anchor for the next page toward latest; null means the latest window. */
-+export function resolveNewerFocusEndGroupId(
-+  groups: readonly FocusLogicalGroup[],
-+  currentEndIndex: number,
-+  pageSize: number = FOCUS_LOGICAL_GROUP_PAGE_SIZE,
-+): string | null {
-+  const targetEndIndex = Math.min(groups.length, currentEndIndex + pageSize);
-+  if (targetEndIndex >= groups.length) return null;
-+  return groups[targetEndIndex - 1]?.id ?? null;
 +}
 +
 +/**
@@ -18288,26 +18182,10 @@ index 0000000000000000000000000000000000000000..1aac231dc7c529d4bc0915490b6aafe6
 +export interface FocusLoadProgress {
 +  readonly firstRowId: number | null;
 +  readonly groupCount: number;
-+  /** Logical groups already loaded before the pending user target, if any. */
-+  readonly groupsBeforePending: number | null;
 +}
 +
-+export function readFocusLoadProgress(
-+  groups: readonly FocusLogicalGroup[],
-+  pendingFirstGroupId: string | null = null,
-+): FocusLoadProgress {
-+  const pendingIndex =
-+    pendingFirstGroupId === null
-+      ? -1
-+      : groups.findIndex(
-+          (group) =>
-+            group.id === pendingFirstGroupId || group.turnIds.includes(pendingFirstGroupId),
-+        );
-+  return {
-+    firstRowId: groups[0]?.firstRowId ?? null,
-+    groupCount: groups.length,
-+    groupsBeforePending: pendingIndex < 0 ? null : pendingIndex,
-+  };
++export function readFocusLoadProgress(groups: readonly FocusLogicalGroup[]): FocusLoadProgress {
++  return { firstRowId: groups[0]?.firstRowId ?? null, groupCount: groups.length };
 +}
 +
 +export function didFocusLoadProgress(
@@ -18315,208 +18193,11 @@ index 0000000000000000000000000000000000000000..1aac231dc7c529d4bc0915490b6aafe6
 +  next: FocusLoadProgress,
 +): boolean {
 +  if (next.groupCount > previous.groupCount) return true;
-+  if (
-+    previous.groupsBeforePending !== null &&
-+    next.groupsBeforePending !== null &&
-+    next.groupsBeforePending > previous.groupsBeforePending
-+  ) {
-+    return true;
-+  }
 +  return (
 +    previous.firstRowId !== null &&
 +    next.firstRowId !== null &&
 +    next.firstRowId < previous.firstRowId
 +  );
-+}
-diff --git a/packages/ui/src/v4/focus-mode/focusScrollPaging.ts b/packages/ui/src/v4/focus-mode/focusScrollPaging.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..39a9f15eaaebd6c283274820f3db3ce9774ad62f
---- /dev/null
-+++ b/packages/ui/src/v4/focus-mode/focusScrollPaging.ts
-@@ -0,0 +1,184 @@
-+import { useEffect, useRef } from "react";
-+import {
-+  isAtBottom,
-+  timelineKeyboardScrollIntent,
-+  timelineTouchScrollIntent,
-+  timelineWheelScrollIntent,
-+} from "@/v4/timelineScrollAnchor.js";
-+
-+const FOCUS_PAGE_LOCK_MS = 500;
-+const FOCUS_BOUNDARY_EPSILON_PX = 2;
-+
-+export type FocusPageDirection = "up" | "down";
-+
-+function isEditableElement(element: Element | null): boolean {
-+  if (!(element instanceof HTMLElement)) return false;
-+  return (
-+    element.isContentEditable ||
-+    element.tagName === "INPUT" ||
-+    element.tagName === "TEXTAREA" ||
-+    element.tagName === "SELECT"
-+  );
-+}
-+
-+/**
-+ * Nested code blocks, tool output and inputs own their scrolling. Any scrollable
-+ * ancestor between the event target and the timeline root consumes the gesture so
-+ * the focus window never pages behind the user's inner scroll.
-+ */
-+export function isFocusNestedScrollTarget(
-+  root: HTMLElement,
-+  target: EventTarget | null,
-+  includeEditable = true,
-+): boolean {
-+  if (typeof Node !== "undefined" && target instanceof Node) {
-+    let node: Node | null = target;
-+    while (node && node !== root) {
-+      if (node instanceof Element) {
-+        if (includeEditable && isEditableElement(node)) return true;
-+        if (node instanceof HTMLElement) {
-+          const overflowY = globalThis.getComputedStyle?.(node).overflowY;
-+          const isScrollContainer =
-+            (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
-+            node.scrollHeight > node.clientHeight + 1;
-+          if (isScrollContainer) return true;
-+        }
-+      }
-+      node = node.parentNode;
-+    }
-+  }
-+  return false;
-+}
-+
-+function pageDirectionFromIntent(
-+  intent: ReturnType<typeof timelineWheelScrollIntent>,
-+): FocusPageDirection | null {
-+  if (intent === "awayFromBottom") return "up";
-+  if (intent === "towardBottom") return "down";
-+  return null;
-+}
-+
-+export interface UseFocusTimelinePagingOptions {
-+  readonly element: HTMLDivElement | null;
-+  readonly canPageOlder: boolean;
-+  readonly canPageNewer: boolean;
-+  readonly goOlder: () => void;
-+  readonly goNewer: () => void;
-+}
-+
-+/**
-+ * Boundary paging driven only by real user gestures. Programmatic placement after a
-+ * page lands on the opposite boundary, so wheel inertia cannot skip multiple windows.
-+ */
-+export function useFocusTimelinePaging({
-+  element,
-+  canPageOlder,
-+  canPageNewer,
-+  goOlder,
-+  goNewer,
-+}: UseFocusTimelinePagingOptions): void {
-+  const stateRef = useRef({ canPageOlder, canPageNewer, goOlder, goNewer });
-+  stateRef.current = { canPageOlder, canPageNewer, goOlder, goNewer };
-+  const intentRef = useRef<FocusPageDirection | null>(null);
-+  const lockUntilRef = useRef(0);
-+  const touchYRef = useRef<number | null>(null);
-+
-+  useEffect(() => {
-+    if (!element) return;
-+
-+    const atTop = (target: HTMLElement) => target.scrollTop <= FOCUS_BOUNDARY_EPSILON_PX;
-+
-+    const requestPage = (direction: FocusPageDirection) => {
-+      if (globalThis.performance?.now() < lockUntilRef.current) return;
-+      const current = stateRef.current;
-+      if (direction === "up") {
-+        if (!current.canPageOlder || !atTop(element)) return;
-+        lockUntilRef.current = globalThis.performance.now() + FOCUS_PAGE_LOCK_MS;
-+        intentRef.current = null;
-+        current.goOlder();
-+        return;
-+      }
-+      if (
-+        !current.canPageNewer ||
-+        !isAtBottom({
-+          scrollTop: element.scrollTop,
-+          viewportHeight: element.clientHeight,
-+          contentHeight: element.scrollHeight,
-+        })
-+      ) {
-+        return;
-+      }
-+      lockUntilRef.current = globalThis.performance.now() + FOCUS_PAGE_LOCK_MS;
-+      intentRef.current = null;
-+      current.goNewer();
-+    };
-+
-+    const handleWheel = (event: WheelEvent) => {
-+      if (!event.deltaY) return;
-+      if (isFocusNestedScrollTarget(element, event.target)) return;
-+      const direction = pageDirectionFromIntent(timelineWheelScrollIntent(event.deltaY));
-+      if (!direction) return;
-+      intentRef.current = direction;
-+      requestPage(direction);
-+    };
-+
-+    const handleScroll = () => {
-+      const direction = intentRef.current;
-+      if (!direction) return;
-+      requestPage(direction);
-+    };
-+
-+    const handleKeyDown = (event: KeyboardEvent) => {
-+      if (isFocusNestedScrollTarget(element, event.target)) return;
-+      const direction = pageDirectionFromIntent(
-+        timelineKeyboardScrollIntent({
-+          key: event.key,
-+          shiftKey: event.shiftKey,
-+          editableTarget: false,
-+        }),
-+      );
-+      if (!direction) return;
-+      intentRef.current = direction;
-+      requestPage(direction);
-+    };
-+
-+    const handleTouchStart = (event: TouchEvent) => {
-+      touchYRef.current = event.touches[0]?.clientY ?? null;
-+    };
-+
-+    const handleTouchMove = (event: TouchEvent) => {
-+      if (isFocusNestedScrollTarget(element, event.target)) return;
-+      const nextY = event.touches[0]?.clientY;
-+      const previousY = touchYRef.current;
-+      if (nextY === undefined || previousY === null) return;
-+      touchYRef.current = nextY;
-+      const direction = pageDirectionFromIntent(timelineTouchScrollIntent(previousY, nextY));
-+      if (!direction) return;
-+      intentRef.current = direction;
-+      requestPage(direction);
-+    };
-+
-+    const handleTouchEnd = () => {
-+      touchYRef.current = null;
-+    };
-+
-+    element.addEventListener("wheel", handleWheel, { passive: true });
-+    element.addEventListener("scroll", handleScroll, { passive: true });
-+    element.addEventListener("keydown", handleKeyDown);
-+    element.addEventListener("touchstart", handleTouchStart, { passive: true });
-+    element.addEventListener("touchmove", handleTouchMove, { passive: true });
-+    element.addEventListener("touchend", handleTouchEnd, { passive: true });
-+    element.addEventListener("touchcancel", handleTouchEnd, { passive: true });
-+    return () => {
-+      element.removeEventListener("wheel", handleWheel);
-+      element.removeEventListener("scroll", handleScroll);
-+      element.removeEventListener("keydown", handleKeyDown);
-+      element.removeEventListener("touchstart", handleTouchStart);
-+      element.removeEventListener("touchmove", handleTouchMove);
-+      element.removeEventListener("touchend", handleTouchEnd);
-+      element.removeEventListener("touchcancel", handleTouchEnd);
-+      intentRef.current = null;
-+      touchYRef.current = null;
-+    };
-+  }, [element]);
 +}
 diff --git a/packages/ui/src/v4/focus-mode/index.ts b/packages/ui/src/v4/focus-mode/index.ts
 new file mode 100644
@@ -18616,13 +18297,13 @@ index 0000000000000000000000000000000000000000..69cfff74ea4d55810da1a012845ea674
 +}
 diff --git a/packages/ui/src/v4/focus-mode/types.ts b/packages/ui/src/v4/focus-mode/types.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f24fe3b011d4d245d94ed42f771ca5997d90d4a2
+index 0000000000000000000000000000000000000000..04a42dd246cdb8ef41026bb00af00c9aa768ec10
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/types.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,62 @@
 +import type { ConversationRow, TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
 +
-+/** Focus mode always shows two logical conversations; paging also moves two at a time. */
++/** Latest focus view shows two logical conversations. */
 +export const FOCUS_LOGICAL_GROUP_PAGE_SIZE = 2;
 +
 +export type FocusTurnTerminalState =
@@ -18666,17 +18347,11 @@ index 0000000000000000000000000000000000000000..f24fe3b011d4d245d94ed42f771ca599
 +
 +export interface FocusTimelineWindow {
 +  readonly groups: readonly FocusLogicalGroup[];
-+  readonly startIndex: number;
-+  readonly endIndex: number;
-+  readonly isLatest: boolean;
-+  readonly canPageOlder: boolean;
-+  readonly canPageNewer: boolean;
 +  /**
 +   * True only with a known group boundary before the window: either an earlier
 +   * loaded group or the true start of history. A leading turnHeader alone is not proof.
 +   */
 +  readonly leadingBoundaryProven: boolean;
-+  readonly endGroupId: string | null;
 +  readonly turnIds: readonly string[];
 +}
 +
@@ -18690,10 +18365,10 @@ index 0000000000000000000000000000000000000000..f24fe3b011d4d245d94ed42f771ca599
 +export type FocusOlderLoadStatus = "idle" | "loading" | "exhausted" | "error";
 diff --git a/packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts b/packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5a84c620820d39323f2ef6e67e94f054dbf4d10a
+index 0000000000000000000000000000000000000000..d3c48e2fa0bb1f07e62a5527e01729cdd5edc067
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,175 @@
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 +import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 +import {
@@ -18701,22 +18376,11 @@ index 0000000000000000000000000000000000000000..5a84c620820d39323f2ef6e67e94f054
 +  didFocusLoadProgress,
 +  readFocusLoadProgress,
 +  resolveFocusDataRequirement,
-+  resolveNewerFocusEndGroupId,
 +  selectFocusTimelineWindow,
 +} from "./focusGroups.js";
-+import {
-+  FOCUS_LOGICAL_GROUP_PAGE_SIZE,
-+  type FocusOlderLoadStatus,
-+  type FocusTimelineWindow,
-+} from "./types.js";
++import type { FocusOlderLoadStatus, FocusTimelineWindow } from "./types.js";
 +
-+/** Upper bound for automatic completion pages; no progress or this cap stops the loop. */
 +const FOCUS_MAX_AUTO_OLDER_LOADS = 8;
-+
-+interface WindowAnchorState {
-+  readonly sessionKey: string;
-+  readonly endGroupId: string | null;
-+}
 +
 +export interface UseFocusTimelineWindowOptions {
 +  readonly rows: readonly ConversationRow[];
@@ -18724,30 +18388,16 @@ index 0000000000000000000000000000000000000000..5a84c620820d39323f2ef6e67e94f054
 +  readonly canLoadOlder: boolean;
 +  readonly loadingOlder: boolean;
 +  readonly onLoadOlder?: (() => Promise<void> | void) | undefined;
++  readonly active?: boolean;
 +}
 +
 +export interface UseFocusTimelineWindowResult {
-+  readonly groups: ReturnType<typeof buildFocusLogicalGroupsFromRows>;
 +  readonly window: FocusTimelineWindow;
 +  readonly visibleRows: readonly ConversationRow[];
-+  readonly isLatest: boolean;
-+  readonly canPageOlder: boolean;
-+  readonly canPageNewer: boolean;
 +  readonly loadStatus: FocusOlderLoadStatus;
 +  readonly needsOlderData: boolean;
-+  readonly windowPlacement: {
-+    readonly key: string;
-+    readonly placement: "top" | "bottom";
-+  };
-+  readonly goOlder: () => void;
-+  readonly goNewer: () => void;
-+  readonly returnToLatest: () => void;
++  readonly focusLoading: boolean;
 +  readonly retryLoadOlder: () => void;
-+}
-+
-+interface LoadTracker {
-+  attempts: number;
-+  progress: ReturnType<typeof readFocusLoadProgress>;
 +}
 +
 +export function useFocusTimelineWindow({
@@ -18756,286 +18406,141 @@ index 0000000000000000000000000000000000000000..5a84c620820d39323f2ef6e67e94f054
 +  canLoadOlder,
 +  loadingOlder,
 +  onLoadOlder,
++  active = true,
 +}: UseFocusTimelineWindowOptions): UseFocusTimelineWindowResult {
-+  const [anchor, setAnchor] = useState<WindowAnchorState>({
-+    sessionKey,
-+    endGroupId: null,
-+  });
-+  const [placement, setPlacement] = useState<"top" | "bottom">("bottom");
-+  const [pendingOlderFirstGroupId, setPendingOlderFirstGroupId] = useState<string | null>(null);
-+  const [exhausted, setExhausted] = useState(false);
-+  const [failed, setFailed] = useState(false);
-+  const [retryRevision, setRetryRevision] = useState(0);
-+
-+  const effectiveEndGroupId = anchor.sessionKey === sessionKey ? anchor.endGroupId : null;
 +  const groups = useMemo(() => buildFocusLogicalGroupsFromRows(rows), [rows]);
 +  const window = useMemo(
-+    () =>
-+      selectFocusTimelineWindow(
-+        groups,
-+        effectiveEndGroupId,
-+        canLoadOlder,
-+        FOCUS_LOGICAL_GROUP_PAGE_SIZE,
-+      ),
-+    [canLoadOlder, effectiveEndGroupId, groups],
++    () => selectFocusTimelineWindow(groups, canLoadOlder),
++    [groups, canLoadOlder],
 +  );
 +  const visibleRows = useMemo(() => {
-+    if (window.turnIds.length === 0) return [];
 +    const turnIds = new Set(window.turnIds);
 +    return rows.filter((row) => turnIds.has(row.turnId));
 +  }, [rows, window.turnIds]);
-+
 +  const requirement = useMemo(
 +    () => resolveFocusDataRequirement({ groups, window, canLoadOlder }),
-+    [canLoadOlder, groups, window],
++    [groups, window, canLoadOlder],
 +  );
-+
-+  const trackerRef = useRef<LoadTracker | null>(null);
-+  const carriedLoadRef = useRef<{
++  const [state, setState] = useState({
++    sessionKey,
++    failed: false,
++    exhausted: false,
++    loading: false,
++  });
++  const [retryRevision, setRetryRevision] = useState(0);
++  const tracker = useRef<{
 +    attempts: number;
 +    progress: ReturnType<typeof readFocusLoadProgress>;
-+    compareProgress: boolean;
 +  } | null>(null);
-+  const inFlightRef = useRef(false);
-+  const mountedRef = useRef(true);
-+  const sessionGenerationRef = useRef(0);
-+  const goalGenerationRef = useRef(0);
-+
++  const inFlight = useRef(false);
++  const flightToken = useRef(0);
++  const generation = useRef(0);
++  const previous = useRef({ sessionKey, active });
++  if (previous.current.sessionKey !== sessionKey || previous.current.active !== active) {
++    generation.current += 1;
++    if (previous.current.sessionKey !== sessionKey) {
++      tracker.current = null;
++      inFlight.current = false;
++      flightToken.current += 1;
++    }
++    previous.current = { sessionKey, active };
++  }
++  const mounted = useRef(true);
 +  useEffect(() => {
-+    mountedRef.current = true;
++    mounted.current = true;
 +    return () => {
-+      mountedRef.current = false;
++      mounted.current = false;
 +    };
 +  }, []);
-+
-+  // Session switches never inherit the previous session's anchor or load loop.
 +  useEffect(() => {
-+    sessionGenerationRef.current += 1;
-+    goalGenerationRef.current += 1;
-+    setAnchor((current) =>
-+      current.sessionKey === sessionKey ? current : { sessionKey, endGroupId: null },
++    setState((current) =>
++      current.sessionKey === sessionKey
++        ? current
++        : { sessionKey, failed: false, exhausted: false, loading: false },
 +    );
-+    setPendingOlderFirstGroupId(null);
-+    inFlightRef.current = false;
-+    setPlacement("bottom");
-+    setExhausted(false);
-+    setFailed(false);
-+    trackerRef.current = null;
-+    carriedLoadRef.current = null;
 +  }, [sessionKey]);
 +
-+  const resetLoadGuard = useCallback(() => {
-+    goalGenerationRef.current += 1;
-+    trackerRef.current = null;
-+    carriedLoadRef.current = null;
-+    setExhausted(false);
-+    setFailed(false);
-+  }, []);
++  const failed = state.sessionKey === sessionKey && state.failed;
++  const exhausted = state.sessionKey === sessionKey && state.exhausted;
++  const focusLoading = state.sessionKey === sessionKey && state.loading;
 +
-+  const beginManualGoal = useCallback(() => {
-+    setExhausted(false);
-+    setFailed(false);
-+    if (inFlightRef.current && trackerRef.current) {
-+      // The in-flight completion is also the first page of the user's manual goal.
-+      carriedLoadRef.current = {
-+        attempts: trackerRef.current.attempts,
-+        progress: trackerRef.current.progress,
-+        compareProgress: true,
-+      };
-+      trackerRef.current = null;
++  useEffect(() => {
++    if (!active || loadingOlder || inFlight.current) return;
++    if (!requirement.needsOlderData || !onLoadOlder) {
++      tracker.current = null;
 +      return;
 +    }
-+    goalGenerationRef.current += 1;
-+    trackerRef.current = null;
-+    carriedLoadRef.current = null;
-+  }, []);
-+
-+  const requestOlder = useCallback(() => {
-+    if (!onLoadOlder || !canLoadOlder || loadingOlder || inFlightRef.current) return;
-+    inFlightRef.current = true;
-+    const generation = sessionGenerationRef.current;
-+    const goalGeneration = goalGenerationRef.current;
-+    const operation = Promise.resolve(onLoadOlder());
++    if (failed || exhausted) return;
++    const progress = readFocusLoadProgress(groups);
++    let current = tracker.current;
++    if (!current) {
++      current = { attempts: 0, progress };
++      tracker.current = current;
++    } else if (current.attempts > 0) {
++      if (!didFocusLoadProgress(current.progress, progress)) {
++        setState((value) => ({ ...value, exhausted: true }));
++        return;
++      }
++      current.progress = progress;
++    }
++    if (current.attempts >= FOCUS_MAX_AUTO_OLDER_LOADS) {
++      setState((value) => ({ ...value, exhausted: true }));
++      return;
++    }
++    current.attempts += 1;
++    inFlight.current = true;
++    const requestGeneration = generation.current;
++    const requestToken = ++flightToken.current;
++    setState((value) => ({ ...value, loading: true }));
++    let operation: Promise<void>;
++    try {
++      operation = Promise.resolve(onLoadOlder());
++    } catch (error) {
++      operation = Promise.reject(error);
++    }
 +    void operation
 +      .catch(() => {
-+        // A load from a cancelled target or the previous session must not surface.
-+        if (
-+          !mountedRef.current ||
-+          sessionGenerationRef.current !== generation ||
-+          goalGenerationRef.current !== goalGeneration
-+        ) {
-+          return;
++        if (mounted.current && generation.current === requestGeneration) {
++          setState((value) => ({ ...value, failed: true }));
 +        }
-+        setFailed(true);
 +      })
 +      .finally(() => {
-+        if (sessionGenerationRef.current === generation) {
-+          inFlightRef.current = false;
-+        }
++        if (flightToken.current !== requestToken) return;
++        inFlight.current = false;
++        if (mounted.current) setState((value) => ({ ...value, loading: false }));
 +      });
-+  }, [canLoadOlder, loadingOlder, onLoadOlder]);
-+
-+  // One bounded owner for both goals: complete a user-requested older page, or
-+  // complete the selected window's two groups and leading boundary.
-+  useEffect(() => {
-+    if (loadingOlder || inFlightRef.current) return;
-+    if (!onLoadOlder) {
-+      if (pendingOlderFirstGroupId !== null) setPendingOlderFirstGroupId(null);
-+      resetLoadGuard();
-+      return;
-+    }
-+
-+    let progress: ReturnType<typeof readFocusLoadProgress>;
-+
-+    if (pendingOlderFirstGroupId !== null) {
-+      progress = readFocusLoadProgress(groups, pendingOlderFirstGroupId);
-+      const groupsBefore = progress.groupsBeforePending;
-+      if (groupsBefore === null) {
-+        setPendingOlderFirstGroupId(null);
-+        resetLoadGuard();
-+        return;
-+      }
-+      if (groupsBefore <= 0) {
-+        if (!canLoadOlder) {
-+          setPendingOlderFirstGroupId(null);
-+          resetLoadGuard();
-+          return;
-+        }
-+      } else if (groupsBefore >= FOCUS_LOGICAL_GROUP_PAGE_SIZE || !canLoadOlder) {
-+        const target = groups[groupsBefore - 1]?.id;
-+        setPendingOlderFirstGroupId(null);
-+        if (target) {
-+          const attempts = carriedLoadRef.current?.attempts ?? trackerRef.current?.attempts ?? 0;
-+          carriedLoadRef.current = {
-+            attempts,
-+            progress: readFocusLoadProgress(groups),
-+            compareProgress: false,
-+          };
-+          trackerRef.current = null;
-+          setPlacement("bottom");
-+          setAnchor({ sessionKey, endGroupId: target });
-+        } else {
-+          resetLoadGuard();
-+        }
-+        return;
-+      }
-+    } else {
-+      if (!requirement.needsOlderData || !requirement.reason) {
-+        resetLoadGuard();
-+        return;
-+      }
-+      progress = readFocusLoadProgress(groups);
-+    }
-+
-+    if (failed || exhausted) return;
-+    let tracker = trackerRef.current;
-+    if (!tracker) {
-+      const carried = carriedLoadRef.current;
-+      carriedLoadRef.current = null;
-+      tracker = {
-+        attempts: carried?.attempts ?? 0,
-+        progress: carried?.progress ?? progress,
-+      };
-+      trackerRef.current = tracker;
-+      if (carried && carried.compareProgress && carried.attempts > 0) {
-+        if (!didFocusLoadProgress(carried.progress, progress)) {
-+          setExhausted(true);
-+          return;
-+        }
-+        tracker.progress = progress;
-+      }
-+    } else if (tracker.attempts > 0) {
-+      if (!didFocusLoadProgress(tracker.progress, progress)) {
-+        setExhausted(true);
-+        return;
-+      }
-+      tracker.progress = progress;
-+    }
-+    if (tracker.attempts >= FOCUS_MAX_AUTO_OLDER_LOADS) {
-+      setExhausted(true);
-+      return;
-+    }
-+    tracker.attempts += 1;
-+    requestOlder();
 +  }, [
++    active,
 +    canLoadOlder,
-+    effectiveEndGroupId,
 +    exhausted,
 +    failed,
++    focusLoading,
 +    groups,
 +    loadingOlder,
-+    pendingOlderFirstGroupId,
 +    onLoadOlder,
-+    requestOlder,
 +    requirement.needsOlderData,
-+    requirement.reason,
-+    resetLoadGuard,
 +    retryRevision,
 +    sessionKey,
 +  ]);
 +
-+  const goOlder = useCallback(() => {
-+    if (!window.canPageOlder) return;
-+    if (window.startIndex > 0) {
-+      resetLoadGuard();
-+      const target = groups[window.startIndex - 1]?.id;
-+      if (!target) return;
-+      setPendingOlderFirstGroupId(null);
-+      setPlacement("bottom");
-+      setAnchor({ sessionKey, endGroupId: target });
-+      return;
-+    }
-+    const firstGroupId = window.groups[0]?.id;
-+    if (!firstGroupId) return;
-+    beginManualGoal();
-+    setPendingOlderFirstGroupId(firstGroupId);
-+  }, [beginManualGoal, groups, resetLoadGuard, sessionKey, window]);
-+
-+  const goNewer = useCallback(() => {
-+    if (!window.canPageNewer) return;
-+    const target = resolveNewerFocusEndGroupId(groups, window.endIndex);
-+    resetLoadGuard();
-+    setPendingOlderFirstGroupId(null);
-+    setPlacement(target === null ? "bottom" : "top");
-+    setAnchor({ sessionKey, endGroupId: target });
-+  }, [groups, resetLoadGuard, sessionKey, window.canPageNewer, window.endIndex]);
-+
-+  const returnToLatest = useCallback(() => {
-+    resetLoadGuard();
-+    setPendingOlderFirstGroupId(null);
-+    setPlacement("bottom");
-+    setAnchor({ sessionKey, endGroupId: null });
-+  }, [resetLoadGuard, sessionKey]);
-+
 +  const retryLoadOlder = useCallback(() => {
-+    resetLoadGuard();
-+    setRetryRevision((revision) => revision + 1);
-+  }, [resetLoadGuard]);
-+
-+  const loadStatus: FocusOlderLoadStatus = failed
-+    ? "error"
-+    : exhausted
-+      ? "exhausted"
-+      : loadingOlder || inFlightRef.current
-+        ? "loading"
-+        : "idle";
++    tracker.current = null;
++    setState((value) => ({ ...value, failed: false, exhausted: false }));
++    setRetryRevision((value) => value + 1);
++  }, []);
 +
 +  return {
-+    groups,
 +    window,
 +    visibleRows,
-+    isLatest: window.isLatest,
-+    canPageOlder: window.canPageOlder && !failed && !exhausted && pendingOlderFirstGroupId === null,
-+    canPageNewer: window.canPageNewer,
-+    loadStatus,
-+    needsOlderData: pendingOlderFirstGroupId !== null || requirement.needsOlderData,
-+    windowPlacement: {
-+      key: `${sessionKey}|${effectiveEndGroupId ?? "latest"}|${placement}`,
-+      placement,
-+    },
-+    goOlder,
-+    goNewer,
-+    returnToLatest,
++    loadStatus: failed
++      ? "error"
++      : exhausted
++        ? "exhausted"
++        : loadingOlder || focusLoading
++          ? "loading"
++          : "idle",
++    needsOlderData: requirement.needsOlderData,
++    focusLoading,
 +    retryLoadOlder,
 +  };
 +}
@@ -25723,10 +25228,10 @@ index 0000000000000000000000000000000000000000..9ffc61e8ea078656c547423df87ff628
 +});
 diff --git a/packages/ui/test/conversationFocusModeGroups.test.ts b/packages/ui/test/conversationFocusModeGroups.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869ec05c4ad2
+index 0000000000000000000000000000000000000000..08bd83a7d3714f1c3525a744e91eece9ab372cea
 --- /dev/null
 +++ b/packages/ui/test/conversationFocusModeGroups.test.ts
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,177 @@
 +import { describe, expect, it } from "vitest";
 +import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 +import {
@@ -25734,8 +25239,6 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +  didFocusLoadProgress,
 +  readFocusLoadProgress,
 +  resolveFocusDataRequirement,
-+  resolveNewerFocusEndGroupId,
-+  resolveOlderFocusEndGroupId,
 +  selectFocusTimelineWindow,
 +} from "@/v4/focus-mode/contract.js";
 +
@@ -25828,9 +25331,8 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +    expect(groups.map((group) => group.turnIds)).toEqual([["a"], ["b"]]);
 +    expect(groups.map((group) => group.complete)).toEqual([true, false]);
 +
-+    const window = selectFocusTimelineWindow(groups, null, false);
++    const window = selectFocusTimelineWindow(groups, false);
 +    expect(window.turnIds).toEqual(["a", "b"]);
-+    expect(window.isLatest).toBe(true);
 +  });
 +
 +  it("merges interrupted B with resumed C instead of consuming two slots", () => {
@@ -25840,7 +25342,7 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +    expect(groups.map((group) => group.turnIds)).toEqual([["a"], ["b", "c"]]);
 +    expect(groups.map((group) => group.complete)).toEqual([true, false]);
 +
-+    const window = selectFocusTimelineWindow(groups, null, false);
++    const window = selectFocusTimelineWindow(groups, false);
 +    expect(window.turnIds).toEqual(["a", "b", "c"]);
 +    expect(window.groups).toHaveLength(2);
 +
@@ -25860,52 +25362,8 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +    const rows = [...successTurn("a"), ...successTurn("b"), ...successTurn("c")];
 +    const groups = buildFocusLogicalGroupsFromRows(rows);
 +
-+    const latest = selectFocusTimelineWindow(groups, null, false);
++    const latest = selectFocusTimelineWindow(groups, false);
 +    expect(latest.turnIds).toEqual(["b", "c"]);
-+
-+    const olderEnd = resolveOlderFocusEndGroupId(groups, latest.groups[0]!.id);
-+    const older = selectFocusTimelineWindow(groups, olderEnd, false);
-+    expect(older.turnIds).toEqual(["a"]);
-+    expect(older.isLatest).toBe(false);
-+    expect(older.canPageNewer).toBe(true);
-+  });
-+
-+  it("pages two logical groups at a time without accumulating windows", () => {
-+    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    const groups = buildFocusLogicalGroupsFromRows(rows);
-+    expect(groups).toHaveLength(6);
-+
-+    const latest = selectFocusTimelineWindow(groups, null, false);
-+    expect(latest.turnIds).toEqual(["e", "f"]);
-+
-+    const older1 = selectFocusTimelineWindow(
-+      groups,
-+      resolveOlderFocusEndGroupId(groups, latest.groups[0]!.id),
-+      false,
-+    );
-+    expect(older1.turnIds).toEqual(["c", "d"]);
-+
-+    const older2 = selectFocusTimelineWindow(
-+      groups,
-+      resolveOlderFocusEndGroupId(groups, older1.groups[0]!.id),
-+      false,
-+    );
-+    expect(older2.turnIds).toEqual(["a", "b"]);
-+
-+    const newer1 = selectFocusTimelineWindow(
-+      groups,
-+      resolveNewerFocusEndGroupId(groups, older2.endIndex),
-+      false,
-+    );
-+    expect(newer1.turnIds).toEqual(["c", "d"]);
-+
-+    const newer2 = selectFocusTimelineWindow(
-+      groups,
-+      resolveNewerFocusEndGroupId(groups, newer1.endIndex),
-+      false,
-+    );
-+    expect(newer2.turnIds).toEqual(["e", "f"]);
-+    expect(newer2.isLatest).toBe(true);
 +  });
 +
 +  it("requires a real preceding boundary even when the leading turn has a header", () => {
@@ -25913,7 +25371,7 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +    // belong to this logical group, so the header alone cannot prove completeness.
 +    const slice = [...successTurn("a"), ...successTurn("b")];
 +    const groups = buildFocusLogicalGroupsFromRows(slice);
-+    const window = selectFocusTimelineWindow(groups, null, true);
++    const window = selectFocusTimelineWindow(groups, true);
 +
 +    expect(groups[0]?.startsWithHeader).toBe(true);
 +    expect(window.leadingBoundaryProven).toBe(false);
@@ -25928,7 +25386,7 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +    const completedGroups = buildFocusLogicalGroupsFromRows(completedRows);
 +    expect(completedGroups.map((group) => group.turnIds)).toEqual([["p"], ["i", "a"], ["b"]]);
 +    expect(completedGroups[1]?.id).toBe("a");
-+    const completedWindow = selectFocusTimelineWindow(completedGroups, null, true);
++    const completedWindow = selectFocusTimelineWindow(completedGroups, true);
 +    expect(completedWindow.leadingBoundaryProven).toBe(true);
 +    expect(
 +      resolveFocusDataRequirement({
@@ -25937,26 +25395,6 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +        canLoadOlder: true,
 +      }).needsOlderData,
 +    ).toBe(false);
-+
-+    // An anchor on A still resolves after the prefix changes the group's first turn.
-+    const anchored = selectFocusTimelineWindow(completedGroups, "a", true);
-+    expect(anchored.groups.map((group) => group.turnIds)).toEqual([["p"], ["i", "a"]]);
-+    expect(anchored.endGroupId).toBe("a");
-+  });
-+
-+  it("allows fetching older from a history window at the loaded start", () => {
-+    const rows = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
-+    const groups = buildFocusLogicalGroupsFromRows(rows);
-+    const history = selectFocusTimelineWindow(groups, "b", true);
-+
-+    expect(history.turnIds).toEqual(["a", "b"]);
-+    expect(history.startIndex).toBe(0);
-+    expect(history.isLatest).toBe(false);
-+    expect(history.canPageOlder).toBe(true);
-+    expect(resolveFocusDataRequirement({ groups, window: history, canLoadOlder: true })).toEqual({
-+      needsOlderData: true,
-+      reason: "leading-boundary",
-+    });
 +  });
 +
 +  it("stops when a load attempt made no progress", () => {
@@ -25973,15 +25411,15 @@ index 0000000000000000000000000000000000000000..42895caa95286b992950fb107c3a869e
 +});
 diff --git a/packages/ui/test/conversationFocusModeTimeline.test.ts b/packages/ui/test/conversationFocusModeTimeline.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06c61eec03
+index 0000000000000000000000000000000000000000..ba3f178ee844d9c5abe5869df8a4a71af4b291d0
 --- /dev/null
 +++ b/packages/ui/test/conversationFocusModeTimeline.test.ts
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,653 @@
 +// @vitest-environment jsdom
 +import { createElement, useEffect } from "react";
 +import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-+import { TID_V4_TIMELINE, TID_V4_TIMELINE_BOTTOM } from "@zcode/shared/test-ids";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { TID_V4_TIMELINE } from "@zcode/shared/test-ids";
 +import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 +import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
 +import { ConversationFocusModeTimeline } from "@/v4/focus-mode/contract.js";
@@ -26175,10 +25613,6 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +  target.dispatchEvent(event);
 +}
 +
-+function dispatchKey(target: EventTarget, key: string) {
-+  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-+}
-+
 +function expectTurns(present: string[], absent: string[]) {
 +  for (const turnId of present) {
 +    expect(screen.queryByTestId(`turn-${turnId}`)).not.toBeNull();
@@ -26194,15 +25628,42 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +  vi.restoreAllMocks();
 +});
 +
-+let pagingClock = 0;
-+function advancePagingClock(ms = 600) {
-+  pagingClock += ms;
-+}
-+
 +describe("ConversationFocusModeTimeline with the real timeline", () => {
-+  beforeEach(() => {
-+    pagingClock = 0;
-+    vi.spyOn(globalThis.performance, "now").mockImplementation(() => pagingClock);
++  it("keeps controls outside the viewport and expands all loaded history without remounting the dock", () => {
++    const rows = [
++      ...successTurn("a"),
++      ...successTurn("b"),
++      ...successTurn("c"),
++      ...interruptedTurn("d"),
++      ...runningTurn("e"),
++    ];
++    const original = [...rows];
++    Object.freeze(rows);
++    render(
++      createElement(ConversationFocusModeTimeline, {
++        ...commonProps,
++        rows,
++        bottomDock: createElement("input", { "data-testid": "stable-input" }),
++      }),
++    );
++    const viewport = getScrollElement();
++    const input = screen.getByTestId("stable-input");
++    const up = screen.getByTestId(TID_FOCUS_MODE_OLDER);
++    const down = screen.getByTestId(TID_FOCUS_MODE_NEWER);
++    expect(viewport.contains(up)).toBe(false);
++    expect(up.closest('[data-focus-navigation-slot="true"]')).not.toBeNull();
++    input.focus();
++    fireEvent.click(up);
++    expectTurns(["a", "b", "c", "d", "e"], []);
++    expect(getScrollElement()).toBe(viewport);
++    expect(screen.getByTestId("stable-input")).toBe(input);
++    expect(document.activeElement).toBe(input);
++    fireEvent.click(down);
++    expectTurns(["c", "d", "e"], ["a", "b"]);
++    expect(screen.getByTestId("stable-input")).toBe(input);
++    expect(screen.getByTestId(TID_FOCUS_MODE_OLDER)).toBe(up);
++    expect(screen.getByTestId(TID_FOCUS_MODE_NEWER)).toBe(down);
++    expect(rows).toEqual(original);
 +  });
 +
 +  it("mounts only the latest two logical groups", () => {
@@ -26229,51 +25690,26 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +    expectTurns(["a", "b", "c"], []);
 +  });
 +
-+  it("pages older/newer by two groups and never accumulates history", () => {
-+    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows }));
-+    expectTurns(["e", "f"], ["a", "b", "c", "d"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["a", "b", "e", "f"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["a", "b"], ["c", "d", "e", "f"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_NEWER)));
-+    expectTurns(["c", "d"], ["a", "b", "e", "f"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_NEWER)));
-+    expectTurns(["e", "f"], ["a", "b", "c", "d"]);
-+  });
-+
-+  it("keeps a historical window anchored when new turns and stream deltas arrive", () => {
-+    const initial = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
++  it("expands loaded groups, keeps receiving stream, and returns to the latest group", () => {
++    const initial = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
 +    const view = render(
 +      createElement(ConversationFocusModeTimeline, { ...commonProps, rows: initial }),
 +    );
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["a", "b", "e", "f"]);
-+
-+    const withStream = [...initial, ...runningTurn("g")];
-+    view.rerender(
-+      createElement(ConversationFocusModeTimeline, { ...commonProps, rows: withStream }),
-+    );
-+    expectTurns(["c", "d"], ["a", "b", "e", "f", "g"]);
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    expectTurns(["a", "b", "c", "d"], []);
++    const viewport = getScrollElement();
++    setScrollMetrics(viewport, { scrollTop: 250 });
++    fireEvent.scroll(viewport);
++    const streamed = [...initial, ...interruptedTurn("e"), ...runningTurn("f")];
++    view.rerender(createElement(ConversationFocusModeTimeline, { ...commonProps, rows: streamed }));
++    expectTurns(["a", "b", "c", "d", "e", "f"], []);
++    expect(viewport.scrollTop).toBe(250);
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_NEWER));
++    expectTurns(["d", "e", "f"], ["a", "b", "c"]);
 +  });
 +
-+  it("returns to the latest window from the forced back-to-bottom button", () => {
-+    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows }));
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["e", "f"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_V4_TIMELINE_BOTTOM)));
-+    expectTurns(["e", "f"], ["a", "b", "c", "d"]);
-+  });
-+
-+  it("returns to latest through the host scrollToBottomActionRef", () => {
-+    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
++  it("restores the latest window through the host bottom action", () => {
++    const rows = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
 +    const actionRef = { current: null as (() => void) | null };
 +    render(
 +      createElement(ConversationFocusModeTimeline, {
@@ -26282,39 +25718,62 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +        scrollToBottomActionRef: actionRef,
 +      }),
 +    );
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["e", "f"]);
-+
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    expectTurns(["a", "b", "c", "d"], []);
 +    act(() => actionRef.current?.());
-+    expectTurns(["e", "f"], ["a", "b", "c", "d"]);
++    expectTurns(["c", "d"], ["a", "b"]);
 +  });
 +
-+  it("pages on wheel and keyboard without skipping through a short page", () => {
-+    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows }));
++  it("locks both boundaries against repeated wheel, touch and keyboard gestures until up is clicked", () => {
++    const rows = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
++    const onLoadOlder = vi.fn();
++    render(
++      createElement(ConversationFocusModeTimeline, {
++        ...commonProps,
++        rows,
++        canLoadOlder: true,
++        onLoadOlder,
++      }),
++    );
++    const viewport = getScrollElement();
++    expect(viewport.className).toContain("overflow-y-auto");
++    setScrollMetrics(viewport, { scrollTop: 150 });
++    const readingWheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 60 });
++    act(() => {
++      viewport.dispatchEvent(readingWheel);
++      viewport.scrollTop = 210;
++      fireEvent.scroll(viewport);
++    });
++    expect(readingWheel.defaultPrevented).toBe(false);
++    expect(viewport.scrollTop).toBe(210);
++    expectTurns(["c", "d"], ["a", "b"]);
++    for (let index = 0; index < 4; index++) {
++      setScrollMetrics(viewport, { scrollTop: index % 2 === 0 ? 0 : 900 });
++      act(() => {
++        dispatchWheel(viewport, index % 2 === 0 ? -120 : 120);
++        fireEvent.keyDown(viewport, { key: index % 2 === 0 ? "ArrowUp" : "ArrowDown" });
++        fireEvent.touchStart(viewport, { touches: [{ clientY: 100 }] });
++        fireEvent.touchMove(viewport, { touches: [{ clientY: 200 }] });
++        fireEvent.touchEnd(viewport);
++        fireEvent.scroll(viewport);
++      });
++      expectTurns(["c", "d"], ["a", "b"]);
++    }
++    expect(onLoadOlder).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    expectTurns(["a", "b", "c", "d"], []);
++  });
 +
-+    let element = getScrollElement();
-+    setScrollMetrics(element, { scrollTop: 0, clientHeight: 300, scrollHeight: 300 });
-+    act(() => dispatchWheel(element, -120));
-+    expectTurns(["c", "d"], ["e", "f"]);
-+
-+    // Inertia within the same moment must not skip another window.
-+    element = getScrollElement();
-+    setScrollMetrics(element, { scrollTop: 300, clientHeight: 300, scrollHeight: 300 });
-+    act(() => dispatchWheel(element, -120));
-+    expectTurns(["c", "d"], ["a", "b", "e", "f"]);
-+
-+    advancePagingClock();
-+    element = getScrollElement();
-+    setScrollMetrics(element, { scrollTop: 300, clientHeight: 300, scrollHeight: 300 });
-+    act(() => dispatchWheel(element, 120));
-+    expectTurns(["e", "f"], ["c", "d"]);
-+
-+    advancePagingClock();
-+    element = getScrollElement();
-+    setScrollMetrics(element, { scrollTop: 0, clientHeight: 300, scrollHeight: 300 });
-+    act(() => dispatchKey(element, "ArrowUp"));
-+    expectTurns(["c", "d"], ["e", "f"]);
++  it("keeps both controls enabled with no history", () => {
++    render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows: [] }));
++    const up = screen.getByTestId(TID_FOCUS_MODE_OLDER) as HTMLButtonElement;
++    const down = screen.getByTestId(TID_FOCUS_MODE_NEWER) as HTMLButtonElement;
++    expect(up.disabled).toBe(false);
++    expect(down.disabled).toBe(false);
++    fireEvent.click(up);
++    fireEvent.click(down);
++    expect(screen.getByTestId(TID_FOCUS_MODE_OLDER)).toBe(up);
++    expect(screen.getByTestId(TID_FOCUS_MODE_NEWER)).toBe(down);
 +  });
 +
 +  it("ignores wheel gestures inside nested scroll containers", () => {
@@ -26351,54 +25810,27 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +    expect(after).toBe(before + 1);
 +  });
 +
-+  it("keeps a historical window anchored when earlier rows are prepended", () => {
-+    const initial = ["c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    const view = render(
-+      createElement(ConversationFocusModeTimeline, { ...commonProps, rows: initial }),
-+    );
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["e", "f"]);
-+
-+    const withOlder = [...["a", "b"].flatMap((id) => successTurn(id)), ...initial];
-+    view.rerender(
-+      createElement(ConversationFocusModeTimeline, { ...commonProps, rows: withOlder }),
-+    );
-+    expectTurns(["c", "d"], ["a", "b", "e", "f"]);
-+  });
-+
-+  it("loads more when paging older from the loaded history start", async () => {
-+    const initial = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
-+    const onLoadOlder = vi.fn(async () => {});
-+    const view = render(
++  it("delegates older loading to the real timeline when expanded", async () => {
++    const rows = ["a", "b", "c", "d"].flatMap((id) => successTurn(id));
++    const onLoadOlder = vi.fn(() => new Promise<void>(() => {}));
++    const onLoadAllOlder = vi.fn();
++    render(
 +      createElement(ConversationFocusModeTimeline, {
 +        ...commonProps,
-+        rows: initial,
++        rows,
 +        canLoadOlder: true,
 +        onLoadOlder,
++        onLoadAllOlder,
 +      }),
 +    );
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["a", "b"], ["c", "d"]);
-+
-+    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    expectTurns(["a", "b", "c", "d"], []);
++    const element = getScrollElement();
++    setScrollMetrics(element, { scrollTop: 0 });
++    fireEvent.scroll(element);
 +    expect(onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    const expanded = [...["x", "y"].flatMap((id) => successTurn(id)), ...initial];
-+    view.rerender(
-+      createElement(ConversationFocusModeTimeline, {
-+        ...commonProps,
-+        rows: expanded,
-+        canLoadOlder: true,
-+        onLoadOlder,
-+      }),
-+    );
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expectTurns(["x", "y"], ["a", "b", "c", "d"]);
++    expect(onLoadAllOlder).not.toHaveBeenCalled();
++    expect(element.getAttribute("data-window-row-count")).toBe(String(rows.length));
 +  });
 +
 +  it("fetches a preceding boundary even when the leading turn has a header", async () => {
@@ -26434,7 +25866,7 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +    expectTurns(["i", "a", "b"], ["p"]);
 +  });
 +
-+  it("keeps the timeline and bottom dock mounted across page changes", () => {
++  it("keeps the timeline and bottom dock mounted across phase changes", () => {
 +    function Dock() {
 +      useEffect(() => {
 +        dockMounts += 1;
@@ -26461,15 +25893,57 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +    expect(screen.getByTestId("dock-input")).toBe(input);
 +    expect(document.activeElement).toBe(input);
 +    expect(dockMounts).toBe(1);
-+    expect(scrollBefore.scrollTop).toBe(1200);
++    expect(scrollBefore.scrollTop).toBe(0);
 +
-+    // A non-latest newer page starts at its earliest group.
++    // Returning to latest preserves the same dock and scroll element.
 +    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expect(scrollBefore.scrollTop).toBe(1200);
++    expect(scrollBefore.scrollTop).toBe(0);
 +    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_NEWER)));
 +    expect(getScrollElement()).toBe(scrollBefore);
 +    expect(document.activeElement).toBe(input);
-+    expect(scrollBefore.scrollTop).toBe(0);
++    expect(scrollBefore.scrollTop).toBe(1200);
++  });
++
++  it("does not let an in-flight focus load change the expanded phase or run a second owner", async () => {
++    let resolve!: () => void;
++    const onLoadOlder = vi.fn(
++      () =>
++        new Promise<void>((done) => {
++          resolve = done;
++        }),
++    );
++    const rows = successTurn("a");
++    const view = render(
++      createElement(ConversationFocusModeTimeline, {
++        ...commonProps,
++        rows,
++        canLoadOlder: true,
++        onLoadOlder,
++      }),
++    );
++    expect(onLoadOlder).toHaveBeenCalledTimes(1);
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    const scroll = getScrollElement();
++    setScrollMetrics(scroll, { scrollTop: 0 });
++    fireEvent.scroll(scroll);
++    expect(onLoadOlder).toHaveBeenCalledTimes(1);
++    await act(async () => {
++      resolve();
++      await Promise.resolve();
++    });
++    const more = [...successTurn("p"), ...rows];
++    view.rerender(
++      createElement(ConversationFocusModeTimeline, {
++        ...commonProps,
++        rows: more,
++        canLoadOlder: true,
++        onLoadOlder,
++      }),
++    );
++    expectTurns(["p", "a"], []);
++    expect(onLoadOlder).toHaveBeenCalledTimes(1);
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_NEWER));
++    expectTurns(["p", "a"], []);
 +  });
 +
 +  it("stops automatic loading without progress and offers an explicit retry", async () => {
@@ -26569,7 +26043,7 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
 +    const view = render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows }));
 +    act(() => fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER)));
-+    expectTurns(["c", "d"], ["e", "f"]);
++    expectTurns(["a", "b", "c", "d", "e", "f"], []);
 +
 +    const nextRows = ["x", "y", "z"].flatMap((id) => successTurn(id));
 +    view.rerender(
@@ -26586,8 +26060,12 @@ index 0000000000000000000000000000000000000000..4dfb2685dffc517bdc2becb549738d06
 +describe("focus mode off", () => {
 +  it("keeps the original timeline mounting every group", () => {
 +    const rows = ["a", "b", "c", "d", "e", "f"].flatMap((id) => successTurn(id));
-+    render(createElement(ConversationTimeline, { ...commonProps, rows }));
++    const view = render(createElement(ConversationFocusModeTimeline, { ...commonProps, rows }));
++    fireEvent.click(screen.getByTestId(TID_FOCUS_MODE_OLDER));
++    view.rerender(createElement(ConversationTimeline, { ...commonProps, rows }));
 +    expectTurns(["a", "b", "c", "d", "e", "f"], []);
++    expect(screen.queryByTestId(TID_FOCUS_MODE_OLDER)).toBeNull();
++    expect(screen.queryByTestId(TID_FOCUS_MODE_NEWER)).toBeNull();
 +  });
 +});
 diff --git a/packages/ui/test/editionMessagesIntegration.test.ts b/packages/ui/test/editionMessagesIntegration.test.ts
@@ -32847,10 +32325,10 @@ index 0000000000000000000000000000000000000000..55f078ab373b99f6558f46d3e9c0762b
 +});
 diff --git a/packages/ui/test/sessionFocusModeLoading.test.ts b/packages/ui/test/sessionFocusModeLoading.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b9eca8737d9f3fd78c288cbc491211e8201d878d
+index 0000000000000000000000000000000000000000..b9d2a2c0f553882abd66518ebd91d1c8f94f487a
 --- /dev/null
 +++ b/packages/ui/test/sessionFocusModeLoading.test.ts
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,209 @@
 +// @vitest-environment jsdom
 +import { act, renderHook } from "@testing-library/react";
 +import { describe, expect, it, vi } from "vitest";
@@ -32967,271 +32445,97 @@ index 0000000000000000000000000000000000000000..b9eca8737d9f3fd78c288cbc491211e8
 +  return { hook, rerender, completeLoad };
 +}
 +
-+describe("focus older paging load owner", () => {
-+  it("counts the first manual request and stops after one no-progress load", async () => {
++describe("focus latest completion owner", () => {
++  it("stops after a no-progress completion and retries only explicitly", async () => {
 +    const loader = createLoader();
-+    const rows = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    expect(hook.result.current.window.turnIds).toEqual(["a", "b"]);
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
++    const rows = successTurn("a", 1000);
++    const { hook, completeLoad } = await setup(rows, loader);
 +    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    // The store flips loading true -> false without adding rows and swallows errors.
-+    await completeLoad(rows);
-+
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
++    await completeLoad([...rows]);
 +    expect(hook.result.current.loadStatus).toBe("exhausted");
-+    expect(hook.result.current.needsOlderData).toBe(true);
-+  });
-+
-+  it("uses one max-eight counter for manual paging with real loading flips", async () => {
-+    const loader = createLoader();
-+    let rows = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
 +    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    for (let index = 0; index < 8; index += 1) {
-+      // Older partial rows extend the interrupted prefix without adding a group.
-+      rows = [interruptedRow("p", 900 - index), ...rows];
-+      await completeLoad(rows);
-+    }
-+
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(8);
-+    expect(hook.result.current.loadStatus).toBe("exhausted");
-+
-+    // Explicit retry keeps the same manual target and starts one bounded attempt.
 +    act(() => hook.result.current.retryLoadOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(9);
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
 +  });
 +
-+  it("shares the eight-load budget when the eighth page selects two groups before proving their boundary", async () => {
++  it("stops after eight progressing loads and explicit retry starts a new budget", async () => {
 +    const loader = createLoader();
-+    const base = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(base, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+
-+    let prefix: ConversationRow[] = [];
-+    for (let index = 0; index < 7; index += 1) {
-+      prefix = [interruptedRow("i", 690 - index), ...prefix];
-+      await completeLoad([...prefix, ...base]);
-+    }
-+    const selected = [...prefix, ...successTurn("x", 700), ...successTurn("y", 800), ...base];
-+    await completeLoad(selected);
-+
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(8);
-+    expect(hook.result.current.loadStatus).toBe("exhausted");
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+    expect(hook.result.current.visibleRows).toEqual(selected.slice(0, prefix.length + 6));
-+    expect(hook.result.current.needsOlderData).toBe(true);
-+
-+    act(() => hook.result.current.retryLoadOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(9);
-+    await completeLoad([...successTurn("p", 500), ...selected]);
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(9);
-+    expect(hook.result.current.loadStatus).toBe("idle");
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+  });
-+
-+  it("counts both manual and boundary phases toward the same eight-load cap", async () => {
-+    const loader = createLoader();
-+    const base = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(base, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+
-+    let rows = [interruptedRow("i", 690), ...base];
-+    await completeLoad(rows);
-+    rows = [interruptedRow("i", 689), ...successTurn("x", 700), ...successTurn("y", 800), ...base];
-+    await completeLoad(rows);
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+    for (let index = 0; index < 6; index += 1) {
-+      rows = [interruptedRow("i", 688 - index), ...rows];
++    let rows = successTurn("a", 1000);
++    const { hook, completeLoad } = await setup(rows, loader);
++    for (let index = 0; index < 8; index++) {
++      rows = [interruptedRow("prefix", 900 - index), ...rows];
 +      await completeLoad(rows);
 +    }
 +    expect(loader.onLoadOlder).toHaveBeenCalledTimes(8);
 +    expect(hook.result.current.loadStatus).toBe("exhausted");
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+  });
-+
-+  it("does not storm retries after an error and preserves the manual target", async () => {
-+    const loader = createLoader();
-+    const rows = baseRows();
-+    const { hook, rerender } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    await rerender({ loadingOlder: true });
-+    loader.rejectNext();
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    await rerender({ loadingOlder: false });
-+    expect(hook.result.current.loadStatus).toBe("error");
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
 +    act(() => hook.result.current.retryLoadOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(9);
++  });
 +
-+    await rerender({ loadingOlder: true });
++  it("suspends in-flight completion while expanded and preserves its progress budget", async () => {
++    const loader = createLoader();
++    let rows = successTurn("a", 1000);
++    const { hook, rerender, completeLoad } = await setup(rows, loader);
++    await rerender({ active: false });
++    rows = [interruptedRow("prefix", 900), ...rows];
++    await completeLoad(rows);
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
++    expect(hook.result.current.focusLoading).toBe(false);
++    await rerender({ active: true });
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
++    for (let index = 1; index < 8; index++) {
++      rows = [interruptedRow("prefix", 900 - index), ...rows];
++      await completeLoad(rows);
++    }
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(8);
++    expect(hook.result.current.loadStatus).toBe("exhausted");
++  });
++
++  it("ignores a stale rejection after leaving and re-entering latest", async () => {
++    const loader = createLoader();
++    const { hook, rerender } = await setup(successTurn("a", 1000), loader);
++    await rerender({ active: false });
++    await rerender({ active: true });
 +    loader.rejectNext();
 +    await act(async () => {
 +      await Promise.resolve();
 +    });
-+    await rerender({ loadingOlder: false });
-+    expect(hook.result.current.loadStatus).toBe("error");
++    expect(hook.result.current.loadStatus).not.toBe("error");
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
++  });
++
++  it("protects the new request when an earlier session finishes after switching back", async () => {
++    const loader = createLoader();
++    const { hook, rerender } = await setup(successTurn("a", 1000), loader);
++    await rerender({ sessionKey: "session-2", rows: baseRows() });
++    await rerender({ sessionKey: "session-1", rows: successTurn("a", 1000) });
 +    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
-+    expect(hook.result.current.window.turnIds).toEqual(["a", "b"]);
-+  });
-+
-+  it("fills two success groups in one older page, then proves the prefix boundary", async () => {
-+    const loader = createLoader();
-+    const rows = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    // First older page adds two success groups X/Y; the manual target resolves to Y.
-+    const withTwoSuccessGroups = [...successTurn("x", 700), ...successTurn("y", 800), ...rows];
-+    await completeLoad(withTwoSuccessGroups);
-+    expect(hook.result.current.window.turnIds).toEqual(["x", "y"]);
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
-+
-+    // Second page adds an interrupted prefix I to X; boundary still unproven.
-+    const withInterruptedPrefix = [interruptedRow("i", 600), ...withTwoSuccessGroups];
-+    await completeLoad(withInterruptedPrefix);
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(3);
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+
-+    // Third page adds success P before I; the preceding boundary is proven and stops.
-+    const withBoundary = [...successTurn("p", 500), ...withInterruptedPrefix];
-+    await completeLoad(withBoundary);
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(3);
-+    expect(hook.result.current.window.turnIds).toEqual(["i", "x", "y"]);
-+    expect(hook.result.current.loadStatus).toBe("idle");
-+  });
-+
-+  it("cancels the pending manual target when returning to latest", async () => {
-+    const loader = createLoader();
-+    const rows = baseRows();
-+    const { hook, rerender, completeLoad } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    act(() => hook.result.current.returnToLatest());
-+    const lateRows = [...successTurn("x", 700), ...successTurn("y", 800), ...rows];
-+    await completeLoad(lateRows);
-+
-+    // The late page must not pull the cancelled target back into view.
-+    expect(hook.result.current.window.turnIds).toEqual(["c", "d"]);
-+    expect(hook.result.current.isLatest).toBe(true);
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+  });
-+
-+  it("ignores a late rejection from a cancelled same-scope target", async () => {
-+    const loader = createLoader();
-+    const rows = baseRows();
-+    const { hook, rerender } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    act(() => hook.result.current.returnToLatest());
-+    await rerender({ loadingOlder: true });
-+    loader.rejectNext();
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    await rerender({ loadingOlder: false });
-+
-+    expect(hook.result.current.loadStatus).toBe("idle");
-+    expect(hook.result.current.window.turnIds).toEqual(["c", "d"]);
-+  });
-+
-+  it("stops at a true history start with only one group", async () => {
-+    const loader = createLoader();
-+    const rows = [
-+      ...successTurn("a", 1000),
-+      ...successTurn("b", 2000),
-+      ...successTurn("c", 3000),
-+      ...successTurn("d", 4000),
-+    ];
-+    const { hook, rerender } = await setup(rows, loader, false);
-+
-+    act(() => hook.result.current.goOlder());
-+    await rerender({ canLoadOlder: true });
-+    act(() => hook.result.current.goOlder());
-+    await act(async () => {
-+      await Promise.resolve();
-+    });
-+    expect(loader.onLoadOlder).toHaveBeenCalledTimes(1);
-+
-+    // No more history after loading one older success X.
-+    const withOneGroup = [...successTurn("x", 700), ...rows];
-+    await rerender({ loadingOlder: true });
 +    loader.resolveNext();
 +    await act(async () => {
 +      await Promise.resolve();
 +    });
-+    await rerender({ rows: withOneGroup, loadingOlder: false, canLoadOlder: false });
++    expect(hook.result.current.focusLoading).toBe(true);
++    expect(loader.onLoadOlder).toHaveBeenCalledTimes(2);
++  });
 +
-+    expect(hook.result.current.window.turnIds).toEqual(["x"]);
-+    expect(hook.result.current.loadStatus).toBe("idle");
++  it("does not leak a previous session failure or load budget", async () => {
++    const loader = createLoader();
++    const { hook, rerender } = await setup(successTurn("a", 1000), loader);
++    await rerender({ sessionKey: "session-2", rows: baseRows() });
++    loader.rejectNext();
++    await act(async () => {
++      await Promise.resolve();
++    });
++    expect(hook.result.current.loadStatus).not.toBe("error");
++    expect(hook.result.current.window.turnIds).toEqual(["c", "d"]);
++  });
++
++  it("stops at true history start and preserves a single group", async () => {
++    const loader = createLoader();
++    const { hook } = await setup(successTurn("a", 1000), loader, false);
++    expect(loader.onLoadOlder).not.toHaveBeenCalled();
++    expect(hook.result.current.window.turnIds).toEqual(["a"]);
++    expect(hook.result.current.needsOlderData).toBe(false);
 +  });
 +});
 diff --git a/packages/ui/test/sessionInspector.test.ts b/packages/ui/test/sessionInspector.test.ts
