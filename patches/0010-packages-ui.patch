@@ -549,7 +549,7 @@ index 80f80dcd603019df2c8c54fde93463ea77e7e6fa..0310ec81a8c9a102a6b2e05c89e8cf60
        isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
        providerFamilyDomain: appSettings?.providerFamilyDomain,
 diff --git a/packages/ui/src/SettingsPage.tsx b/packages/ui/src/SettingsPage.tsx
-index 65a4df026b94fdd76b012875ca94faa95fb6271e..bdc55f840d1e75d9f9d2c6a752ae471e9aee36a8 100644
+index 65a4df026b94fdd76b012875ca94faa95fb6271e..84e248e0d5917d759cd7d8def1ddd47059267388 100644
 --- a/packages/ui/src/SettingsPage.tsx
 +++ b/packages/ui/src/SettingsPage.tsx
 @@ -1,3 +1,5 @@
@@ -625,25 +625,23 @@ index 65a4df026b94fdd76b012875ca94faa95fb6271e..bdc55f840d1e75d9f9d2c6a752ae471e
                    // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
                    // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
                    isDesktop={isDesktop}
-@@ -2081,6 +2063,22 @@ export function SettingsPage({
+@@ -2081,6 +2063,20 @@ export function SettingsPage({
                              />
                            ) : activeSection === "shortcuts" ? (
                              <ShortcutSettingsSection isDesktop={Boolean(isDesktop)} />
 +                          ) : activeSection === "advanced" ? (
 +                            <ServiceProvider services={localHostServices}>
-+                              <ModelSystemPromptsSettingsSection
-+                                settings={sharedSettings}
-+                                onUpdateSettings={updateSharedSettings}
-+                                titleGenerationModel={sharedSettings?.titleGenerationModel}
-+                              >
-+                                {({ configureButton }) => (
-+                                  <CompactionSettingsSection
-+                                    settings={sharedSettings}
-+                                    onUpdateSettings={updateSharedSettings}
-+                                    titleGenerationAction={configureButton}
-+                                  />
-+                                )}
-+                              </ModelSystemPromptsSettingsSection>
++                              <div className="space-y-4">
++                                <CompactionSettingsSection
++                                  settings={sharedSettings}
++                                  onUpdateSettings={updateSharedSettings}
++                                />
++                                <ModelSystemPromptsSettingsSection
++                                  settings={sharedSettings}
++                                  onUpdateSettings={updateSharedSettings}
++                                  titleGenerationModel={sharedSettings?.titleGenerationModel}
++                                />
++                              </div>
 +                            </ServiceProvider>
                            ) : activeSection === "modelProvider" ? (
                              <ServiceProvider services={localHostServices}>
@@ -5396,10 +5394,10 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..355515ae44b8c2d2607e06ee7028e7db
    "sidebar.usage.plan.audienceTeam": "团队",
 diff --git a/packages/ui/src/i18n/model-system-prompts/index.ts b/packages/ui/src/i18n/model-system-prompts/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..445bc3fba71d25dafb6b693db28cd0fa8c1dd5f6
+index 0000000000000000000000000000000000000000..6c2e5503b7f1981eafaa6a59cbfcbb09314b9655
 --- /dev/null
 +++ b/packages/ui/src/i18n/model-system-prompts/index.ts
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,57 @@
 +/**
 + * 模型自定义系统 Agent 提示词的中英文文案。独立于 edition-messages：后者有 fingerprint 契约，
 + * 新增键不得改写其既有字典。
@@ -5411,12 +5409,14 @@ index 0000000000000000000000000000000000000000..445bc3fba71d25dafb6b693db28cd0fa
 +  "settings.advanced.modelSystemPrompts.pickModel": "选择模型",
 +  "settings.advanced.modelSystemPrompts.pickModelPlaceholder": "选择一个模型",
 +  "settings.advanced.modelSystemPrompts.entryCount": "{count}/{max} 条",
-+  "settings.advanced.modelSystemPrompts.configure": "设置提示词",
++  "settings.advanced.modelSystemPrompts.configure": "编辑",
 +  "settings.advanced.modelSystemPrompts.dialogModel": "当前模型：{model}",
 +  "settings.advanced.modelSystemPrompts.orphanGroup": "不在当前模型目录中的条目",
 +  "settings.advanced.modelSystemPrompts.editorLabel": "自定义系统 Agent 提示词",
 +  "settings.advanced.modelSystemPrompts.editorPlaceholder":
-+    "仅对所选模型生效。启用后替换其它默认 Agent 提示词，保留工具/MCP/Skill 说明；权限、审批与 Sandbox 不变。",
++    "仅对所选模型生效。清空并保存可移除自定义提示词。启用后替换其它默认 Agent 提示词，保留工具/MCP/Skill 说明；权限、审批与 Sandbox 不变。",
++  "settings.advanced.modelSystemPrompts.emptyRemoves":
++    "清空文本并保存即可移除该模型的自定义提示词。",
 +  "settings.advanced.modelSystemPrompts.save": "保存",
 +  "settings.advanced.modelSystemPrompts.delete": "删除此条",
 +  "settings.advanced.modelSystemPrompts.saveFailed": "保存失败，已保留当前编辑；请重试。",
@@ -5436,12 +5436,14 @@ index 0000000000000000000000000000000000000000..445bc3fba71d25dafb6b693db28cd0fa
 +  "settings.advanced.modelSystemPrompts.pickModel": "Select model",
 +  "settings.advanced.modelSystemPrompts.pickModelPlaceholder": "Select a model",
 +  "settings.advanced.modelSystemPrompts.entryCount": "{count}/{max} entries",
-+  "settings.advanced.modelSystemPrompts.configure": "Set prompt",
++  "settings.advanced.modelSystemPrompts.configure": "Edit",
 +  "settings.advanced.modelSystemPrompts.dialogModel": "Current model: {model}",
 +  "settings.advanced.modelSystemPrompts.orphanGroup": "Entries outside the current model catalog",
 +  "settings.advanced.modelSystemPrompts.editorLabel": "Custom Agent system prompt",
 +  "settings.advanced.modelSystemPrompts.editorPlaceholder":
-+    "Applies to the selected model only. When enabled, it replaces the other default Agent prompts and keeps the tool, MCP, and Skill instructions; permissions, approvals, and sandbox behavior are unchanged.",
++    "Applies to the selected model only. Clear and save to remove the custom prompt. When enabled, it replaces the other default Agent prompts and keeps the tool, MCP, and Skill instructions; permissions, approvals, and sandbox behavior are unchanged.",
++  "settings.advanced.modelSystemPrompts.emptyRemoves":
++    "Clear the text and save to remove this model's custom prompt.",
 +  "settings.advanced.modelSystemPrompts.save": "Save",
 +  "settings.advanced.modelSystemPrompts.delete": "Delete entry",
 +  "settings.advanced.modelSystemPrompts.saveFailed": "Save failed. Your edit is kept; try again.",
@@ -9081,15 +9083,15 @@ index 726228b7474916dd2e7bd19ed64c10876e00b4ab..134ff2875b8d570c65cc099eac1e564d
                  return (
 diff --git a/packages/ui/src/settings/model-system-prompts/CONTRACT.md b/packages/ui/src/settings/model-system-prompts/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..564e2655e0f413ff5d980abb1b4a9fd5b30dd19c
+index 0000000000000000000000000000000000000000..0e3173101b4303d6484edd1a1426655b68e8f7f2
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/CONTRACT.md
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,50 @@
 +# ui-model-system-prompts-settings
 +
-+高级设置中的“自定义系统 Agent 提示词”编辑入口。入口按钮通过 render-prop 注入“标题生成
-+模型”卡标题右上；本模块不渲染独立设置卡。提示词在既有 Dialog 中编辑，dialog 自带
-+provider/model 选择并注明当前 `provider · model`。本模块只消费注入的设置投影和异步 patch
++高级设置中的“自定义系统 Agent 提示词”独立设置卡，包含 provider/model 下拉框与编辑按钮，
++不放入标题生成模型卡，也不新增全局导航。弹窗使用普通标题和固定高度、固定行高的可滚动多行
++文本输入框，底部仅有取消和保存；当前 `provider · model` 显示在弹窗中。本模块只消费注入的设置投影和异步 patch
 +命令；不访问持久化、不广播、不读凭据，也不决定运行时如何替换系统提示词，更不改
 +`titleGenerationModel` 或标题生成 runtime。
 +
@@ -9102,13 +9104,13 @@ index 0000000000000000000000000000000000000000..564e2655e0f413ff5d980abb1b4a9fd5
 +- 文本 CRLF/CR → LF，只裁剪首尾空白，保留内部换行与缩进。
 +- 模型目录来自既有 `modelSelectionService.getView()`；不读取 API Key/OAuth。
 +- 已保存但不在目录中的孤儿条目仍可选择、查看、编辑和删除。
-+- 清空文本并保存 = 删除该条；显式删除按钮等价。
++- 清空文本并保存 = 删除该条；不提供额外删除按钮。
 +- 保存调用注入的 `onUpdateSettings({ modelSystemPromptAppends })`；不新增 RPC。
 +- 保存失败保留弹窗草稿与错误，可重试；不乐观删除本地条目。
-+- 首次打开优先预选显式 `titleGenerationModel` pair，否则按已保存条目/模型目录默认；dialog
++- 首次打开优先预选显式 `titleGenerationModel` pair，否则按模型目录/已保存条目默认；卡片
 +  内换模型只编辑该 pair，不写回 `titleGenerationModel`，也不触发标题模型保存。
-+- 关闭/取消/Esc/切换模型只丢弃本次未保存草稿，不自动保存；当前 pending 写入继续完成它
-+  发起时的 pair，不串到新选择。
++- 关闭/取消/Esc 丢弃本次未保存草稿；关闭后在卡片切换模型不自动保存。当前 pending 写入
++  继续完成它发起时的 pair，不串到新选择。
 +- 保存成功关闭同一弹窗会话；已关闭后重开的弹窗不会被迟到成功关闭。同一 pair 重开且当前
 +  草稿干净时（即使保存等待期间丢弃过编辑、历史版本已不同），迟到成功正文同步到新草稿
 +  （含删除），再次保存不会反写旧文本；当前有新编辑或第三方权威值优先，另一 pair 不被覆盖。
@@ -9125,9 +9127,8 @@ index 0000000000000000000000000000000000000000..564e2655e0f413ff5d980abb1b4a9fd5
 +
 +## API
 +
-+- `ModelSystemPromptsSettingsSection({ settings, onUpdateSettings, titleGenerationModel, children })`
-+  - `children({ configureButton })`：调用方把按钮放进标题卡 action 插槽并保留原 compaction 卡。
-+  - 组件同时渲染自己的 dialog；`titleGenerationModel` 只用于首次预选，不回写。
++- `ModelSystemPromptsSettingsSection({ settings, onUpdateSettings, titleGenerationModel })`
++  - 组件渲染独立设置卡和 dialog；`titleGenerationModel` 只用于首次预选，不回写。
 +- `normalizeModelSystemPromptEntries`
 +- `buildModelSystemPromptEntries(entries, target, text)`
 +- `modelSystemPromptEntryKey` / `parseModelSystemPromptEntryKey`
@@ -9135,14 +9136,14 @@ index 0000000000000000000000000000000000000000..564e2655e0f413ff5d980abb1b4a9fd5
 +
 +测试锚点：入口 `model-system-prompt-open-dialog`；弹窗 `model-system-prompt-dialog`、
 +`model-system-prompt-dialog-model`、`model-system-prompt-model-select`、`-textarea`、`-save`、
-+`-delete`、`-cancel`、`-error`。
++`-cancel`、`-error`。
 diff --git a/packages/ui/src/settings/model-system-prompts/ModelSystemPromptDialog.tsx b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptDialog.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af6094acca7cd
+index 0000000000000000000000000000000000000000..6132c388c00923089999fbbacaebea8161328de2
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptDialog.tsx
-@@ -0,0 +1,160 @@
-+import type { ReactNode, RefObject } from "react";
+@@ -0,0 +1,145 @@
++import type { RefObject } from "react";
 +import { Button } from "@/components/ui/button.js";
 +import {
 +  Dialog,
@@ -9161,7 +9162,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +  model: "model-system-prompt-dialog-model",
 +  textarea: "model-system-prompt-textarea",
 +  save: "model-system-prompt-save",
-+  delete: "model-system-prompt-delete",
 +  cancel: "model-system-prompt-cancel",
 +  error: "model-system-prompt-error",
 +} as const;
@@ -9175,8 +9175,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +  open: boolean;
 +  /** 当前卡片的 provider · model 显示名；弹窗打开时由外层按精确 pair 解析。 */
 +  modelLabel: string;
-+  /** 由功能模块持有的 provider/model 选择器；dialog 不复制其状态或目录逻辑。 */
-+  modelSelect?: ReactNode;
 +  /** 外部入口不是 Radix Trigger 时，关闭后把焦点还给仍挂载的按钮。 */
 +  returnFocusRef?: RefObject<HTMLElement | null>;
 +  draft: string;
@@ -9186,8 +9184,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +  onCancel: () => void;
 +  onDraftChange: (value: string) => void;
 +  onSave: () => void;
-+  /** 清空并保存既有条目；沿用“清空文本 = 删除”的语义。 */
-+  onDelete: () => void;
 +}
 +
 +/**
@@ -9197,7 +9193,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +export function ModelSystemPromptDialog({
 +  open,
 +  modelLabel,
-+  modelSelect,
 +  returnFocusRef,
 +  draft,
 +  pending,
@@ -9205,7 +9200,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +  onCancel,
 +  onDraftChange,
 +  onSave,
-+  onDelete,
 +}: ModelSystemPromptDialogProps) {
 +  const { intl } = useZCodeIntl();
 +
@@ -9238,7 +9232,9 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +              )}
 +            </DialogDescription>
 +          </DialogHeader>
-+          {modelSelect}
++          <p className="text-ui-sm text-foreground-subtle">
++            {intl.formatMessage({ id: "settings.advanced.modelSystemPrompts.emptyRemoves" })}
++          </p>
 +          <SettingsFormTextarea
 +            data-testid={MODEL_SYSTEM_PROMPT_DIALOG_TEST_IDS.textarea}
 +            aria-label={intl.formatMessage({
@@ -9249,7 +9245,7 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +            })}
 +            rows={12}
 +            value={draft}
-+            className="min-h-48 max-h-[60vh] flex-1 resize-y overflow-y-auto"
++            className="h-64 min-h-64 field-sizing-fixed resize-none overflow-y-auto leading-6 md:leading-6"
 +            onChange={(event) => onDraftChange(event.currentTarget.value)}
 +            onKeyDown={(event) => {
 +              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -9268,16 +9264,6 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +            </p>
 +          ) : null}
 +          <DialogFooter className="flex-wrap items-center justify-end gap-2 sm:flex-row">
-+            <Button
-+              type="button"
-+              variant="ghost"
-+              size="lg"
-+              data-testid={MODEL_SYSTEM_PROMPT_DIALOG_TEST_IDS.delete}
-+              disabled={pending}
-+              onClick={onDelete}
-+            >
-+              {intl.formatMessage({ id: "settings.advanced.modelSystemPrompts.delete" })}
-+            </Button>
 +            <Button
 +              type="button"
 +              variant="secondary"
@@ -9304,15 +9290,16 @@ index 0000000000000000000000000000000000000000..3e4f770f77f7c180a2ad8d95050af609
 +}
 diff --git a/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af9833ab52c7
+index 0000000000000000000000000000000000000000..7341e3fc878863ffc4c3e9734d7f38bc97823174
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
-@@ -0,0 +1,620 @@
+@@ -0,0 +1,631 @@
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 +import { MODEL_SYSTEM_PROMPT_MAX_ENTRIES, type ModelSystemPromptEntry } from "@zcode/shared";
 +import { Button } from "@/components/ui/button.js";
 +import { useServices } from "@/hooks/useServices.js";
 +import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++import { SettingsGroupCard } from "@/settings/SettingsPageParts.js";
 +import { ModelSystemPromptDialog } from "./ModelSystemPromptDialog.js";
 +import {
 +  buildModelSystemPromptEntries,
@@ -9351,8 +9338,8 @@ index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af98
 +const TID_OPEN = "model-system-prompt-open-dialog";
 +
 +/**
-+ * 高级设置中的模型自定义系统 Agent 提示词入口。入口按钮通过 render-prop 注入
-+ * “标题生成模型”卡标题右上，dialog 由本组件持有。启用后以该内容替换其它默认
++ * 高级设置中的独立模型自定义系统 Agent 提示词卡，dialog 由本组件持有。
++ * 启用后以该内容替换其它默认
 + * Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与 Sandbox 不变。
 + * 保存只走注入的 `onUpdateSettings`；所有迟到异步结果都先过 mounted + selection token
 + * + request id 守卫。`titleGenerationModel` 只用于首次预选，不读写该设置。
@@ -9361,7 +9348,6 @@ index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af98
 +  settings,
 +  onUpdateSettings,
 +  titleGenerationModel,
-+  children,
 +}: ModelSystemPromptsSettingsSectionProps) {
 +  const { intl } = useZCodeIntl();
 +  const services = useServices();
@@ -9610,7 +9596,7 @@ index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af98
 +  const handleSelectChange = useCallback(
 +    (key: string) => {
 +      if (!key || key === selectedKeyRef.current) return;
-+      // dialog 内换模型只切换编辑目标，丢弃未提交草稿且不自动保存。
++      // 卡片换模型只切换编辑目标，不自动保存。
 +      selectionTouchedRef.current = true;
 +      applySelectedKey(key, readEffectiveEntries());
 +    },
@@ -9907,11 +9893,25 @@ index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af98
 +
 +  return (
 +    <>
-+      {children({ configureButton })}
++      <div data-testid="model-system-prompt-settings-card">
++        <SettingsGroupCard>
++          <div className="space-y-3 px-4 py-3">
++            <div className="text-ui-base font-medium text-foreground">
++              {intl.formatMessage({ id: "settings.advanced.modelSystemPrompts.title" })}
++            </div>
++            <p className="text-ui-base text-foreground-subtle">
++              {intl.formatMessage({ id: "settings.advanced.modelSystemPrompts.description" })}
++            </p>
++            <div className="flex items-end gap-2">
++              <div className="min-w-0 flex-1">{modelSelect}</div>
++              {configureButton}
++            </div>
++          </div>
++        </SettingsGroupCard>
++      </div>
 +      <ModelSystemPromptDialog
 +        open={dialogOpen}
 +        modelLabel={dialogModelLabel}
-+        modelSelect={modelSelect}
 +        returnFocusRef={configureButtonRef}
 +        draft={draft}
 +        pending={pending}
@@ -9921,19 +9921,16 @@ index 0000000000000000000000000000000000000000..d54752c2e69e9b275d2c9afcaf48af98
 +        onSave={() => {
 +          void commit();
 +        }}
-+        onDelete={() => {
-+          void commit("");
-+        }}
 +      />
 +    </>
 +  );
 +}
 diff --git a/packages/ui/src/settings/model-system-prompts/contract.example.ts b/packages/ui/src/settings/model-system-prompts/contract.example.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c46937a6ad181b8779b986f5d948de076806d89f
+index 0000000000000000000000000000000000000000..a302ec3d2fb1b78780c0fd5377c21b2e65e07963
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/contract.example.ts
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,31 @@
 +/**
 + * ui-model-system-prompts-settings 标准调用示例：
 + * SettingsPage 注入本机设置投影与现有 update 回调；本模块只构造完整条目数组 patch。
@@ -9949,7 +9946,6 @@ index 0000000000000000000000000000000000000000..c46937a6ad181b8779b986f5d948de07
 +export const modelSystemPromptsSettingsExample: ModelSystemPromptsSettingsSectionProps = {
 +  settings: { modelSystemPromptAppends: [] as ModelSystemPromptEntry[] },
 +  onUpdateSettings: async (_patch: { modelSystemPromptAppends: ModelSystemPromptEntry[] }) => {},
-+  children: ({ configureButton }) => configureButton,
 +};
 +
 +export function exampleModelSystemPromptEdit(
@@ -9968,12 +9964,12 @@ index 0000000000000000000000000000000000000000..c46937a6ad181b8779b986f5d948de07
 +export { ModelSystemPromptsSettingsSection };
 diff --git a/packages/ui/src/settings/model-system-prompts/contract.test.ts b/packages/ui/src/settings/model-system-prompts/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e0b6ecf6c916690d46295285f92daaeea6f31bd2
+index 0000000000000000000000000000000000000000..d2bc8ea3916f442e518d136c266b369d1e5b6e01
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/contract.test.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,107 @@
 +// @vitest-environment jsdom
-+import { createElement, type ReactNode } from "react";
++import { createElement } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import type { ModelSystemPromptEntry } from "@zcode/shared";
@@ -10032,8 +10028,6 @@ index 0000000000000000000000000000000000000000..e0b6ecf6c916690d46295285f92daaee
 +      createElement(ModelSystemPromptsSettingsSection, {
 +        settings: { modelSystemPromptAppends: [] },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    await waitFor(() =>
@@ -10083,10 +10077,10 @@ index 0000000000000000000000000000000000000000..e0b6ecf6c916690d46295285f92daaee
 +});
 diff --git a/packages/ui/src/settings/model-system-prompts/contract.ts b/packages/ui/src/settings/model-system-prompts/contract.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..843ca54a5f2b13c120ea33d5801cdd502db37c3d
+index 0000000000000000000000000000000000000000..a66f53f123cfc57c1addd9560a6b27ed9c36aec0
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/contract.ts
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,18 @@
 +export { ModelSystemPromptsSettingsSection } from "./ModelSystemPromptsSettingsSection.js";
 +export {
 +  buildModelSystemPromptEntries,
@@ -10102,7 +10096,6 @@ index 0000000000000000000000000000000000000000..843ca54a5f2b13c120ea33d5801cdd50
 +} from "./entry.js";
 +export type {
 +  ModelSystemPromptSettingsProjection,
-+  ModelSystemPromptsConfigureButtonControls,
 +  ModelSystemPromptsSettingsSectionProps,
 +  ModelSystemPromptsTitleGenerationModel,
 +} from "./types.js";
@@ -10250,11 +10243,10 @@ index 0000000000000000000000000000000000000000..e8697b7799c4ad572d02d1968a6088eb
 +} as const;
 diff --git a/packages/ui/src/settings/model-system-prompts/types.ts b/packages/ui/src/settings/model-system-prompts/types.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6cbf885452de4060ac68ca2486ff76d14885467c
+index 0000000000000000000000000000000000000000..b83397ada63ad82baf12a08136bb5292e86a07e8
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/types.ts
-@@ -0,0 +1,32 @@
-+import type { ReactNode } from "react";
+@@ -0,0 +1,22 @@
 +import type { ModelSystemPromptEntry } from "@zcode/shared";
 +
 +/** SettingsPage 只注入这两项；本模块不访问服务、持久化或广播。 */
@@ -10268,10 +10260,6 @@ index 0000000000000000000000000000000000000000..6cbf885452de4060ac68ca2486ff76d1
 +  modelId?: string | null;
 +}
 +
-+export interface ModelSystemPromptsConfigureButtonControls {
-+  configureButton: ReactNode;
-+}
-+
 +export interface ModelSystemPromptsSettingsSectionProps {
 +  settings?: ModelSystemPromptSettingsProjection | null;
 +  /** Resolve after the existing save/sync/broadcast path; reject to keep the local draft. */
@@ -10280,11 +10268,6 @@ index 0000000000000000000000000000000000000000..6cbf885452de4060ac68ca2486ff76d1
 +  }) => Promise<void>;
 +  /** 只用于首次预选，不读写 titleGenerationModel 设置。 */
 +  titleGenerationModel?: ModelSystemPromptsTitleGenerationModel | null;
-+  /**
-+   * 调用方把注入的按钮放进标题生成卡 action 插槽，并保留原 compaction 卡。
-+   * 本组件随后渲染自己的 dialog。
-+   */
-+  children: (controls: ModelSystemPromptsConfigureButtonControls) => ReactNode;
 +}
 diff --git a/packages/ui/src/settings/settingsPageConfig.ts b/packages/ui/src/settings/settingsPageConfig.ts
 index 845aaccc18df72db668a38e1a71331938eb7f55b..8a56f97cc21e70b914f505580cee7ac286d6d2df 100644
@@ -17655,7 +17638,7 @@ index d52b1999b56a1a810d353d3a7324c302349ebba5..0e25f4c4a8f658dae7e93ca10086964a
    /** 当前 renderer 观察到 running → completedSuccess 后，锁定到具体 turn。 */
 diff --git a/packages/ui/src/v4/focus-mode/CONTRACT.md b/packages/ui/src/v4/focus-mode/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..9661fd4fa9b76efc488a2cc39b52edb8d7445c7a
+index 0000000000000000000000000000000000000000..3f553020ef194a241b6d0e1a465310624fb251af
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/CONTRACT.md
 @@ -0,0 +1,27 @@
@@ -17665,7 +17648,7 @@ index 0000000000000000000000000000000000000000..9661fd4fa9b76efc488a2cc39b52edb8
 +
 +## Intent
 +
-+`/force` in the local slash menu toggles focus rendering for the current session only. The state lives in a renderer-local map keyed by stable workspace identity plus task/session id, so panes of one session agree, other sessions stay off, and returning to a session restores its previous choice. Nothing is written to settings, the host, a database, or provider traffic.
++`/force` in the local slash menu toggles focus rendering for the current session only. The renderer store keys the preference by stable workspace identity plus session id and persists real sessions to localStorage. Panes and windows of one session agree, other sessions remain isolated, and restarting restores the preference. Drafts and unknown workspaces are memory-only; storage failures fall back to memory. Nothing is written to settings, the host, a database, or provider traffic.
 +
 +Off renders the original `ConversationTimeline` with no focus computation. On renders only the latest two logical groups through the same timeline component; hidden rows never mount.
 +
@@ -17676,9 +17659,9 @@ index 0000000000000000000000000000000000000000..9661fd4fa9b76efc488a2cc39b52edb8
 +- A leading `turnHeader` alone does not prove the group is complete: an interrupted prefix may belong to it. The first selected group needs one preceding success boundary or the true history start; loading stops there.
 +- The latest window is recalculated from the current projection; expanded history uses all loaded rows without maintaining historical page anchors.
 +- Latest-view completion has one bounded load owner, with an eight-request budget, no-progress stop and explicit retry. Expanding suspends it without resetting the budget; an in-flight result cannot initiate another focus load while expanded.
-+- Latest is locked: wheel, touch and keyboard scroll only within the two selected groups and cannot page or unlock. Only the up button expands all already-loaded rows and delegates further pagination to the normal timeline; down and the host bottom action restore the locked latest window. `/force` remains enabled in both phases, with both controls always present.
++- Only the enabled flag is persisted; restarting or reopening starts in the locked latest two-group phase. Latest is locked: wheel, touch and keyboard scroll only within the two selected groups and cannot page or unlock. Only the up button expands all already-loaded rows and delegates further pagination to the normal timeline; down and the host bottom action restore the locked latest window. `/force` remains enabled in both phases, with both controls always present.
 +- `SessionPane` disables its legacy `shouldAutoLoadIncompleteLeadingTurn` effect while focus is enabled; latest completion and expanded normal pagination must not issue simultaneous loads.
-+- Phase changes never remount the timeline or composer dock. Controls occupy a compact centered slot outside the scroll viewport. The status panel is offset below that slot while focus is enabled, including in narrow panes; it returns to its original position when disabled.
++- Phase changes never remount the timeline or composer dock. Controls occupy a compact slot outside the scroll viewport and align horizontally with the visible composer input surface center, not the overall timeline center. Width, pane and status-panel layout changes update the alignment; if the input is unavailable or hidden, use the dock content center, then the slot center as a safe fallback. Observe sizes only on the slot and the input/dock target; watch only the dock's class/style attributes for individual translate changes that do not resize or transition. Clean up observers and transition animation callbacks on unmount, and do not alter scrolling. The status panel is offset below that slot while focus is enabled, including in narrow panes; it returns to its original position when disabled.
 +- Pending guides and runtime retry remain live. The turn navigator follows normal admission on loaded rows when expanded, without triggering its bulk history hydration, and is hidden in the latest window.
 +
 +## Integration points
@@ -17782,10 +17765,10 @@ index 0000000000000000000000000000000000000000..31c52dc8b18110fb2c1334196566ee8a
 +}
 diff --git a/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx b/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..05e487bcfde803336ade84a3bdee45ee9cdd45cf
+index 0000000000000000000000000000000000000000..30b900f4eef274d3b0cdf073a52c5d9b299409f2
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/FocusModeTimeline.tsx
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,88 @@
 +import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 +import {
 +  ConversationTimeline,
@@ -17794,6 +17777,7 @@ index 0000000000000000000000000000000000000000..05e487bcfde803336ade84a3bdee45ee
 +} from "@/v4/ConversationTimeline.js";
 +import { FocusModeNavigationButtons } from "./FocusModeNavigationButtons.js";
 +import { useFocusTimelineWindow } from "./useFocusTimelineWindow.js";
++import { useComposerNavigationAlignment } from "./useComposerNavigationAlignment.js";
 +
 +/** Renderer-local focus view; phase changes keep the timeline and dock mounted. */
 +export function ConversationFocusModeTimeline(props: ConversationTimelineProps) {
@@ -17806,6 +17790,9 @@ index 0000000000000000000000000000000000000000..05e487bcfde803336ade84a3bdee45ee
 +    scrollToBottomActionRef,
 +    ...rest
 +  } = props;
++  const rootRef = useRef<HTMLDivElement>(null);
++  const navigationSlotRef = useRef<HTMLDivElement>(null);
++  useComposerNavigationAlignment(rootRef, navigationSlotRef, sessionKey, Boolean(props.bottomDock));
 +  const [phase, setPhase] = useState({ sessionKey, expanded: false });
 +  if (phase.sessionKey !== sessionKey) setPhase({ sessionKey, expanded: false });
 +  const expanded = phase.sessionKey === sessionKey && phase.expanded;
@@ -17841,15 +17828,17 @@ index 0000000000000000000000000000000000000000..05e487bcfde803336ade84a3bdee45ee
 +  );
 +
 +  return (
-+    <div className="relative flex min-h-0 flex-1 flex-col">
-+      <div data-focus-navigation-slot="true" className="flex shrink-0 justify-center">
-+        <FocusModeNavigationButtons
-+          isLatest={!expanded}
-+          loadStatus={expanded ? "idle" : focus.loadStatus}
-+          onOlder={() => setPhase({ sessionKey, expanded: true })}
-+          onNewer={handleBackToBottom}
-+          onRetry={focus.retryLoadOlder}
-+        />
++    <div ref={rootRef} className="relative flex min-h-0 flex-1 flex-col">
++      <div ref={navigationSlotRef} data-focus-navigation-slot="true" className="relative shrink-0">
++        <div className="relative left-[var(--focus-composer-center,50%)] w-max -translate-x-1/2">
++          <FocusModeNavigationButtons
++            isLatest={!expanded}
++            loadStatus={expanded ? "idle" : focus.loadStatus}
++            onOlder={() => setPhase({ sessionKey, expanded: true })}
++            onNewer={handleBackToBottom}
++            onRetry={focus.retryLoadOlder}
++          />
++        </div>
 +      </div>
 +      <ConversationTimeline
 +        {...rest}
@@ -18224,31 +18213,59 @@ index 0000000000000000000000000000000000000000..ca9994bfe8f3b1855b22b434284ea03a
 +} as const;
 diff --git a/packages/ui/src/v4/focus-mode/sessionFocusModeStore.ts b/packages/ui/src/v4/focus-mode/sessionFocusModeStore.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..69cfff74ea4d55810da1a012845ea674832825c1
+index 0000000000000000000000000000000000000000..ae56c22788548055e2a7c0c204fd1de5beb18aa9
 --- /dev/null
 +++ b/packages/ui/src/v4/focus-mode/sessionFocusModeStore.ts
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,117 @@
 +import { useCallback, useSyncExternalStore } from "react";
 +
-+/**
-+ * Renderer-local per-session view state. Keys combine stable workspace identity with
-+ * the task/session id, so multiple panes of one session share one value while other
-+ * sessions stay isolated. Nothing is persisted to settings, the host, or a database.
-+ */
-+const enabledByScope = new Map<string, true>();
++/** Renderer-local view preference; only stable real sessions are persisted. */
++const STORAGE_PREFIX = "zcode-v4-session-focus-mode:v1:";
++const memory = new Map<string, boolean>();
 +const listeners = new Set<() => void>();
++let listeningForStorage = false;
 +
 +export function resolveSessionFocusModeScopeKey(input: {
 +  workspaceIdentity?: string | null;
 +  workspacePath?: string | null;
 +  sessionId?: string | null;
 +}): string {
-+  const workspace = input.workspaceIdentity?.trim() || input.workspacePath?.trim() || "unknown";
-+  return `${workspace}\u0000${input.sessionId ?? "draft"}`;
++  const workspace = input.workspaceIdentity?.trim() || input.workspacePath?.trim() || "";
++  const session = input.sessionId?.trim() || null;
++  return JSON.stringify([workspace, session]);
++}
++
++function storageKey(scopeKey: string): string | null {
++  try {
++    const value: unknown = JSON.parse(scopeKey);
++    if (
++      !Array.isArray(value) ||
++      typeof value[0] !== "string" ||
++      !value[0] ||
++      typeof value[1] !== "string" ||
++      !value[1]
++    )
++      return null;
++    return `${STORAGE_PREFIX}${scopeKey}`;
++  } catch {
++    return null;
++  }
 +}
 +
 +export function getSessionFocusModeEnabled(scopeKey: string): boolean {
-+  return enabledByScope.get(scopeKey) === true;
++  if (!listeningForStorage && typeof window !== "undefined") {
++    window.addEventListener("storage", onStorage);
++    listeningForStorage = true;
++  }
++  const cached = memory.get(scopeKey);
++  if (cached !== undefined) return cached;
++  const key = storageKey(scopeKey);
++  if (!key || typeof window === "undefined") return false;
++  try {
++    return window.localStorage.getItem(key) === "1";
++  } catch {
++    return false;
++  }
 +}
 +
 +function emit(): void {
@@ -18256,12 +18273,15 @@ index 0000000000000000000000000000000000000000..69cfff74ea4d55810da1a012845ea674
 +}
 +
 +export function setSessionFocusModeEnabled(scopeKey: string, enabled: boolean): void {
-+  if (enabled) {
-+    if (enabledByScope.has(scopeKey)) return;
-+    enabledByScope.set(scopeKey, true);
-+  } else {
-+    if (!enabledByScope.has(scopeKey)) return;
-+    enabledByScope.delete(scopeKey);
++  if (getSessionFocusModeEnabled(scopeKey) === enabled) return;
++  const key = storageKey(scopeKey);
++  memory.set(scopeKey, enabled);
++  if (key && typeof window !== "undefined") {
++    try {
++      window.localStorage.setItem(key, enabled ? "1" : "0");
++    } catch {
++      // Keep the local choice even when storage is unavailable.
++    }
 +  }
 +  emit();
 +}
@@ -18273,14 +18293,33 @@ index 0000000000000000000000000000000000000000..69cfff74ea4d55810da1a012845ea674
 +  return next;
 +}
 +
++function onStorage(event: StorageEvent): void {
++  try {
++    if (event.storageArea && event.storageArea !== window.localStorage) return;
++  } catch {
++    return;
++  }
++  if (event.key !== null && !event.key.startsWith(STORAGE_PREFIX)) return;
++  if (event.key === null) {
++    for (const key of memory.keys()) if (storageKey(key)) memory.delete(key);
++  } else {
++    memory.delete(event.key.slice(STORAGE_PREFIX.length));
++  }
++  emit();
++}
++
 +export function subscribeSessionFocusMode(listener: () => void): () => void {
 +  listeners.add(listener);
-+  return () => listeners.delete(listener);
++  return () => {
++    listeners.delete(listener);
++  };
 +}
 +
 +export function resetSessionFocusModeStoreForTest(): void {
-+  enabledByScope.clear();
++  memory.clear();
 +  listeners.clear();
++  if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
++  listeningForStorage = false;
 +}
 +
 +export function useSessionFocusMode(scopeKey: string): {
@@ -18363,6 +18402,91 @@ index 0000000000000000000000000000000000000000..04a42dd246cdb8ef41026bb00af00c9a
 +}
 +
 +export type FocusOlderLoadStatus = "idle" | "loading" | "exhausted" | "error";
+diff --git a/packages/ui/src/v4/focus-mode/useComposerNavigationAlignment.ts b/packages/ui/src/v4/focus-mode/useComposerNavigationAlignment.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f8f7da0a746d307f6e54231656e387e7cebcaabc
+--- /dev/null
++++ b/packages/ui/src/v4/focus-mode/useComposerNavigationAlignment.ts
+@@ -0,0 +1,79 @@
++import { useLayoutEffect, type RefObject } from "react";
++
++/** Align the fixed navigation slot with the actual visible composer, including dock transitions. */
++export function useComposerNavigationAlignment(
++  rootRef: RefObject<HTMLDivElement | null>,
++  slotRef: RefObject<HTMLDivElement | null>,
++  sessionKey: string,
++  hasBottomDock: boolean,
++): void {
++  useLayoutEffect(() => {
++    const root = rootRef.current;
++    const slot = slotRef.current;
++    if (!root || !slot) return;
++    const dock = root.querySelector<HTMLElement>('[data-v4-composer-dock-content="true"]');
++    const input = dock?.querySelector<HTMLElement>(".chat-composer-input-surface") ?? null;
++    if (!dock) return;
++    const target = input ?? dock;
++    const sync = () => {
++      const slotRect = slot.getBoundingClientRect();
++      const inputRect = input?.getBoundingClientRect();
++      const targetRect =
++        inputRect && inputRect.width > 0 ? inputRect : dock.getBoundingClientRect();
++      if (slotRect.width <= 0 || targetRect.width <= 0) {
++        slot.style.removeProperty("--focus-composer-center");
++        return;
++      }
++      slot.style.setProperty(
++        "--focus-composer-center",
++        `${targetRect.left + targetRect.width / 2 - slotRect.left}px`,
++      );
++    };
++    sync();
++    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
++    observer?.observe(slot);
++    observer?.observe(target);
++    // Individual CSS translate can change on a class update without a resize or transition.
++    const mutationObserver =
++      typeof MutationObserver === "undefined" ? null : new MutationObserver(sync);
++    mutationObserver?.observe(dock, { attributes: true, attributeFilter: ["class", "style"] });
++    let frame: number | null = null;
++    const activeTransitions = new Set<string>();
++    const tick = () => {
++      sync();
++      frame = activeTransitions.size > 0 ? requestAnimationFrame(tick) : null;
++    };
++    const onStart = (event: TransitionEvent) => {
++      if (
++        event.target !== dock ||
++        !["transform", "width", "max-width"].includes(event.propertyName)
++      )
++        return;
++      activeTransitions.add(event.propertyName);
++      if (frame === null) frame = requestAnimationFrame(tick);
++    };
++    const onEnd = (event: TransitionEvent) => {
++      if (event.target !== dock) return;
++      activeTransitions.delete(event.propertyName);
++      if (activeTransitions.size === 0 && frame !== null) {
++        cancelAnimationFrame(frame);
++        frame = null;
++        sync();
++      }
++    };
++    dock.addEventListener("transitionrun", onStart);
++    dock.addEventListener("transitionend", onEnd);
++    dock.addEventListener("transitioncancel", onEnd);
++    window.addEventListener("resize", sync);
++    return () => {
++      observer?.disconnect();
++      mutationObserver?.disconnect();
++      dock.removeEventListener("transitionrun", onStart);
++      dock.removeEventListener("transitionend", onEnd);
++      dock.removeEventListener("transitioncancel", onEnd);
++      window.removeEventListener("resize", sync);
++      if (frame !== null) cancelAnimationFrame(frame);
++      slot.style.removeProperty("--focus-composer-center");
++    };
++  }, [rootRef, slotRef, sessionKey, hasBottomDock]);
++}
 diff --git a/packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts b/packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..d3c48e2fa0bb1f07e62a5527e01729cdd5edc067
@@ -26083,6 +26207,158 @@ index 0000000000000000000000000000000000000000..cd43bdb65e2936332d3f182e7dd4f28d
 +  for (const [key, value] of Object.entries(editionMessagesEnUS)) expect(enUS[key]).toBe(value);
 +  for (const [key, value] of Object.entries(editionMessagesZhCN)) expect(zhCN[key]).toBe(value);
 +});
+diff --git a/packages/ui/test/focusModeComposerAlignment.test.ts b/packages/ui/test/focusModeComposerAlignment.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7431f798ba5ef26f372dc5bcfb7ef33fe31d114
+--- /dev/null
++++ b/packages/ui/test/focusModeComposerAlignment.test.ts
+@@ -0,0 +1,146 @@
++// @vitest-environment jsdom
++import { createElement } from "react";
++import { act, cleanup, render, screen } from "@testing-library/react";
++import { afterEach, expect, it, vi } from "vitest";
++import { ConversationFocusModeTimeline } from "@/v4/focus-mode/contract.js";
++
++vi.mock("@/v4/ConversationTimeline.js", () => ({
++  ConversationTimeline: () =>
++    createElement(
++      "div",
++      { "data-v4-composer-dock-content": "true" },
++      createElement("div", {
++        className: "chat-composer-input-surface",
++        "data-testid": "input-surface",
++      }),
++    ),
++}));
++vi.mock("@/i18n/IntlProvider.js", () => ({
++  useZCodeIntl: () => ({ intl: { formatMessage: ({ id }: { id: string }) => id } }),
++}));
++
++it("tracks a dock translate class change without resize or transition events", async () => {
++  let left = 180;
++  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
++    function (this: HTMLElement) {
++      if (this.dataset.focusNavigationSlot) return { left: 100, width: 800 } as DOMRect;
++      if (this.dataset.testid === "input-surface") return { left, width: 400 } as DOMRect;
++      return { left: 100, width: 800 } as DOMRect;
++    },
++  );
++  vi.stubGlobal(
++    "ResizeObserver",
++    class {
++      observe() {}
++      disconnect() {}
++    },
++  );
++  const view = render(
++    createElement(ConversationFocusModeTimeline, {
++      rows: [],
++      totalCount: 0,
++      sessionKey: "s",
++      rowContext: {} as never,
++    }),
++  );
++  const slot = document.querySelector<HTMLElement>("[data-focus-navigation-slot]")!;
++  const dock = screen.getByTestId("input-surface").parentElement!;
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("280px");
++  left = 12;
++  await act(async () => {
++    dock.classList.add("@min-[1280px]/conversation:-translate-x-42");
++    await Promise.resolve();
++  });
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("112px");
++  view.unmount();
++  left = 180;
++  await act(async () => {
++    dock.className = "";
++    await Promise.resolve();
++  });
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("");
++});
++
++it("tracks the actual composer center and cleans up its bounded observers", () => {
++  let callback!: ResizeObserverCallback;
++  const observe = vi.fn();
++  const disconnect = vi.fn();
++  vi.stubGlobal(
++    "ResizeObserver",
++    class {
++      constructor(cb: ResizeObserverCallback) {
++        callback = cb;
++      }
++      observe = observe;
++      disconnect = disconnect;
++      unobserve = vi.fn();
++    },
++  );
++  let left = 180;
++  let width = 400;
++  const frames = new Map<number, FrameRequestCallback>();
++  let nextFrame = 1;
++  vi.stubGlobal(
++    "requestAnimationFrame",
++    vi.fn((cb: FrameRequestCallback) => {
++      const id = nextFrame++;
++      frames.set(id, cb);
++      return id;
++    }),
++  );
++  vi.stubGlobal(
++    "cancelAnimationFrame",
++    vi.fn((id: number) => frames.delete(id)),
++  );
++  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
++    function (this: HTMLElement) {
++      if (this.dataset.focusNavigationSlot) return { left: 100, width: 800 } as DOMRect;
++      if (this.dataset.testid === "input-surface") return { left, width } as DOMRect;
++      return { left: 100, width: 800 } as DOMRect;
++    },
++  );
++  const view = render(
++    createElement(ConversationFocusModeTimeline, {
++      rows: [],
++      totalCount: 0,
++      sessionKey: "s",
++      rowContext: {} as never,
++    }),
++  );
++  const slot = document.querySelector<HTMLElement>("[data-focus-navigation-slot]")!;
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("280px");
++  expect(observe).toHaveBeenCalledTimes(2);
++  expect(observe).toHaveBeenCalledWith(slot);
++  expect(observe).toHaveBeenCalledWith(screen.getByTestId("input-surface"));
++  left = 130;
++  width = 300;
++  act(() => callback([], {} as ResizeObserver));
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("180px");
++  const dock = screen.getByTestId("input-surface").parentElement!;
++  const transition = (name: string) => {
++    const event = new Event(name, { bubbles: true });
++    Object.defineProperty(event, "propertyName", { value: "transform" });
++    dock.dispatchEvent(event);
++  };
++  act(() => transition("transitionrun"));
++  expect(frames.size).toBe(1);
++  left = 170;
++  act(() => {
++    const [id, cb] = frames.entries().next().value!;
++    frames.delete(id);
++    cb(0);
++  });
++  expect(slot.style.getPropertyValue("--focus-composer-center")).toBe("220px");
++  act(() => transition("transitionend"));
++  expect(frames.size).toBe(0);
++  act(() => transition("transitionrun"));
++  view.unmount();
++  expect(frames.size).toBe(0);
++  expect(disconnect).toHaveBeenCalledOnce();
++});
++
++afterEach(() => {
++  cleanup();
++  vi.restoreAllMocks();
++  vi.unstubAllGlobals();
++});
 diff --git a/packages/ui/test/imagePreviewPointerDismiss.test.ts b/packages/ui/test/imagePreviewPointerDismiss.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..a035f5a8fbcd49cd4fdfacfafe0542251dcb8874
@@ -27605,12 +27881,12 @@ index 4e549b6bff8aaf4b88004242ff4955086c2fb39c..af85d885c4f05169887970122cb0dc4b
      (mode) => {
 diff --git a/packages/ui/test/modelSystemPromptDialog.test.ts b/packages/ui/test/modelSystemPromptDialog.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484efdda3da
+index 0000000000000000000000000000000000000000..c8885869ab3de6dac24fe363edf90288e2ac47e1
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptDialog.test.ts
-@@ -0,0 +1,742 @@
+@@ -0,0 +1,751 @@
 +// @vitest-environment jsdom
-+import { createElement, type ReactNode } from "react";
++import { createElement } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import type { ModelSystemPromptEntry } from "@zcode/shared";
@@ -27646,8 +27922,6 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +      settings: { modelSystemPromptAppends: entries },
 +      onUpdateSettings: update,
 +      titleGenerationModel,
-+      children: ({ configureButton }: { configureButton: ReactNode }) =>
-+        createElement("section", null, configureButton),
 +    }),
 +  );
 +}
@@ -27662,9 +27936,14 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +}
 +
 +async function chooseModel(modelId: string) {
++  if (screen.queryByTestId("model-system-prompt-dialog")) {
++    fireEvent.click(screen.getByTestId("model-system-prompt-cancel"));
++    await expectDialogClosed();
++  }
 +  fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
 +    target: { value: modelSystemPromptEntryKey("p", modelId) },
 +  });
++  await openDialog();
 +}
 +
 +function textarea(): HTMLTextAreaElement {
@@ -27873,8 +28152,6 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +      createElement(ModelSystemPromptsSettingsSection, {
 +        settings: { modelSystemPromptAppends: [entry("a", "new-a")] },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    expect(textarea().value).toBe("new-a");
@@ -27935,7 +28212,10 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +    renderSection([entry("a", "old-a")], update);
 +    await openDialog();
 +    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-delete"));
++      fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++        target: { value: "" },
++      });
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
 +    });
 +    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
 +      target: { value: "discarded-after-delete" },
@@ -27989,8 +28269,6 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +      createElement(ModelSystemPromptsSettingsSection, {
 +        settings: { modelSystemPromptAppends: externalEntries },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    expect(textarea().value).toBe("new-a");
@@ -28043,8 +28321,6 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +          modelSystemPromptAppends: [entry("a", "old-a"), entry("b", "external-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    expect(textarea().value).toBe("new-a");
@@ -28086,8 +28362,6 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +          modelSystemPromptAppends: [entry("a", "third-a"), entry("b", "external-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    expect(textarea().value).toBe("third-a");
@@ -28111,7 +28385,10 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +    renderSection([entry("a", "old-a")], update);
 +    await openDialog();
 +    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-delete"));
++      fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++        target: { value: "" },
++      });
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
 +    });
 +    fireEvent.click(screen.getByTestId("model-system-prompt-cancel"));
 +    await expectDialogClosed();
@@ -28135,12 +28412,17 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +  it("ignores the disabled placeholder and keeps a valid selection after cancel and Escape", async () => {
 +    const update = vi.fn(async () => {});
 +    renderSection([entry("a", "old-a")], update);
-+    await openDialog();
++    await waitFor(() =>
++      expect(
++        (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,
++      ).toBe(false),
++    );
 +    const select = screen.getByTestId("model-system-prompt-model-select") as HTMLSelectElement;
 +    const placeholder = screen.getByRole("option", {
 +      name: "settings.advanced.modelSystemPrompts.pickModelPlaceholder",
 +    }) as HTMLOptionElement;
 +    expect(placeholder.disabled).toBe(true);
++    await openDialog();
 +    fireEvent.change(select, { target: { value: "" } });
 +    expect(select.value).toBe(modelSystemPromptEntryKey("p", "a"));
 +
@@ -28237,7 +28519,10 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +    renderSection([entry("a", "saved-a"), entry("b", "saved-b")], update);
 +    await openDialog();
 +    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-delete"));
++      fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++        target: { value: "" },
++      });
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
 +    });
 +    expect(update).toHaveBeenCalledExactlyOnceWith({
 +      modelSystemPromptAppends: [entry("b", "saved-b")],
@@ -28351,12 +28636,70 @@ index 0000000000000000000000000000000000000000..21af3ebdc64ee42567c3471b109ee484
 +    await expectDialogClosed();
 +  });
 +});
+diff --git a/packages/ui/test/modelSystemPromptIndependentCard.test.ts b/packages/ui/test/modelSystemPromptIndependentCard.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc059b64c324bca8023701c7cb7b59f98028dca0
+--- /dev/null
++++ b/packages/ui/test/modelSystemPromptIndependentCard.test.ts
+@@ -0,0 +1,52 @@
++// @vitest-environment jsdom
++import { createElement } from "react";
++import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
++import { afterEach, expect, it, vi } from "vitest";
++import {
++  ModelSystemPromptsSettingsSection,
++  modelSystemPromptEntryKey,
++} from "@/settings/model-system-prompts/index.js";
++
++vi.mock("@/i18n/IntlProvider.js", () => ({
++  useZCodeIntl: () => ({ intl: { formatMessage: ({ id }: { id: string }) => id } }),
++}));
++const services = vi.hoisted(() => ({
++  modelSelectionService: {
++    getView: async () => ({
++      providers: [{ providerId: "p", models: [{ modelId: "a" }, { modelId: "b" }] }],
++    }),
++  },
++}));
++vi.mock("@/hooks/useServices.js", () => ({ useServices: () => services }));
++afterEach(cleanup);
++
++it("shows an independent model selector and fixed multiline editor with empty-save removal", async () => {
++  const update = vi.fn(async () => {});
++  render(
++    createElement(ModelSystemPromptsSettingsSection, {
++      settings: { modelSystemPromptAppends: [{ providerId: "p", modelId: "b", text: "old" }] },
++      onUpdateSettings: update,
++    }),
++  );
++  const card = screen.getByTestId("model-system-prompt-settings-card");
++  const select = within(card).getByTestId("model-system-prompt-model-select");
++  await waitFor(() =>
++    expect(
++      (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,
++    ).toBe(false),
++  );
++  fireEvent.change(select, { target: { value: modelSystemPromptEntryKey("p", "b") } });
++  fireEvent.click(screen.getByTestId("model-system-prompt-open-dialog"));
++  const dialog = screen.getByTestId("model-system-prompt-dialog");
++  expect(within(dialog).queryByTestId("model-system-prompt-model-select")).toBeNull();
++  const text = within(dialog).getByTestId("model-system-prompt-textarea") as HTMLTextAreaElement;
++  expect(text.value).toBe("old");
++  expect(text.className).toContain("field-sizing-fixed");
++  expect(text.className).toContain("resize-none");
++  expect(text.className).toContain("overflow-y-auto");
++  expect(text.className).toContain("leading-6");
++  expect(within(dialog).queryByTestId("model-system-prompt-delete")).toBeNull();
++  fireEvent.change(text, { target: { value: "" } });
++  await act(async () => fireEvent.click(within(dialog).getByTestId("model-system-prompt-save")));
++  expect(update).toHaveBeenCalledExactlyOnceWith({ modelSystemPromptAppends: [] });
++});
 diff --git a/packages/ui/test/modelSystemPromptLongText.test.ts b/packages/ui/test/modelSystemPromptLongText.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0a54f6eb23a28d3a80c0957c8c5d5973411ecee4
+index 0000000000000000000000000000000000000000..0161f430d5f766eac151b1ed60deeaf3074138ca
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptLongText.test.ts
-@@ -0,0 +1,552 @@
+@@ -0,0 +1,550 @@
 +// @vitest-environment jsdom
 +import { act, createElement, type ReactNode } from "react";
 +import { createRoot, type Root } from "react-dom/client";
@@ -28794,8 +29137,6 @@ index 0000000000000000000000000000000000000000..0a54f6eb23a28d3a80c0957c8c5d5973
 +      createElement(ModelSystemPromptsSettingsSection, {
 +        settings: { modelSystemPromptAppends: [] },
 +        onUpdateSettings: update,
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement("section", null, configureButton),
 +      }),
 +    );
 +    await waitFor(() =>
@@ -29535,6 +29876,119 @@ index 0000000000000000000000000000000000000000..5428b1611789f90a1f95903fb0e0da2f
 +    expect(fresh.isModelSystemPromptEnabled(freshReal)).toBe(false);
 +  });
 +});
+diff --git a/packages/ui/test/modelSystemPromptProviderIsolation.test.ts b/packages/ui/test/modelSystemPromptProviderIsolation.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6325377c740a6e7a89c9e2bccb73813ba184106c
+--- /dev/null
++++ b/packages/ui/test/modelSystemPromptProviderIsolation.test.ts
+@@ -0,0 +1,107 @@
++// @vitest-environment jsdom
++import { createElement } from "react";
++import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { afterEach, expect, it, vi } from "vitest";
++import {
++  ModelSystemPromptsSettingsSection,
++  modelSystemPromptEntryKey,
++} from "@/settings/model-system-prompts/index.js";
++import type { ModelSystemPromptEntry } from "@zcode/shared";
++
++vi.mock("@/i18n/IntlProvider.js", () => ({
++  useZCodeIntl: () => ({ intl: { formatMessage: ({ id }: { id: string }) => id } }),
++}));
++const services = vi.hoisted(() => ({
++  modelSelectionService: {
++    getView: async () => ({
++      providers: [
++        {
++          providerId: "provider-a",
++          providerName: "Same Name",
++          models: [{ modelId: "same-model" }],
++        },
++        {
++          providerId: "provider-b",
++          providerName: "Same Name",
++          models: [{ modelId: "same-model" }],
++        },
++      ],
++    }),
++  },
++}));
++vi.mock("@/hooks/useServices.js", () => ({ useServices: () => services }));
++afterEach(cleanup);
++
++it("isolates identical model IDs and provider display names across selection, save, cancel and empty removal", async () => {
++  const a = { providerId: "provider-a", modelId: "same-model", text: "prompt A" };
++  const b = { providerId: "provider-b", modelId: "same-model", text: "prompt B" };
++  const update = vi.fn(
++    async (_patch: { modelSystemPromptAppends: ModelSystemPromptEntry[] }) => {},
++  );
++  const view = render(
++    createElement(ModelSystemPromptsSettingsSection, {
++      settings: { modelSystemPromptAppends: [a, b] },
++      onUpdateSettings: update,
++    }),
++  );
++  await waitFor(() =>
++    expect(
++      (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,
++    ).toBe(false),
++  );
++  const choose = (provider: string) =>
++    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
++      target: { value: modelSystemPromptEntryKey(provider, "same-model") },
++    });
++  const open = () => fireEvent.click(screen.getByTestId("model-system-prompt-open-dialog"));
++  const text = () => screen.getByTestId("model-system-prompt-textarea") as HTMLTextAreaElement;
++  const cancel = () => fireEvent.click(screen.getByTestId("model-system-prompt-cancel"));
++
++  choose("provider-a");
++  open();
++  expect(text().value).toBe("prompt A");
++  fireEvent.change(text(), { target: { value: "discard A" } });
++  cancel();
++  choose("provider-b");
++  open();
++  expect(text().value).toBe("prompt B");
++  fireEvent.change(text(), { target: { value: "discard B" } });
++  cancel();
++  expect(update).not.toHaveBeenCalled();
++
++  choose("provider-a");
++  open();
++  expect(text().value).toBe("prompt A");
++  fireEvent.change(text(), { target: { value: "saved A" } });
++  await act(async () => fireEvent.click(screen.getByTestId("model-system-prompt-save")));
++  expect(update).toHaveBeenNthCalledWith(1, {
++    modelSystemPromptAppends: [{ ...a, text: "saved A" }, b],
++  });
++  view.rerender(
++    createElement(ModelSystemPromptsSettingsSection, {
++      settings: { modelSystemPromptAppends: [{ ...a, text: "saved A" }, b] },
++      onUpdateSettings: update,
++    }),
++  );
++  choose("provider-b");
++  open();
++  expect(text().value).toBe("prompt B");
++  cancel();
++  choose("provider-a");
++  open();
++  expect(text().value).toBe("saved A");
++  fireEvent.change(text(), { target: { value: "" } });
++  await act(async () => fireEvent.click(screen.getByTestId("model-system-prompt-save")));
++  expect(update).toHaveBeenNthCalledWith(2, { modelSystemPromptAppends: [b] });
++  view.rerender(
++    createElement(ModelSystemPromptsSettingsSection, {
++      settings: { modelSystemPromptAppends: [b] },
++      onUpdateSettings: update,
++    }),
++  );
++  choose("provider-b");
++  open();
++  expect(text().value).toBe("prompt B");
++  cancel();
++  expect(update).toHaveBeenCalledTimes(2);
++});
 diff --git a/packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts b/packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..2a7b18006b96d09d98f3be5c25deed57f95af431
@@ -30113,12 +30567,12 @@ index 0000000000000000000000000000000000000000..2a7b18006b96d09d98f3be5c25deed57
 +});
 diff --git a/packages/ui/test/modelSystemPromptSettings.test.ts b/packages/ui/test/modelSystemPromptSettings.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5782cccf5
+index 0000000000000000000000000000000000000000..32dc110b4303bfc082632e0abcf3add59c44bcea
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptSettings.test.ts
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,362 @@
 +// @vitest-environment jsdom
-+import { createElement, type ReactNode } from "react";
++import { createElement } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import { MODEL_SYSTEM_PROMPT_MAX_ENTRIES, type ModelSystemPromptEntry } from "@zcode/shared";
@@ -30167,14 +30621,6 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +  return { providerId, modelId, text };
 +}
 +
-+function renderConfigureButton({
-+  configureButton,
-+}: {
-+  configureButton: ReactNode;
-+}): ReturnType<typeof createElement> {
-+  return createElement("section", { "data-testid": "composed-title-card" }, configureButton);
-+}
-+
 +function renderSection(
 +  settings: { modelSystemPromptAppends?: ModelSystemPromptEntry[] } | null,
 +  update: (patch: { modelSystemPromptAppends: ModelSystemPromptEntry[] }) => Promise<void>,
@@ -30183,7 +30629,6 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +    createElement(ModelSystemPromptsSettingsSection, {
 +      settings,
 +      onUpdateSettings: update,
-+      children: renderConfigureButton,
 +    }),
 +  );
 +}
@@ -30247,8 +30692,10 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +      },
 +      update,
 +    );
++    await waitFor(() =>
++      expect(screen.getByRole("option", { name: "orphan-provider · orphan-model" })).toBeTruthy(),
++    );
 +    await openPromptDialog();
-+    expect(screen.getByRole("option", { name: "orphan-provider · orphan-model" })).toBeTruthy();
 +    expect(await textareaValue()).toBe("old text");
 +
 +    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
@@ -30264,13 +30711,16 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +      ],
 +    });
 +
-+    await openPromptDialog();
 +    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
 +      target: { value: modelSystemPromptEntryKey("orphan-provider", "orphan-model") },
 +    });
++    await openPromptDialog();
 +    expect(await textareaValue()).toBe("orphan text");
 +    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-delete"));
++      fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++        target: { value: "" },
++      });
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
 +    });
 +    expect(update).toHaveBeenNthCalledWith(2, {
 +      modelSystemPromptAppends: [entry("provider-a", "model-a", "new text")],
@@ -30296,10 +30746,15 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +    });
 +    const update = vi.fn(async () => {});
 +    renderSection({ modelSystemPromptAppends: entries }, update);
-+    await openPromptDialog();
++    await waitFor(() =>
++      expect(
++        (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,
++      ).toBe(false),
++    );
 +    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
 +      target: { value: modelSystemPromptEntryKey("provider-a", "model-extra") },
 +    });
++    await openPromptDialog();
 +    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
 +      target: { value: "new" },
 +    });
@@ -30356,7 +30811,6 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +      createElement(ModelSystemPromptsSettingsSection, {
 +        settings: { modelSystemPromptAppends: [entry("provider-a", "model-a", "external")] },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    expect((screen.getByTestId("model-system-prompt-textarea") as HTMLTextAreaElement).value).toBe(
@@ -30391,12 +30845,12 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +      true,
 +    );
 +
-+    // 保存仍在飞时关闭弹窗，重新打开后在 dialog 内切到另一个模型。
++    // 保存仍在飞时关闭弹窗，在卡片切换模型后重新打开。
 +    fireEvent.click(screen.getByTestId("model-system-prompt-cancel"));
-+    await openPromptDialog();
 +    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
 +      target: { value: modelSystemPromptEntryKey("provider-a", "model-b") },
 +    });
++    await openPromptDialog();
 +    expect(await textareaValue()).toBe("old b");
 +    expect((screen.getByTestId("model-system-prompt-save") as HTMLButtonElement).disabled).toBe(
 +      false,
@@ -30427,12 +30881,17 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +      { modelSystemPromptAppends: [entry("orphan-provider", "orphan-model", "orphan")] },
 +      update,
 +    );
-+    await openPromptDialog();
++    await waitFor(() =>
++      expect(screen.getByRole("option", { name: "orphan-provider · orphan-model" })).toBeTruthy(),
++    );
 +    expect(screen.getByText("settings.advanced.modelSystemPrompts.catalogFailed")).toBeTruthy();
-+    expect(screen.getByRole("option", { name: "orphan-provider · orphan-model" })).toBeTruthy();
++    await openPromptDialog();
 +    expect(await textareaValue()).toBe("orphan");
 +    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-delete"));
++      fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++        target: { value: "" },
++      });
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
 +    });
 +    expect(update).toHaveBeenCalledExactlyOnceWith({
 +      modelSystemPromptAppends: [],
@@ -30476,12 +30935,12 @@ index 0000000000000000000000000000000000000000..f6d9dfa36e0b17e3097e1bf5310119f5
 +});
 diff --git a/packages/ui/test/modelSystemPromptSettingsQueue.test.ts b/packages/ui/test/modelSystemPromptSettingsQueue.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82bef54ca25
+index 0000000000000000000000000000000000000000..3524f58fe2529e91197d6e9c70f6df1cc9287e74
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptSettingsQueue.test.ts
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,385 @@
 +// @vitest-environment jsdom
-+import { createElement, type ReactNode } from "react";
++import { createElement } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import type { ModelSystemPromptEntry } from "@zcode/shared";
@@ -30500,14 +30959,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +  return { providerId: "p", modelId, text };
 +}
 +
-+function renderConfigureButton({
-+  configureButton,
-+}: {
-+  configureButton: ReactNode;
-+}): ReturnType<typeof createElement> {
-+  return createElement("section", null, configureButton);
-+}
-+
 +function renderSection(
 +  entries: ModelSystemPromptEntry[],
 +  update: (patch: { modelSystemPromptAppends: ModelSystemPromptEntry[] }) => Promise<void>,
@@ -30516,15 +30967,16 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +    createElement(ModelSystemPromptsSettingsSection, {
 +      settings: { modelSystemPromptAppends: entries },
 +      onUpdateSettings: update,
-+      children: renderConfigureButton,
 +    }),
 +  );
 +}
 +
 +async function chooseModel(modelId: string) {
++  if (screen.queryByTestId("model-system-prompt-dialog")) closeDialog();
 +  fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
 +    target: { value: modelSystemPromptEntryKey("p", modelId) },
 +  });
++  await openDialog();
 +}
 +
 +async function openDialog() {
@@ -30605,7 +31057,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          ],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    await openDialog();
@@ -30666,7 +31117,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          ],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    await openDialog();
@@ -30718,7 +31168,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "saved-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    await act(async () => {
@@ -30740,7 +31189,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "external-new-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    await waitFor(() =>
@@ -30793,7 +31241,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "saved-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    // 保存等待期间继续输入：完成回调不得 clean 或覆盖这份新编辑。
@@ -30814,7 +31261,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "external-new-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    expect((screen.getByTestId("model-system-prompt-textarea") as HTMLTextAreaElement).value).toBe(
@@ -30857,7 +31303,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "saved-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    expect((screen.getByTestId("model-system-prompt-textarea") as HTMLTextAreaElement).value).toBe(
@@ -30870,7 +31315,6 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +          modelSystemPromptAppends: [entry("a", "external-new-a"), entry("b", "old-b")],
 +        },
 +        onUpdateSettings: update,
-+        children: renderConfigureButton,
 +      }),
 +    );
 +    await waitFor(() =>
@@ -30882,13 +31326,13 @@ index 0000000000000000000000000000000000000000..20dc29d4fbb8ad2d92fcd3a9b923e82b
 +});
 diff --git a/packages/ui/test/modelSystemPromptTitleCardComposition.test.ts b/packages/ui/test/modelSystemPromptTitleCardComposition.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..01a24243bf450c46608c0994634b39933c13b169
+index 0000000000000000000000000000000000000000..050f1e8309bdb4e41d33ba717f82d4d484fd24bc
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptTitleCardComposition.test.ts
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,71 @@
 +// @vitest-environment jsdom
-+import { createElement, type ReactNode } from "react";
-+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { createElement } from "react";
++import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import { CompactionSettingsSection } from "@/settings/compaction-settings/contract.js";
 +import {
@@ -30897,23 +31341,14 @@ index 0000000000000000000000000000000000000000..01a24243bf450c46608c0994634b3993
 +} from "@/settings/model-system-prompts/index.js";
 +
 +vi.mock("@/i18n/IntlProvider.js", () => ({
-+  useZCodeIntl: () => ({
-+    intl: {
-+      formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>): string =>
-+        values?.model ? `${id}:${values.model}` : id,
-+    },
-+  }),
++  useZCodeIntl: () => ({ intl: { formatMessage: ({ id }: { id: string }) => id } }),
 +}));
-+const servicesMock = vi.hoisted(() => ({
-+  modelSelectionService: { getView: vi.fn() },
-+}));
++const servicesMock = vi.hoisted(() => ({ modelSelectionService: { getView: vi.fn() } }));
 +vi.mock("@/hooks/useServices.js", () => ({ useServices: () => servicesMock }));
-+
 +afterEach(cleanup);
 +
 +describe("advanced settings composition", () => {
 +  beforeEach(() => {
-+    servicesMock.modelSelectionService.getView.mockReset();
 +    servicesMock.modelSelectionService.getView.mockResolvedValue({
 +      revision: 1,
 +      providers: [
@@ -30928,61 +31363,42 @@ index 0000000000000000000000000000000000000000..01a24243bf450c46608c0994634b3993
 +      ],
 +    });
 +  });
-+
-+  it("mounts the configure button inside the title generation card and keeps the dialog independent", async () => {
++  it("keeps the prompt controls independent of title generation", async () => {
 +    const promptUpdate = vi.fn(async () => {});
 +    const titleUpdate = vi.fn(async () => {});
 +    render(
-+      createElement(ModelSystemPromptsSettingsSection, {
-+        settings: { modelSystemPromptAppends: [] },
-+        onUpdateSettings: promptUpdate,
-+        titleGenerationModel: { providerId: "p", modelId: "a" },
-+        children: ({ configureButton }: { configureButton: ReactNode }) =>
-+          createElement(CompactionSettingsSection, {
-+            settings: { titleGenerationModel: { providerId: "p", modelId: "a" } },
-+            onUpdateSettings: titleUpdate,
-+            titleGenerationAction: configureButton,
-+          }),
-+      }),
++      createElement(
++        "div",
++        null,
++        createElement(CompactionSettingsSection, {
++          settings: { titleGenerationModel: { providerId: "p", modelId: "a" } },
++          onUpdateSettings: titleUpdate,
++        }),
++        createElement(ModelSystemPromptsSettingsSection, {
++          settings: { modelSystemPromptAppends: [] },
++          onUpdateSettings: promptUpdate,
++          titleGenerationModel: { providerId: "p", modelId: "a" },
++        }),
++      ),
 +    );
-+
-+    await waitFor(() =>
-+      expect(
-+        (screen.getByTestId("model-system-prompt-open-dialog") as HTMLButtonElement).disabled,
-+      ).toBe(false),
-+    );
-+    const titleSelect = screen.getByTestId("title-generation-model-select");
-+    const openButton = screen.getByTestId("model-system-prompt-open-dialog");
-+    // 按钮确实挂在标题生成卡的同一内容行，而不是独立的自定义提示词卡。
-+    expect(titleSelect.parentElement?.contains(openButton)).toBe(true);
-+    expect(screen.queryByText("settings.advanced.modelSystemPrompts.title")).toBeNull();
-+    expect(screen.queryByTestId("model-system-prompt-dialog")).toBeNull();
-+    expect(screen.queryByTestId("model-system-prompt-model-select")).toBeNull();
-+
-+    fireEvent.click(openButton);
-+    expect(screen.getByTestId("model-system-prompt-dialog")).toBeTruthy();
++    const card = screen.getByTestId("model-system-prompt-settings-card");
++    const openButton = within(card).getByTestId("model-system-prompt-open-dialog");
 +    expect(
-+      (screen.getByTestId("model-system-prompt-model-select") as HTMLSelectElement).value,
-+    ).toBe(modelSystemPromptEntryKey("p", "a"));
-+
-+    // dialog 内换 pair 只编辑该 pair，不触发 titleGenerationModel 保存。
-+    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
++      screen.getByTestId("title-generation-model-select").parentElement?.contains(openButton),
++    ).toBe(false);
++    await waitFor(() => expect((openButton as HTMLButtonElement).disabled).toBe(false));
++    fireEvent.change(within(card).getByTestId("model-system-prompt-model-select"), {
 +      target: { value: modelSystemPromptEntryKey("p", "b") },
 +    });
-+    expect(titleUpdate).not.toHaveBeenCalled();
-+    expect(promptUpdate).not.toHaveBeenCalled();
-+
++    fireEvent.click(openButton);
 +    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
 +      target: { value: "prompt for b" },
 +    });
-+    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
-+    });
++    await act(async () => fireEvent.click(screen.getByTestId("model-system-prompt-save")));
 +    expect(promptUpdate).toHaveBeenCalledExactlyOnceWith({
 +      modelSystemPromptAppends: [{ providerId: "p", modelId: "b", text: "prompt for b" }],
 +    });
 +    expect(titleUpdate).not.toHaveBeenCalled();
-+    await waitFor(() => expect(screen.queryByTestId("model-system-prompt-dialog")).toBeNull());
 +  });
 +});
 diff --git a/packages/ui/test/modelSystemPromptToggle.test.ts b/packages/ui/test/modelSystemPromptToggle.test.ts
@@ -32536,6 +32952,118 @@ index 0000000000000000000000000000000000000000..b9d2a2c0f553882abd66518ebd91d1c8
 +    expect(loader.onLoadOlder).not.toHaveBeenCalled();
 +    expect(hook.result.current.window.turnIds).toEqual(["a"]);
 +    expect(hook.result.current.needsOlderData).toBe(false);
++  });
++});
+diff --git a/packages/ui/test/sessionFocusModePersistence.test.ts b/packages/ui/test/sessionFocusModePersistence.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..de1d4dd89f36c9c40c41b62a27fb30925e027b24
+--- /dev/null
++++ b/packages/ui/test/sessionFocusModePersistence.test.ts
+@@ -0,0 +1,106 @@
++// @vitest-environment jsdom
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import {
++  getSessionFocusModeEnabled,
++  resetSessionFocusModeStoreForTest,
++  resolveSessionFocusModeScopeKey,
++  setSessionFocusModeEnabled,
++  subscribeSessionFocusMode,
++} from "@/v4/focus-mode/contract.js";
++
++const scope = (workspaceIdentity: string, sessionId: string | null) =>
++  resolveSessionFocusModeScopeKey({ workspaceIdentity, sessionId });
++
++beforeEach(() => {
++  localStorage.clear();
++  resetSessionFocusModeStoreForTest();
++});
++afterEach(() => {
++  resetSessionFocusModeStoreForTest();
++  vi.restoreAllMocks();
++  localStorage.clear();
++});
++
++describe("focus mode persistence", () => {
++  it("restores only the exact workspace and session after renderer restart", () => {
++    const a = scope("workspace-a", "session-a");
++    setSessionFocusModeEnabled(a, true);
++    resetSessionFocusModeStoreForTest();
++    expect(getSessionFocusModeEnabled(a)).toBe(true);
++    expect(getSessionFocusModeEnabled(scope("workspace-a", "session-b"))).toBe(false);
++    expect(getSessionFocusModeEnabled(scope("workspace-b", "session-a"))).toBe(false);
++    setSessionFocusModeEnabled(a, false);
++    resetSessionFocusModeStoreForTest();
++    expect(getSessionFocusModeEnabled(a)).toBe(false);
++  });
++
++  it("never persists a draft or a session with no stable workspace", () => {
++    const draft = scope("workspace-a", null);
++    const unknown = scope("", "session-a");
++    setSessionFocusModeEnabled(draft, true);
++    setSessionFocusModeEnabled(unknown, true);
++    expect(localStorage.length).toBe(0);
++    resetSessionFocusModeStoreForTest();
++    expect(getSessionFocusModeEnabled(draft)).toBe(false);
++    expect(getSessionFocusModeEnabled(unknown)).toBe(false);
++    expect(getSessionFocusModeEnabled(scope("workspace-a", "draft"))).toBe(false);
++  });
++
++  it("reflects another window's writes and removal without affecting other sessions", () => {
++    const a = scope("workspace-a", "session-a");
++    const b = scope("workspace-a", "session-b");
++    setSessionFocusModeEnabled(a, true);
++    const key = localStorage.key(0)!;
++    const listener = vi.fn();
++    const unsubscribe = subscribeSessionFocusMode(listener);
++    localStorage.removeItem(key);
++    window.dispatchEvent(
++      new StorageEvent("storage", { key, newValue: null, storageArea: localStorage }),
++    );
++    expect(getSessionFocusModeEnabled(a)).toBe(false);
++    expect(getSessionFocusModeEnabled(b)).toBe(false);
++    expect(listener).toHaveBeenCalled();
++    localStorage.setItem(key, "1");
++    window.dispatchEvent(
++      new StorageEvent("storage", { key, newValue: "1", storageArea: localStorage }),
++    );
++    expect(getSessionFocusModeEnabled(a)).toBe(true);
++    unsubscribe();
++  });
++
++  it("invalidates cached preferences while no pane is subscribed", () => {
++    const a = scope("workspace-a", "session-a");
++    setSessionFocusModeEnabled(a, true);
++    const key = localStorage.key(0)!;
++    localStorage.setItem(key, "0");
++    window.dispatchEvent(
++      new StorageEvent("storage", { key, newValue: "0", storageArea: localStorage }),
++    );
++    expect(getSessionFocusModeEnabled(a)).toBe(false);
++  });
++
++  it("keeps the in-memory choice if reading fails but writing succeeds", () => {
++    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
++      throw new Error("denied");
++    });
++    const a = scope("workspace-a", "session-a");
++    setSessionFocusModeEnabled(a, true);
++    expect(getSessionFocusModeEnabled(a)).toBe(true);
++    setSessionFocusModeEnabled(a, false);
++    expect(getSessionFocusModeEnabled(a)).toBe(false);
++  });
++
++  it("keeps local state usable when storage access fails", () => {
++    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
++      throw new Error("denied");
++    });
++    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
++      throw new Error("denied");
++    });
++    const a = scope("workspace-a", "session-a");
++    setSessionFocusModeEnabled(a, true);
++    expect(getSessionFocusModeEnabled(a)).toBe(true);
++    setSessionFocusModeEnabled(a, false);
++    expect(getSessionFocusModeEnabled(a)).toBe(false);
 +  });
 +});
 diff --git a/packages/ui/test/sessionInspector.test.ts b/packages/ui/test/sessionInspector.test.ts

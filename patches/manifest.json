@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "29cf5d839cf28c75a299a4b3ac1a9bd3cb4e349a",
-  "tree": "45ee21c7b6e70c9ad9670767f6eaa20b392b7af5",
+  "sourceHead": "c39ba26c28944735fa9c831e514308b3e36a1e13",
+  "tree": "84cc6de297d79cb9605bf2658fce6b4747681bac",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -340,7 +340,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "9188a9f61b42e561ff54c80e604eb651e7d17eed80fb6c50514c85749baa3afc",
+      "sha256": "f4cd27dfb0dbd2eba9a5b6021a9dace9270a65c9c2fb53e6f0cfe71a609af37b",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -578,7 +578,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "c4127991aef189984863290d5c31b87eb578cc330c28ca38fda234bd893496dd",
+      "sha256": "462887869aef9773c531848960541d790ac0b4078149e42ad80afdad51877ac9",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/PreviewPane.tsx",
@@ -810,6 +810,7 @@
         "packages/ui/src/v4/focus-mode/module.ts",
         "packages/ui/src/v4/focus-mode/sessionFocusModeStore.ts",
         "packages/ui/src/v4/focus-mode/types.ts",
+        "packages/ui/src/v4/focus-mode/useComposerNavigationAlignment.ts",
         "packages/ui/src/v4/focus-mode/useFocusTimelineWindow.ts",
         "packages/ui/src/v4/pendingCommandRegistry.ts",
         "packages/ui/src/v4/pendingCommandWorkspace.ts",
@@ -892,6 +893,7 @@
         "packages/ui/test/conversationFocusModeGroups.test.ts",
         "packages/ui/test/conversationFocusModeTimeline.test.ts",
         "packages/ui/test/editionMessagesIntegration.test.ts",
+        "packages/ui/test/focusModeComposerAlignment.test.ts",
         "packages/ui/test/imagePreviewPointerDismiss.test.ts",
         "packages/ui/test/mcpStatusCommandPriority.test.ts",
         "packages/ui/test/mcpStatusDialog.test.ts",
@@ -902,9 +904,11 @@
         "packages/ui/test/modelProviderCodingPlan.test.ts",
         "packages/ui/test/modelProviderModelRowEditor.test.ts",
         "packages/ui/test/modelSystemPromptDialog.test.ts",
+        "packages/ui/test/modelSystemPromptIndependentCard.test.ts",
         "packages/ui/test/modelSystemPromptLongText.test.ts",
         "packages/ui/test/modelSystemPromptPromotion.test.ts",
         "packages/ui/test/modelSystemPromptPromotionBoundary.test.ts",
+        "packages/ui/test/modelSystemPromptProviderIsolation.test.ts",
         "packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts",
         "packages/ui/test/modelSystemPromptSettings.test.ts",
         "packages/ui/test/modelSystemPromptSettingsQueue.test.ts",
@@ -923,6 +927,7 @@
         "packages/ui/test/sessionDiagnostics.test.ts",
         "packages/ui/test/sessionFocusMode.test.ts",
         "packages/ui/test/sessionFocusModeLoading.test.ts",
+        "packages/ui/test/sessionFocusModePersistence.test.ts",
         "packages/ui/test/sessionInspector.test.ts",
         "packages/ui/test/sessionResourceControlsSourceFilter.test.ts",
         "packages/ui/test/settingsNavigation.test.ts",

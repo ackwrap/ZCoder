@@ -1751,7 +1751,7 @@ index 0000000000000000000000000000000000000000..2f72da18389ee9a7dc181489845d0a95
 +桌面交互 E2E 仍为 pending，Hook/SessionPane 单测不替代真实 Host 验证。
 diff --git a/docs/ui/conversation-focus-mode.md b/docs/ui/conversation-focus-mode.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..9f19015eb1bc2c773f9fcf202de74f7c871df648
+index 0000000000000000000000000000000000000000..21b1b2a5e89b2e5568b54a8d9d1ed19ba40ba040
 --- /dev/null
 +++ b/docs/ui/conversation-focus-mode.md
 @@ -0,0 +1,76 @@
@@ -1759,13 +1759,13 @@ index 0000000000000000000000000000000000000000..9f19015eb1bc2c773f9fcf202de74f7c
 +
 +## 目标
 +
-+在 `/` 面板提供本地命令 `/force`，切换**当前会话**的专注模式渲染。默认关闭，状态只存在于当前 renderer 的会话 map 中：
++在 `/` 面板提供本地命令 `/force`，切换**当前会话**的专注模式渲染。默认关闭，真实会话的 enabled 状态由 renderer 内存及 localStorage 按会话保存：
 +
 +- key = 稳定 `workspaceIdentity`（缺失时回退 `workspacePath`）+ `sessionId`；
-+- 同一会话的多个 Pane 共享同一状态；
-+- 不同会话互不影响；
-+- 切走再切回同一会话保持该会话上次选择；
-+- 不写入设置、Host、SQLite 或任何全局持久化，不发送 provider 请求。
++- 同一会话的多个 Pane 和窗口共享同一状态，不同会话互不影响；
++- 切回或重启应用后重开同一会话恢复上次开关；草稿和无稳定 workspace 的状态只存内存；
++- 存储异常时保留当前内存选择，只降级持久性；展开阶段和滚动位置不持久化；
++- 不写入设置、Host 或 SQLite，不发送 provider 请求。
 +
 +关闭时仍走原 `ConversationTimeline`，不执行任何 focus 计算。开启后只渲染最近两个逻辑对话组，其余历史真正 unmount，不是 CSS 隐藏。
 +
@@ -1802,7 +1802,7 @@ index 0000000000000000000000000000000000000000..9f19015eb1bc2c773f9fcf202de74f7c
 +## 滚动与视图
 +
 +- `/force` 是会话级开关，展开历史只是当前 Pane 的临时视图阶段；点击上下不改变开关，只有再次 `/force` 才退出。
-+- `/force` 开启期间，标题下聊天区顶部独立布局位始终显示居中的上、下按钮，既不在可滚动 headerSlot 内，也不覆盖消息或右上胶囊。`ConversationStatusPanel` 原本钉在会话容器顶部且窄屏可伸到中线，开启时将其向下避让控件行；关闭后恢复原位置。
++- `/force` 开启期间，标题下聊天区顶部独立布局位始终显示上、下按钮，其水平中心随下方输入框可见边界中心及布局变化对齐，既不在可滚动 headerSlot 内，也不覆盖消息或右上胶囊。`ConversationStatusPanel` 原本钉在会话容器顶部且窄屏可伸到中线，开启时将其向下避让控件行；关闭后恢复原位置。
 +- 最新专注视图锁定两个逻辑组：滚轮、触摸和键盘仅滚动这两组内部，触及边界不翻组、不解锁，也不触发普通历史分页；唯有点击向上按钮才解除裁剪。
 +- 点击向上展示所有已加载 rows，由普通时间线按接近顶部的规则加载更早历史；不修改 `/force` 会话开关。最新两组自身的不完整前缀仍可由独立 bounded 补全器补齐，但不额外显示逻辑组，也不是滚轮触发。
 +- 向下或宿主回到底部恢复最新两个逻辑组并落底。展开期间新消息不应强行抢占阅读位置。
@@ -1820,13 +1820,13 @@ index 0000000000000000000000000000000000000000..9f19015eb1bc2c773f9fcf202de74f7c
 +
 +## 非目标
 +
-+- 不新增设置字段、设置页入口或持久化体系。
++- 不新增设置字段、设置页入口、Host 协议或数据库持久化。
 +- 不改变 prompt、权限、审批、Sandbox、MCP、Skills、模型或 runtime。
 +- 不改变关闭专注模式时的虚拟化、滚动和 history 分页语义。
 +
 +## 验证
 +
-+- 会话状态：默认 false、同会话多 Pane 一致、不同会话隔离、切回保留。
++- 会话状态：默认 false、同会话多 Pane/窗口一致、不同会话隔离、重启恢复、草稿不落盘及存储异常降级。
 +- `/force`：注册、开/关文案与 toast、CLI 同名让位、写操作禁用时仍可切换、默认 false。
 +- 分组/窗口：success 边界、guided、中断合并、latest 2、历史起点补页、首组前置边界、无进展及预算上限。
 +- 视图：常驻按钮位置、展开全部已加载历史及普通分页、回到底部恢复裁剪、Composer/dock 与键盘焦点跨阶段保持、正常模式恢复。
@@ -1952,10 +1952,10 @@ index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7
 +验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
 diff --git a/docs/ui/model-system-prompts.md b/docs/ui/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b972a67dd4e
+index 0000000000000000000000000000000000000000..28538323c7f9462edeac0132e5e52e5c088a6b86
 --- /dev/null
 +++ b/docs/ui/model-system-prompts.md
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,250 @@
 +# 模型自定义系统 Agent 提示词（UI 范围）
 +
 +> 2026-10-27。本文只定义 `packages/ui/**` 的可观察行为、状态归属、接入点和回归边界。
@@ -2017,7 +2017,7 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +- 路径：`packages/ui/src/settings/model-system-prompts/`
 +- 公开入口：`index.ts`
 +- `requires: [shared, ui]`，`owner: desktop-settings`
-+- 职责：通过 render-prop 向标题生成卡注入“设置提示词”入口、dialog 内模型目录选取、条目草稿/校验/删除、异步保存的 scope guard。
++- 职责：渲染高级设置独立卡中的模型选择器与编辑入口、dialog 条目草稿/校验、空文本移除及异步保存的 scope guard。
 +- 不直接访问持久化、不广播、不读凭据；只调用注入的 `onUpdateSettings(patch)`。
 +
 +### `composer-model-system-prompt`
@@ -2036,17 +2036,16 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +
 +## 高级设置
 +
-+入口位于“标题生成模型”卡的标题右上（`TitleGenerationModelRow` 的可选 header action），
-+不再渲染下方独立的自定义提示词编辑卡，避免同一功能出现两处同名入口。`SettingsPage` 的
-+`advanced` 分支用 `ModelSystemPromptsSettingsSection` 的 render-prop 包裹原
-+`CompactionSettingsSection`，把“设置提示词”按钮注入 `titleGenerationAction`；状态、写入队列
-+与 dialog 仍由 `ui-model-system-prompts-settings` 持有。设置投影与保存命令继续由页面现有
++入口位于高级设置内的独立自定义提示词卡，不放在“标题生成模型”卡，也不新增全局导航。
++`SettingsPage` 的 `advanced` 分支并列渲染 `CompactionSettingsSection` 与
++`ModelSystemPromptsSettingsSection`；卡内提供模型下拉框、条目计数和编辑按钮。状态、写入队列
++与 dialog 由 `ui-model-system-prompts-settings` 持有。设置投影与保存命令继续由页面现有
 +`useSettings({ services: localHostServices })` 注入。
 +
-+Dialog 使用既有 `Dialog`/`Button`，标题固定为“自定义系统 Agent 提示词”，并明确当前
-+`provider · model`；模型选择器、条目计数和错误都移入 dialog。首次打开优先预选当前
-+`titleGenerationModel` 的显式 pair；该值为“继承会话模型”时按当前模型目录选择第一项。
-+用户在 dialog 内换模型只编辑该 pair 的提示词，**不读写也不改变** `titleGenerationModel`，
++Dialog 使用既有 `Dialog`/`Button`，普通标题为“自定义系统 Agent 提示词”，并明确当前
++`provider · model`；固定高度、固定行高的多行文本输入框可滚动，底部仅有取消与保存。
++首次打开优先预选当前 `titleGenerationModel` 的显式 pair；该值为“继承会话模型”时按当前模型目录选择第一项。
++用户在卡片内换模型只编辑该 pair 的提示词，**不读写也不改变** `titleGenerationModel`，
 +标题生成 runtime 继续使用独立 `buildTitleMessages`，不套用本功能。
 +按钮没有可选模型（无显式标题模型、无已保存条目、目录为空或读取失败）时禁用。
 +
@@ -2057,7 +2056,7 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +  模型上下文与请求限制。
 +- 新条目从现有模型目录选择（`modelSelectionService.getView()`），不读取任何凭据。
 +- 已保存但不在当前目录中的“孤儿条目”仍出现在选择器中，可查看、编辑、删除。
-+- 清空编辑器并保存即删除该条；显式“删除此条”等价。
++- 清空编辑器并保存即删除该 pair 的条目；不提供额外删除按钮。
 +- 文本换行统一为 LF，保留内部缩进；首尾空白在保存时裁剪。
 +- 说明文案明确：启用后替换其它默认 Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与
 +  Sandbox 执行机制不变。
@@ -2066,10 +2065,10 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +
 +- 保存走注入的 `onUpdateSettings({ modelSystemPromptAppends: nextEntries })`；不新增 RPC。
 +- 保存 pending 时禁用重复提交；Enter 在 textarea 中只换行，`Ctrl/Cmd+Enter` 或“保存”提交。
-+  blur 不自动保存，避免与“删除此条”点击竞争。
-+- 关闭 dialog、按 Esc、点遮罩、取消或切换模型都只丢弃本次未提交草稿，不自动保存；保存成功
++  blur 不自动保存。
++- 关闭 dialog、按 Esc、点遮罩或取消只丢弃本次未提交草稿，关闭后在卡片切换模型不自动保存；保存成功
 +  且没有更晚编辑时关闭同一 dialog 会话。保存失败保留 dialog 内输入与错误，可直接重试。
-+- dialog 内换模型会更新选择 token；上一个 pair 的 pending 写入继续完成它冻结的 pair，
++- 卡片内换模型会更新选择 token；上一个 pair 的 pending 写入继续完成它冻结的 pair，
 +  其迟到成功/失败不得关闭新 pair 的 dialog、覆盖新草稿或串改错误状态。同一 pair 取消后
 +  重开的干净 dialog（即使等待期间丢弃过编辑、历史版本已不同）会跟随迟到成功正文（含删除），
 +  再次保存不反写旧文本；当前新编辑或第三方权威值优先。旧 save 的失败错误只在其原 dialog
@@ -2157,10 +2156,8 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +
 +## 接入点（最小 diff）
 +
-+- `SettingsPage.tsx`：advanced 分支用 `ModelSystemPromptsSettingsSection` render-prop 包裹
-+  `CompactionSettingsSection`，把注入的按钮传给 `titleGenerationAction`；不再渲染独立设置卡。
-+- `CompactionSettingsSection.tsx`：`TitleGenerationModelRow` 标题行增加可选 header action
-+  插槽，只负责渲染 ReactNode，不感知提示词状态或保存逻辑。
++- `SettingsPage.tsx`：advanced 分支并列渲染 `CompactionSettingsSection` 与独立的
++  `ModelSystemPromptsSettingsSection`；不向标题生成卡注入提示词按钮。
 +- `V4ComposerToolbar.tsx`：解构已有 `sessionId`；在 `ModelConfigSelect` 前渲染开关（一个
 +  fragment + 一个 key）；使用已存在的 `useSettings({ services: baseServices })` 投影。
 +- `SessionPane.tsx`：新增一次本地设置投影 hook；包装 `createSubmissionFromComposer` 冻结
@@ -2188,8 +2185,8 @@ index 0000000000000000000000000000000000000000..fc77bf1245ba21669bbae0e459153b97
 +| MSP-S03 | 20 条边界与长文本          | 第 21 条本地拒绝；>8000 字符完整保存、冻结、透传  |
 +| MSP-S04 | 保存失败                   | 草稿与错误保留，可重试；pending 结束              |
 +| MSP-S05 | 外部刷新/快速换选/迟到保存 | 不覆盖 dirty 草稿，不串到新选择                   |
-+| MSP-S06 | 标题卡入口与 dialog        | 按钮在标题卡内；dialog 默认不可见；取消不写       |
-+| MSP-S07 | dialog 内独立模型选择      | 换 pair 不改 titleGenerationModel、不自动保存     |
++| MSP-S06 | 独立卡入口与 dialog        | 按钮在独立卡内；dialog 默认不可见；取消不写       |
++| MSP-S07 | 卡片内独立模型选择         | 换 pair 不改 titleGenerationModel、不自动保存     |
 +| MSP-S08 | dialog 键盘与长文本        | Ctrl/Cmd+Enter 保存；>9500 字符完整提交           |
 +| MSP-S09 | 取消后重开 + 迟到成功      | 同 pair 未编辑草稿跟随成功/删除，不反写旧文本     |
 +| MSP-S10 | 空选择与焦点               | placeholder 不可选；Cancel/Esc/save 归还入口焦点  |
