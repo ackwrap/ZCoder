@@ -9602,10 +9602,30 @@ index 69d8a62d8d7c285072fb309df7a586afe3c4ccf9..d71990bb84c858c3a107c65997b46f2c
    );
  }
 diff --git a/packages/ui/src/settings/ModelProviderSection.tsx b/packages/ui/src/settings/ModelProviderSection.tsx
-index 28170111eb2f4fa8f68dd0e044855040fb9357b8..5accacc85486eee641bfad16e97b8180583445a0 100644
+index 28170111eb2f4fa8f68dd0e044855040fb9357b8..0d11bc8807b7bb22e176f5c77b36e5bc06ff9777 100644
 --- a/packages/ui/src/settings/ModelProviderSection.tsx
 +++ b/packages/ui/src/settings/ModelProviderSection.tsx
-@@ -1000,7 +1000,21 @@ export function ModelProviderSection({
+@@ -19,7 +19,6 @@ import {
+   type OAuthProviderId,
+   resolveModelProviderFamilyIdByProviderId,
+   resolveModelProviderFamilySpecByProviderId,
+-  resolveProviderFamilyDomainFromOAuthProvider,
+   ZAI_PROVIDER_ID,
+ } from "@zcode/shared";
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+@@ -450,9 +449,8 @@ export function ModelProviderSection({
+     effectiveConnectionSelections.bigmodel?.kind === "team-coding-plan" ||
+     effectiveConnectionSelections.zai?.kind === "team-coding-plan",
+   );
+-  const effectiveProviderFamilyDomain =
+-    sharedSettings?.providerFamilyDomain ??
+-    resolveProviderFamilyDomainFromOAuthProvider(activeOAuthProvider);
++  // 设置入口不按账号域隐藏；持久化账号域、认证和执行资格仍由原链路约束。
++  const effectiveProviderFamilyDomain = null;
+   const { entitlements: codingPlanEntitlements, refresh: refreshCodingPlanEntitlements } =
+     useCodingPlanEntitlements({
+       providerSettingsView,
+@@ -1000,7 +998,21 @@ export function ModelProviderSection({
      async (input: { templateId?: string; providerName?: string }) => {
        setCreatingProvider(true);
        try {
@@ -23148,6 +23168,213 @@ index 0000000000000000000000000000000000000000..1311cfafb4081a3535ac46961dcdc21c
 +      }
 +    });
 +  }
+diff --git a/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.fixture.tsx b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.fixture.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1c691247d52da569051481272b483cdadb4a870
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.fixture.tsx
+@@ -0,0 +1,19 @@
++import { createRoot } from "react-dom/client";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { TooltipProvider } from "@/components/ui/tooltip.js";
++import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
++import "@/styles.css";
++
++document.documentElement.className =
++  new URLSearchParams(location.search).get("theme") === "light"
++    ? "light theme-zai-light"
++    : "dark theme-zai-dark";
++createRoot(document.getElementById("root")!).render(
++  <ZCodeIntlProvider initialLocale="zh-CN">
++    <TooltipProvider>
++      <main className="min-h-screen bg-background p-6 text-foreground">
++        <ModelProviderSection />
++      </main>
++    </TooltipProvider>
++  </ZCodeIntlProvider>,
++);
+diff --git a/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.mocks.ts b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.mocks.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f2f23940750405139decd044b502c025f0d5a3e
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.mocks.ts
+@@ -0,0 +1,106 @@
++// 隔离预览仅提供内存服务，不访问 Host、账户、凭据或网络。
++import { createContext, type ReactNode } from "react";
++
++const noop = async () => {};
++const empty: never[] = [];
++const view = { revision: 1, providers: [], providerTemplates: [] };
++const services = {
++  credentialService: { load: async () => null },
++  oauthService: { getActiveProvider: async () => null },
++  modelSelectionService: { getView: async () => view },
++  providerSettingsService: { getView: async () => view },
++};
++const store = {
++  user: null,
++  oauthError: null,
++  requestLoginEntry: noop,
++  setUser: noop,
++  setOAuthError: noop,
++};
++export const useConfirmDialog = () => noop;
++export const usePlatform = () => ({
++  openExternal: noop,
++  registerOAuthState: noop,
++});
++export const useOptionalPlatform = () => null;
++export const useSelectDirectory = () => noop;
++export const useConnectRemote = () => noop;
++export const PlatformProvider = ({ children }: { children: ReactNode }) => children;
++export const ServiceProvider = PlatformProvider;
++export const StoreProvider = PlatformProvider;
++export const TabStoreProvider = PlatformProvider;
++export const CodingPlanUpgradeDialogProvider = PlatformProvider;
++export const StoreContext = createContext(null);
++export const useComposerClientNamespace = () => "fixture";
++export const useOptionalTabStore = () => null;
++export const useTabStoreApi = () => ({ getState: () => ({}) });
++export const useRecentProjects = () => ({ projects: [], loading: false });
++export const updateSettingsAndRefreshSnapshot = noop;
++export const useProviderSettingsServiceView = () => ({
++  state: { status: "ready", view },
++  reload: noop,
++  commit: noop,
++});
++export const USAGE_ENTITLEMENT_REFRESH_TIMEOUT_MS = 20_000;
++export const withUsageEntitlementTimeout = <T>(promise: Promise<T>) => promise;
++export const useUsageEntitlementWithService = () => useUsageEntitlement();
++export const shouldRetainEnterprisePricingSnapshotForRefresh = () => false;
++export const resolveEnterprisePricingFailureSnapshot = () => null;
++export const resolveCodingPlanProviderFingerprintAutoRefresh = () => false;
++export const useServices = () => services;
++export const useOptionalServices = () => null;
++export const useZCodeStore = <T>(selector: (value: typeof store) => T): T => selector(store);
++export const useZCodeStoreWithDefault = <T>(_selector: unknown, fallback: T): T => fallback;
++export const useTabStore = <T>(
++  selector: (value: { activeWorkspacePath: null; tabs: never[] }) => T,
++): T => selector({ activeWorkspacePath: null, tabs: [] });
++export const useSettings = () => ({
++  settings: {
++    providerFamilyDomain:
++      new URLSearchParams(location.search).get("domain") === "null"
++        ? undefined
++        : new URLSearchParams(location.search).get("domain") || "bigmodel",
++  },
++  loading: false,
++  error: null,
++  update: noop,
++});
++export const useModelProviders = () => ({
++  modelProviders: empty,
++  providerTemplates: empty,
++  loading: false,
++  loadError: null,
++  refreshing: false,
++  reload: noop,
++  refresh: noop,
++  saveProvider: noop,
++  deleteProvider: noop,
++  reorderableProviderIds: new Set(),
++  providerSettingsView: view,
++});
++export const useEnterpriseCodingPlanProducts = () => ({
++  snapshot: null,
++  products: empty,
++  subscribedProducts: empty,
++  refresh: noop,
++  loading: false,
++});
++export const useCodingPlanEntitlements = () => ({
++  entitlements: {},
++  refresh: noop,
++});
++export const useCodingPlanAccessRefresh = () => {};
++export const useCodingPlanUpgradeDialog = () => ({
++  openCodingPlanUpgrade: noop,
++});
++export const useOptionalCodingPlanUpgradeDialog = () => null;
++export const useProviderSettingsView = () => ({
++  state: { status: "ready", view },
++  reload: noop,
++});
++export const useUsageEntitlement = () => ({
++  snapshot: null,
++  loading: false,
++  error: null,
++  refresh: noop,
++});
+diff --git a/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.vite.mjs b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.vite.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b27866b737fd359bd75234105a96a77d7dbbdf1
+--- /dev/null
++++ b/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.vite.mjs
+@@ -0,0 +1,64 @@
++import { fileURLToPath } from "node:url";
++import { createServer } from "vite";
++import react from "@vitejs/plugin-react";
++import tailwindcss from "@tailwindcss/vite";
++
++const root = fileURLToPath(new URL("../../../../../../", import.meta.url));
++const entry =
++  "/packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.fixture.tsx";
++const mock = fileURLToPath(new URL("./model-provider-family-visibility.mocks.ts", import.meta.url));
++const mocks = [
++  "hooks/useConfirmDialog",
++  "hooks/usePlatform",
++  "hooks/useServices",
++  "hooks/useSettingService",
++  "hooks/useModelProviders",
++  "hooks/useProviderSettingsView",
++  "hooks/useUsageEntitlement",
++  "store/StoreProvider",
++  "store/TabStoreProvider",
++  "settings/CodingPlanUpgradeDialogProvider",
++  "settings/model-provider-section/useEnterpriseCodingPlanProducts",
++  "settings/model-provider-section/useCodingPlanEntitlements",
++];
++const server = await createServer({
++  root,
++  configFile: false,
++  plugins: [
++    react(),
++    tailwindcss(),
++    {
++      name: "model-provider-family-visibility-preview",
++      configureServer(vite) {
++        vite.middlewares.use(async (req, res, next) => {
++          if (!req.url?.startsWith("/fixture")) return next();
++          res.setHeader("Content-Type", "text/html; charset=utf-8");
++          res.end(
++            await vite.transformIndexHtml(
++              req.url,
++              `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><script>function report(message) { const pre = document.createElement('pre'); pre.style.cssText = 'color:red;background:white;white-space:pre-wrap'; pre.textContent = String(message); document.body.appendChild(pre); } window.addEventListener('error', e => report(e.message || 'Failed to load script')); window.addEventListener('unhandledrejection', e => report(e.reason?.stack || e.reason));</script></head><body><div id="root">Loading fixture…</div><script type="module" src="${entry}"></script></body></html>`,
++            ),
++          );
++        });
++      },
++    },
++  ],
++  resolve: {
++    alias: [
++      ...mocks.map((path) => ({
++        find: new RegExp(`^@/${path}\\.js$`),
++        replacement: mock,
++      })),
++      { find: "@", replacement: `${root}packages/ui/src` },
++      // ModelProviderSection imports these hooks via a relative path.
++      ...["useEnterpriseCodingPlanProducts", "useCodingPlanEntitlements"].map((name) => ({
++        find: new RegExp(`^\\./model-provider-section/${name}\\.js$`),
++        replacement: mock,
++      })),
++    ],
++  },
++  optimizeDeps: { entries: [entry.slice(1)] },
++  server: { host: "127.0.0.1", port: 5197, strictPort: true },
++});
++await server.listen();
++console.log("Preview: http://127.0.0.1:5197/fixture?domain=bigmodel");
 diff --git a/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx b/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx
 index f6cce303982e747c4fb6c728a40b9b38da78bc8e..921f6308639ec9cc3a3511b263af2abc6204855d 100644
 --- a/packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx
@@ -29252,6 +29479,226 @@ index d3584ecb050b4527aabe580147cf9f13c1923e2b..c1e11e0b60223efafa367910a4cf59b3
            }
          }
        }
+diff --git a/packages/ui/test/modelProviderFamilySettingsVisibility.test.ts b/packages/ui/test/modelProviderFamilySettingsVisibility.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..090fbf06ef6c11e5efe97fabefc3fd0e35b5de33
+--- /dev/null
++++ b/packages/ui/test/modelProviderFamilySettingsVisibility.test.ts
+@@ -0,0 +1,214 @@
++// @vitest-environment jsdom
++import { createElement } from "react";
++import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import {
++  BUILTIN_MODEL_PROVIDER_IDS,
++  type ProviderFamilyConnectionSelectionSettings,
++} from "@zcode/shared";
++
++const state = vi.hoisted(() => ({
++  domain: undefined as "zai" | "bigmodel" | undefined,
++  activeProvider: null as "zai" | "bigmodel" | null,
++  selections: {} as ProviderFamilyConnectionSelectionSettings,
++}));
++const updateSettings = vi.hoisted(() => vi.fn(async () => {}));
++const requestLoginEntry = vi.hoisted(() => vi.fn());
++const credentialLoad = vi.hoisted(() =>
++  vi.fn(async (key: string) => (key === "oauth:active_provider" ? state.activeProvider : null)),
++);
++const noop = vi.hoisted(() => async () => {});
++vi.mock("@/hooks/useSettingService.js", () => ({
++  useSettings: () => ({
++    settings: {
++      providerFamilyDomain: state.domain,
++      providerFamilyConnectionSelections: state.selections,
++    },
++    loading: false,
++    error: null,
++    update: updateSettings,
++  }),
++}));
++vi.mock("@/hooks/useConfirmDialog.js", () => ({
++  useConfirmDialog: () => noop,
++}));
++vi.mock("@/hooks/useModelProviders.js", () => ({
++  useModelProviders: () => ({
++    modelProviders: [],
++    providerTemplates: [],
++    loading: false,
++    loadError: null,
++    refreshing: false,
++    reload: noop,
++    refresh: noop,
++    saveProvider: noop,
++    deleteProvider: noop,
++    reorderableProviderIds: new Set(),
++    providerSettingsView: { revision: 1, providers: [] },
++  }),
++}));
++vi.mock("@/hooks/usePlatform.js", () => ({
++  usePlatform: () => ({ openExternal: noop, registerOAuthState: noop }),
++}));
++vi.mock("@/hooks/useServices.js", () => ({
++  useServices: () => ({
++    credentialService: { load: credentialLoad },
++    oauthService: {},
++    modelSelectionService: {},
++  }),
++  useOptionalServices: () => null,
++}));
++vi.mock("@/store/StoreProvider.js", () => ({
++  useZCodeStore: (selector: (state: unknown) => unknown) =>
++    selector({
++      user: null,
++      oauthError: null,
++      requestLoginEntry,
++      setUser: noop,
++      setOAuthError: noop,
++    }),
++  useZCodeStoreWithDefault: (_selector: unknown, fallback: unknown) => fallback,
++}));
++vi.mock("@/store/TabStoreProvider.js", () => ({
++  useTabStore: (selector: (state: unknown) => unknown) =>
++    selector({ activeWorkspacePath: null, tabs: [] }),
++}));
++vi.mock("@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js", () => ({
++  useEnterpriseCodingPlanProducts: () => ({
++    snapshot: null,
++    refresh: noop,
++    loading: false,
++  }),
++}));
++vi.mock("@/settings/model-provider-section/useCodingPlanEntitlements.js", () => ({
++  useCodingPlanEntitlements: () => ({ entitlements: {}, refresh: noop }),
++  useCodingPlanAccessRefresh: () => {},
++}));
++vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
++  useCodingPlanUpgradeDialog: () => ({ openCodingPlanUpgrade: noop }),
++  useOptionalCodingPlanUpgradeDialog: () => null,
++}));
++vi.mock("@/hooks/useProviderSettingsView.js", () => ({
++  useProviderSettingsView: () => ({
++    state: { status: "ready", view: { revision: 1, providers: [] } },
++    reload: noop,
++  }),
++}));
++vi.mock("@/hooks/useUsageEntitlement.js", () => ({
++  useUsageEntitlement: () => ({
++    snapshot: null,
++    loading: false,
++    error: null,
++    refresh: noop,
++  }),
++}));
++
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import { TooltipProvider } from "@/components/ui/tooltip.js";
++import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
++
++const zai = `model-provider-nav-item-preset:${BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan}`;
++const bigmodel = `model-provider-nav-item-preset:${BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan}`;
++
++describe("模型供应商设置家族入口", () => {
++  afterEach(() => {
++    cleanup();
++    updateSettings.mockClear();
++    requestLoginEntry.mockClear();
++    credentialLoad.mockClear();
++    state.selections = {};
++  });
++  it.each([
++    { domain: "zai", activeProvider: null },
++    { domain: "bigmodel", activeProvider: null },
++    { domain: undefined, activeProvider: null },
++    { domain: undefined, activeProvider: "bigmodel" },
++  ] as const)(
++    "$domain 域 / $activeProvider 活动账号显示两个入口且 Z.ai 详情可用",
++    async ({ domain, activeProvider }) => {
++      state.domain = domain;
++      state.activeProvider = activeProvider;
++      const { container } = render(
++        createElement(
++          ZCodeIntlProvider,
++          { initialLocale: "zh-CN" },
++          createElement(TooltipProvider, null, createElement(ModelProviderSection)),
++        ),
++      );
++      // 等待 credential 异步水合触发 React 状态更新，防止只验证首帧。
++      await waitFor(() => expect(credentialLoad).toHaveBeenCalledWith("oauth:active_provider"));
++      await waitFor(() => expect(screen.getByTestId(bigmodel)).toBeTruthy());
++      expect(screen.getByTestId(zai)).toBeTruthy();
++      expect(screen.getByTestId(bigmodel)).toBeTruthy();
++      expect(
++        screen.queryByTestId(
++          `model-provider-nav-item-coding-plan:${BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan}`,
++        ),
++      ).toBeNull();
++      expect(
++        screen.queryByTestId(
++          `model-provider-nav-item-coding-plan:${BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan}`,
++        ),
++      ).toBeNull();
++      fireEvent.click(screen.getByTestId(zai));
++      const detail = container.querySelector('[data-model-provider-detail-scroll="true"]');
++      expect(detail).not.toBeNull();
++      await waitFor(() =>
++        expect(within(detail as HTMLElement).getByRole("heading", { name: "Z.ai" })).toBeTruthy(),
++      );
++      expect(
++        within(detail as HTMLElement).getByTestId("model-provider-connection-mode-trigger"),
++      ).toBeTruthy();
++      expect(updateSettings).not.toHaveBeenCalled();
++      expect(requestLoginEntry).not.toHaveBeenCalled();
++      fireEvent.click(within(detail as HTMLElement).getByRole("button", { name: "连接 Z.ai" }));
++      expect(requestLoginEntry).toHaveBeenCalledWith("zai");
++    },
++  );
++
++  it.each([
++    { active: "bigmodel", other: "zai", label: "Z.ai", nav: zai },
++    { active: "zai", other: "bigmodel", label: "BigModel", nav: bigmodel },
++  ] as const)("$active 活动时检查 $other 保存的团队连接", async ({ active, other, label, nav }) => {
++    state.domain = active;
++    state.activeProvider = active;
++    state.selections = {
++      [other]: {
++        kind: "team-coding-plan",
++        productId: "fixture-product",
++        organizationId: "fixture-org",
++        projectId: "fixture-project",
++      },
++    };
++    const { container } = render(
++      createElement(
++        ZCodeIntlProvider,
++        { initialLocale: "zh-CN" },
++        createElement(TooltipProvider, null, createElement(ModelProviderSection)),
++      ),
++    );
++    await waitFor(() => expect(credentialLoad).toHaveBeenCalledWith("oauth:active_provider"));
++    fireEvent.click(screen.getByTestId(nav));
++    const detail = container.querySelector(
++      '[data-model-provider-detail-scroll="true"]',
++    ) as HTMLElement;
++    await waitFor(() => expect(within(detail).getByRole("heading", { name: label })).toBeTruthy());
++    expect(detail.textContent).toContain("账号 Provider 配置暂不可用");
++    expect(within(detail).queryByRole("button", { name: `连接 ${label}` })).toBeNull();
++    expect(detail.textContent).not.toContain("已购买");
++    // 即使没有订阅证据，fallback 状态仍呈现管理入口；不是登录按钮。
++    expect(within(detail).getByRole("button", { name: "管理" })).toBeTruthy();
++    const trigger = within(detail).getByTestId("model-provider-connection-mode-trigger");
++    expect(trigger.textContent).toContain("Team");
++    fireEvent.keyDown(trigger, { key: "ArrowDown" });
++    expect(screen.getByRole("option", { name: "Team" })).toBeTruthy();
++    const personal = screen.getByRole("option", { name: "个人套餐" });
++    fireEvent.click(personal);
++    await waitFor(() =>
++      expect(within(detail).getByRole("button", { name: `连接 ${label}` })).toBeTruthy(),
++    );
++    expect(requestLoginEntry).not.toHaveBeenCalled();
++    fireEvent.click(within(detail).getByRole("button", { name: `连接 ${label}` }));
++    expect(requestLoginEntry).toHaveBeenCalledWith(other);
++  });
++});
 diff --git a/packages/ui/test/modelProviderModelRowEditor.test.ts b/packages/ui/test/modelProviderModelRowEditor.test.ts
 index 4e549b6bff8aaf4b88004242ff4955086c2fb39c..af85d885c4f05169887970122cb0dc4b6feaac3c 100644
 --- a/packages/ui/test/modelProviderModelRowEditor.test.ts

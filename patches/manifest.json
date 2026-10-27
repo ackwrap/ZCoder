@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "2acbb4bbd8e88bee280dc18c7b62f3c173d169f1",
-  "tree": "58562c0b437b9177ffe9d9799b9cd85e31e7b78f",
+  "sourceHead": "8eab4f7c2186229cb33846869330e25444b6a6f3",
+  "tree": "0c0d6be6511446b1013e16a7863e83c4e280e024",
   "excludedChangedPaths": [],
   "patches": [
     {
@@ -341,7 +341,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "44b89361d191794634e189e62d4866a809a846628cbaecdf02c4bff3ed3d6421",
+      "sha256": "9cbc228123173ce20c4ffa14a68c4b7ae37cf30cf4ba734b132e61adda9075fa",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -359,6 +359,7 @@
         "docs/design/provider-model-resolution-policy.md",
         "docs/design/settings-compaction-minimal-integration.md",
         "docs/image-preview-pointer-interaction.md",
+        "docs/model-provider-family-settings-visibility.md",
         "docs/model-system-prompts.md",
         "docs/permission-mode-live-switch.md",
         "docs/plan-slash-command.md",
@@ -584,7 +585,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "536fcb76f6abca4f162bab84cbb028ae3ab82bdc985b0b6714af7f7e1bb17724",
+      "sha256": "8f01f8e8175ecbeb9db7d9d612f60970a728cd5468e74989c0e13f6d6ea70cfe",
       "paths": [
         "packages/ui/src/McpStatusDialog.tsx",
         "packages/ui/src/PreviewPane.tsx",
@@ -877,6 +878,9 @@
         "packages/ui/test/browser/manual-review/pending/conversation-hook-footer.test.mjs",
         "packages/ui/test/browser/manual-review/pending/markdown-density.fixture.tsx",
         "packages/ui/test/browser/manual-review/pending/markdown-density.test.mjs",
+        "packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.fixture.tsx",
+        "packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.mocks.ts",
+        "packages/ui/test/browser/manual-review/pending/model-provider-family-visibility.vite.mjs",
         "packages/ui/test/browser/manual-review/pending/provider-settings-batch.fixture.tsx",
         "packages/ui/test/browser/manual-review/pending/session-diagnostics.fixture.tsx",
         "packages/ui/test/browser/manual-review/pending/session-diagnostics.test.mjs",
@@ -914,6 +918,7 @@
         "packages/ui/test/modeSwitchCommand.test.ts",
         "packages/ui/test/modelEffortCommands.test.ts",
         "packages/ui/test/modelProviderCodingPlan.test.ts",
+        "packages/ui/test/modelProviderFamilySettingsVisibility.test.ts",
         "packages/ui/test/modelProviderModelRowEditor.test.ts",
         "packages/ui/test/modelSystemPromptDialog.test.ts",
         "packages/ui/test/modelSystemPromptIndependentCard.test.ts",
@@ -980,7 +985,7 @@
     {
       "file": "0011-packages-zcode-cua.patch",
       "directory": "packages/zcode-cua",
-      "sha256": "77964ee0b04d74faaa7a9f1bd01f0d7ac1a290ce154c4b3731210ee3e543c86f",
+      "sha256": "1222217cc21654a33279bbb0196d233c15bb40fb45c5ae957182be3685e0a613",
       "paths": [
         "packages/zcode-cua/README.md",
         "packages/zcode-cua/broker-helper-constants.d.ts",
@@ -995,11 +1000,13 @@
         "packages/zcode-cua/index.js",
         "packages/zcode-cua/package.json",
         "packages/zcode-cua/runtime/envelope.js",
+        "packages/zcode-cua/runtime/helper-launcher.js",
         "packages/zcode-cua/runtime/session.js",
         "packages/zcode-cua/runtime/tree-text.js",
         "packages/zcode-cua/test/availability.test.ts",
         "packages/zcode-cua/test/host-integration.windows.mjs",
         "packages/zcode-cua/test/integration.windows.mjs",
+        "packages/zcode-cua/test/lazy-launch.windows.mjs",
         "packages/zcode-cua/test/no-dev-mode.windows.mjs",
         "packages/zcode-cua/test/product-loop.windows.mjs",
         "packages/zcode-cua/test/staged-runtime.windows.mjs"

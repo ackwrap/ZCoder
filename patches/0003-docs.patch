@@ -658,6 +658,19 @@ index 13a27a97160d53cbb74a3dbe078d6bc5379da9c0..e2b5c1201573d8f982167aa039246dad
 +| IPD-10 | 真实双 touch / 两种抬起顺序  | padding/viewport 均不关闭，pinch 持续到全抬起 |
 +| IPD-11 | zoom disabled 后点 toolbar   | 父级保留区域不触发关闭                        |
 +| IPD-12 | gallery/item/loading 切换    | 旧手势取消；新空白轻点仍正常关闭              |
+diff --git a/docs/model-provider-family-settings-visibility.md b/docs/model-provider-family-settings-visibility.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..8d1348e6bc5e13456fe13cc872b665f78933c3dd
+--- /dev/null
++++ b/docs/model-provider-family-settings-visibility.md
+@@ -0,0 +1,7 @@
++# 模型供应商设置入口可见性
++
++模型供应商设置页的 Z.ai 和 BigModel 品牌入口始终同时可见，不因持久化账号域、活动 OAuth 来源或尚未选择账号域而隐藏另一入口。选择任一入口应进入对应家族的实际连接方式及详情，不能只显示入口而缺少详情数据。
++
++此规则仅约束设置页展示，不改变账号域持久化、连接选择、认证、权益查询或模型运行时选择的既有逻辑。浏览或点击品牌入口不写入账号域、不发起登录；主动切换连接方式仍沿用原逻辑保存账号域，连接按钮仍通过统一登录入口切换对应 OAuth 身份。独立的 Start Plan 侧栏项继续隐藏；家族内相关功能不因此改变。
++
++验证应通过实际 `ModelProviderSection` 及其导航计算，覆盖 `zai`、`bigmodel` 和无域，检查点击 Z.ai 后对应详情存在，并覆盖独立 Start Plan 侧栏项仍隐藏。浏览器预览应使用真实组件和样式，服务采用隔离替身，不访问真实凭据或账号。
 diff --git a/docs/model-system-prompts.md b/docs/model-system-prompts.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..fb8409d5f6620f6f548879de9e6a21e14243af28
