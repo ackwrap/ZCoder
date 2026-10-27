@@ -4906,60 +4906,58 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..4614b193776eadc7dfc40052cd8d6ace
    "sidebar.usage.plan.audienceTeam": "团队",
 diff --git a/packages/ui/src/i18n/model-system-prompts/index.ts b/packages/ui/src/i18n/model-system-prompts/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..00d19c90e6f88935b9b65928ada472fa3538d449
+index 0000000000000000000000000000000000000000..82756760a6050f118d7afa40578b29879e011dd7
 --- /dev/null
 +++ b/packages/ui/src/i18n/model-system-prompts/index.ts
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,49 @@
 +/**
-+ * 模型补充提示词的中英文文案。独立于 edition-messages：后者有 fingerprint 契约，
++ * 模型自定义系统 Agent 提示词的中英文文案。独立于 edition-messages：后者有 fingerprint 契约，
 + * 新增键不得改写其既有字典。
 + */
 +export const modelSystemPromptMessagesZhCN = {
-+  "settings.advanced.modelSystemPrompts.title": "模型补充提示词",
++  "settings.advanced.modelSystemPrompts.title": "自定义系统 Agent 提示词",
 +  "settings.advanced.modelSystemPrompts.description":
-+    "按供应商与模型精确匹配，在内置系统提示词之后追加自定义内容；不会替换内置工具、Skills 或权限规则。",
++    "按供应商与模型精确匹配保存自定义系统 Agent 提示词。启用后将替换其它默认 Agent 提示词，仅保留工具、MCP 与 Skill 说明；权限、审批与 Sandbox 执行机制不变。本功能不设固定字数上限，实际可用长度仍受模型上下文限制。",
 +  "settings.advanced.modelSystemPrompts.pickModel": "选择模型",
 +  "settings.advanced.modelSystemPrompts.pickModelPlaceholder": "选择一个模型",
 +  "settings.advanced.modelSystemPrompts.entryCount": "{count}/{max} 条",
 +  "settings.advanced.modelSystemPrompts.orphanGroup": "不在当前模型目录中的条目",
-+  "settings.advanced.modelSystemPrompts.editorLabel": "补充提示词",
++  "settings.advanced.modelSystemPrompts.editorLabel": "自定义系统 Agent 提示词",
 +  "settings.advanced.modelSystemPrompts.editorPlaceholder":
-+    "仅对所选模型生效；内容会追加在内置系统提示词之后。",
-+  "settings.advanced.modelSystemPrompts.charCount": "{count}/{max} 字符",
++    "仅对所选模型生效。启用后替换其它默认 Agent 提示词，保留工具/MCP/Skill 说明；权限、审批与 Sandbox 不变。",
 +  "settings.advanced.modelSystemPrompts.save": "保存",
 +  "settings.advanced.modelSystemPrompts.delete": "删除此条",
 +  "settings.advanced.modelSystemPrompts.saveFailed": "保存失败，已保留当前编辑；请重试。",
-+  "settings.advanced.modelSystemPrompts.tooLong": "单条最多 {max} 个字符。",
 +  "settings.advanced.modelSystemPrompts.tooMany": "最多保存 {max} 个模型条目。",
 +  "settings.advanced.modelSystemPrompts.catalogFailed":
 +    "无法读取模型目录；已保存的条目仍可查看、编辑和删除。",
-+  "chat.modelSystemPrompt.enable": "启用模型补充提示词（仅当前会话，下次发送生效）",
-+  "chat.modelSystemPrompt.disable": "停用模型补充提示词（仅当前会话，下次发送生效）",
++  "chat.modelSystemPrompt.enable":
++    "启用自定义系统 Agent 提示词（替换其它默认 Agent 提示词，保留工具/MCP/Skill；仅当前会话，下次发送生效）",
++  "chat.modelSystemPrompt.disable":
++    "停用自定义系统 Agent 提示词（恢复默认 Agent 提示词；仅当前会话，下次发送生效）",
 +} as const;
 +
 +export const modelSystemPromptMessagesEnUS = {
-+  "settings.advanced.modelSystemPrompts.title": "Model extra system prompts",
++  "settings.advanced.modelSystemPrompts.title": "Custom Agent system prompt",
 +  "settings.advanced.modelSystemPrompts.description":
-+    "Match an exact provider and model, then append text after the built-in system prompt. This does not replace built-in tools, Skills, or permission rules.",
++    "Save a custom Agent system prompt for an exact provider and model. When enabled, it replaces the other default Agent prompts and keeps only the tool, MCP, and Skill instructions; permission, approval, and sandbox behavior is unchanged. This feature has no fixed character limit; usable length still depends on the model context.",
 +  "settings.advanced.modelSystemPrompts.pickModel": "Select model",
 +  "settings.advanced.modelSystemPrompts.pickModelPlaceholder": "Select a model",
 +  "settings.advanced.modelSystemPrompts.entryCount": "{count}/{max} entries",
 +  "settings.advanced.modelSystemPrompts.orphanGroup": "Entries outside the current model catalog",
-+  "settings.advanced.modelSystemPrompts.editorLabel": "Extra system prompt",
++  "settings.advanced.modelSystemPrompts.editorLabel": "Custom Agent system prompt",
 +  "settings.advanced.modelSystemPrompts.editorPlaceholder":
-+    "Applies to the selected model only and is appended after the built-in system prompt.",
-+  "settings.advanced.modelSystemPrompts.charCount": "{count}/{max} characters",
++    "Applies to the selected model only. When enabled, it replaces the other default Agent prompts and keeps the tool, MCP, and Skill instructions; permissions, approvals, and sandbox behavior are unchanged.",
 +  "settings.advanced.modelSystemPrompts.save": "Save",
 +  "settings.advanced.modelSystemPrompts.delete": "Delete entry",
 +  "settings.advanced.modelSystemPrompts.saveFailed": "Save failed. Your edit is kept; try again.",
-+  "settings.advanced.modelSystemPrompts.tooLong": "Each entry can be at most {max} characters.",
 +  "settings.advanced.modelSystemPrompts.tooMany": "You can save at most {max} model entries.",
 +  "settings.advanced.modelSystemPrompts.catalogFailed":
 +    "The model catalog is unavailable. Saved entries can still be viewed, edited, and deleted.",
 +  "chat.modelSystemPrompt.enable":
-+    "Enable model extra system prompt (this session only; applies to the next send)",
++    "Enable custom Agent system prompt (replaces other default Agent prompts, keeps tool/MCP/Skill instructions; this session only; applies to the next send)",
 +  "chat.modelSystemPrompt.disable":
-+    "Disable model extra system prompt (this session only; applies to the next send)",
++    "Disable custom Agent system prompt (restores the default Agent prompts; this session only; applies to the next send)",
 +} as const;
 diff --git a/packages/ui/src/lib/mcpStatusCommand.ts b/packages/ui/src/lib/mcpStatusCommand.ts
 new file mode 100644
@@ -8558,19 +8556,21 @@ index 726228b7474916dd2e7bd19ed64c10876e00b4ab..134ff2875b8d570c65cc099eac1e564d
                  return (
 diff --git a/packages/ui/src/settings/model-system-prompts/CONTRACT.md b/packages/ui/src/settings/model-system-prompts/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..5cb639f02aaf3f68a3bb9185e9e829c693ef3088
+index 0000000000000000000000000000000000000000..1e63ee3aa631ab2d1075bf5ac14af9cb710276d7
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/CONTRACT.md
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,30 @@
 +# ui-model-system-prompts-settings
 +
-+高级设置中的“模型补充系统提示词”编辑区。只消费注入的设置投影和异步 patch 命令；不访问
-+持久化、不广播、不读凭据，也不决定运行时如何拼接系统提示词。
++高级设置中的“自定义系统 Agent 提示词”编辑区。只消费注入的设置投影和异步 patch 命令；不访问
++持久化、不广播、不读凭据，也不决定运行时如何替换系统提示词。
 +
 +## 不变量
 +
-+- 精确按 `providerId + modelId` 匹配（大小写敏感）；最多 20 条，单条 normalized 文本最多
-+  8000 字符。
++- 精确按 `providerId + modelId` 匹配（大小写敏感）；最多 20 条，本功能不设固定字数上限
++  （实际可用长度仍受模型上下文与请求限制）。
++- 启用后以该条内容替换其它默认 Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与
++  Sandbox 执行机制不变。
 +- 文本 CRLF/CR → LF，只裁剪首尾空白，保留内部换行与缩进。
 +- 模型目录来自既有 `modelSelectionService.getView()`；不读取 API Key/OAuth。
 +- 已保存但不在目录中的孤儿条目仍可选择、查看、编辑和删除。
@@ -8592,16 +8592,12 @@ index 0000000000000000000000000000000000000000..5cb639f02aaf3f68a3bb9185e9e829c6
 +测试锚点：`model-system-prompt-model-select`、`-textarea`、`-save`、`-delete`、`-error`。
 diff --git a/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..8a7b005d19d360539e0b8760f0aab24c2541c9e5
+index 0000000000000000000000000000000000000000..53d322da0af6dc8bbe167f42706735fa82b209f6
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/ModelSystemPromptsSettingsSection.tsx
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,491 @@
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-+import {
-+  MODEL_SYSTEM_PROMPT_MAX_CHARS,
-+  MODEL_SYSTEM_PROMPT_MAX_ENTRIES,
-+  type ModelSystemPromptEntry,
-+} from "@zcode/shared";
++import { MODEL_SYSTEM_PROMPT_MAX_ENTRIES, type ModelSystemPromptEntry } from "@zcode/shared";
 +import { Button } from "@/components/ui/button.js";
 +import { useServices } from "@/hooks/useServices.js";
 +import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -8647,8 +8643,10 @@ index 0000000000000000000000000000000000000000..8a7b005d19d360539e0b8760f0aab24c
 +const TID_ERROR = "model-system-prompt-error";
 +
 +/**
-+ * 高级设置中的模型补充提示词编辑区。保存只走注入的 `onUpdateSettings`；
-+ * 所有迟到异步结果都先过 mounted + selection token + request id 守卫。
++ * 高级设置中的模型自定义系统 Agent 提示词编辑区。启用后以该内容替换其它默认
++ * Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与 Sandbox 不变。
++ * 保存只走注入的 `onUpdateSettings`；所有迟到异步结果都先过 mounted + selection token
++ * + request id 守卫。
 + */
 +export function ModelSystemPromptsSettingsSection({
 +  settings,
@@ -8853,16 +8851,8 @@ index 0000000000000000000000000000000000000000..8a7b005d19d360539e0b8760f0aab24c
 +          pendingRef.current = false;
 +          setPendingState(false);
 +          setErrorState({
-+            id:
-+              built.error === "too-long"
-+                ? "settings.advanced.modelSystemPrompts.tooLong"
-+                : "settings.advanced.modelSystemPrompts.tooMany",
-+            values: {
-+              max:
-+                built.error === "too-long"
-+                  ? MODEL_SYSTEM_PROMPT_MAX_CHARS
-+                  : MODEL_SYSTEM_PROMPT_MAX_ENTRIES,
-+            },
++            id: "settings.advanced.modelSystemPrompts.tooMany",
++            values: { max: MODEL_SYSTEM_PROMPT_MAX_ENTRIES },
 +          });
 +          return;
 +        }
@@ -8955,7 +8945,6 @@ index 0000000000000000000000000000000000000000..8a7b005d19d360539e0b8760f0aab24c
 +  const orphanEntries = entries.filter(
 +    (entry) => !catalogKeys.has(modelSystemPromptEntryKey(entry.providerId, entry.modelId)),
 +  );
-+  const selectedTextLength = draft.length;
 +  const selectedTarget = parseModelSystemPromptEntryKey(selectedKey);
 +
 +  return (
@@ -9055,16 +9044,7 @@ index 0000000000000000000000000000000000000000..8a7b005d19d360539e0b8760f0aab24c
 +                }
 +              }}
 +            />
-+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-+              <span className="text-ui-xs text-foreground-subtle">
-+                {intl.formatMessage(
-+                  { id: "settings.advanced.modelSystemPrompts.charCount" },
-+                  {
-+                    count: selectedTextLength,
-+                    max: MODEL_SYSTEM_PROMPT_MAX_CHARS,
-+                  },
-+                )}
-+              </span>
++            <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
 +              <div className="flex items-center gap-2">
 +                <Button
 +                  type="button"
@@ -9145,15 +9125,15 @@ index 0000000000000000000000000000000000000000..0ac35c342371d4420b5198a2ac98925c
 +export { ModelSystemPromptsSettingsSection };
 diff --git a/packages/ui/src/settings/model-system-prompts/contract.test.ts b/packages/ui/src/settings/model-system-prompts/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..75ac6ca01c042342c4478626c8c19dba3c8d16eb
+index 0000000000000000000000000000000000000000..01dbd3b78aa0d8e3d9fe5780945474963e735645
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/contract.test.ts
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,109 @@
 +// @vitest-environment jsdom
 +import { createElement, type ReactNode } from "react";
 +import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-+import { MODEL_SYSTEM_PROMPT_MAX_CHARS, type ModelSystemPromptEntry } from "@zcode/shared";
++import type { ModelSystemPromptEntry } from "@zcode/shared";
 +import {
 +  modelSystemPromptMessagesEnUS,
 +  modelSystemPromptMessagesZhCN,
@@ -9247,13 +9227,6 @@ index 0000000000000000000000000000000000000000..75ac6ca01c042342c4478626c8c19dba
 +        "  ",
 +      ),
 +    ).toEqual({ ok: true, entries: [], text: "" });
-+    expect(
-+      buildModelSystemPromptEntries(
-+        [entry("p", "m", "old")],
-+        { providerId: "p", modelId: "m" },
-+        "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1),
-+      ),
-+    ).toEqual({ ok: false, error: "too-long" });
 +  });
 +
 +  it("keeps bilingual keys aligned and covers the example", () => {
@@ -9290,12 +9263,11 @@ index 0000000000000000000000000000000000000000..a2f69975ce1ac3456cce31b32a5ab919
 +} from "./types.js";
 diff --git a/packages/ui/src/settings/model-system-prompts/entry.ts b/packages/ui/src/settings/model-system-prompts/entry.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..847b78b57e52783302aeec26929518222c2be60d
+index 0000000000000000000000000000000000000000..52833c21a1db4f253f35cb3ba1b2826b14bf6b0e
 --- /dev/null
 +++ b/packages/ui/src/settings/model-system-prompts/entry.ts
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,116 @@
 +import {
-+  MODEL_SYSTEM_PROMPT_MAX_CHARS,
 +  MODEL_SYSTEM_PROMPT_MAX_ENTRIES,
 +  normalizeModelSystemPromptText,
 +  type ModelSystemPromptEntry,
@@ -9303,7 +9275,7 @@ index 0000000000000000000000000000000000000000..847b78b57e52783302aeec2692951822
 +
 +export type ModelSystemPromptEntryTarget = Pick<ModelSystemPromptEntry, "providerId" | "modelId">;
 +
-+export type ModelSystemPromptDraftError = "too-long" | "too-many";
++export type ModelSystemPromptDraftError = "too-many";
 +
 +export type BuildModelSystemPromptEntriesResult =
 +  | { ok: true; entries: ModelSystemPromptEntry[]; text: string }
@@ -9335,7 +9307,7 @@ index 0000000000000000000000000000000000000000..847b78b57e52783302aeec2692951822
 +}
 +
 +/**
-+ * 读取侧只过滤空/超长/重复条目，不因一条坏值丢掉其余条目。
++ * 读取侧只过滤空/重复条目，不因一条坏值丢掉其余条目。
 + * 同 pair 后出现的记录覆盖先出现的记录；保持首次出现顺序。
 + */
 +export function normalizeModelSystemPromptEntries(
@@ -9348,7 +9320,7 @@ index 0000000000000000000000000000000000000000..847b78b57e52783302aeec2692951822
 +    const providerId = raw.providerId.trim();
 +    const modelId = raw.modelId.trim();
 +    const text = normalizeModelSystemPromptText(raw.text);
-+    if (!providerId || !modelId || !text || text.length > MODEL_SYSTEM_PROMPT_MAX_CHARS) {
++    if (!providerId || !modelId || !text) {
 +      continue;
 +    }
 +    byTarget.set(modelSystemPromptEntryKey(providerId, modelId), {
@@ -9375,7 +9347,7 @@ index 0000000000000000000000000000000000000000..847b78b57e52783302aeec2692951822
 + * - 空文本删除该 pair；
 + * - 已有 pair 原位替换；
 + * - 新 pair 追加，超过 20 条时本地拒绝；
-+ * - 单条超过 8000 字符时本地拒绝。
++ * - 本功能不设固定字数上限（实际可用长度仍受模型上下文与请求限制）。
 + * 返回 normalized 文本供调用方同步草稿，不让 UI 与持久化值分叉。
 + */
 +export function buildModelSystemPromptEntries(
@@ -9396,9 +9368,6 @@ index 0000000000000000000000000000000000000000..847b78b57e52783302aeec2692951822
 +      ),
 +      text: "",
 +    };
-+  }
-+  if (normalizedText.length > MODEL_SYSTEM_PROMPT_MAX_CHARS) {
-+    return { ok: false, error: "too-long" };
 +  }
 +  if (existingIndex < 0 && entries.length >= MODEL_SYSTEM_PROMPT_MAX_ENTRIES) {
 +    return { ok: false, error: "too-many" };
@@ -10660,14 +10629,14 @@ index 0000000000000000000000000000000000000000..665a6a51a0728878aee155dbe5d58df8
 +  );
 +});
 diff --git a/packages/ui/src/v4/ConversationComposer.tsx b/packages/ui/src/v4/ConversationComposer.tsx
-index 8b19443f9b8c7b63b0bcaf904690ea1d790e9f2f..272208a88e204062e9a2406049f9f409906db13b 100644
+index 8b19443f9b8c7b63b0bcaf904690ea1d790e9f2f..a8fc401bf48b95457796c5c0bd829965d56da530 100644
 --- a/packages/ui/src/v4/ConversationComposer.tsx
 +++ b/packages/ui/src/v4/ConversationComposer.tsx
 @@ -406,6 +406,8 @@ export interface ConversationComposerProps {
    /** SessionPane 注入的完整 Draft owner；生产路径不再由编辑器直接覆盖持久记录。 */
    composerDraft: V4ComposerDraft;
    rootDraftScopeKey?: string;
-+  /** 草稿 owner（workspace/project/generation）；只用于模型补充提示词开关隔离。 */
++  /** 草稿 owner（workspace/project/generation）；只用于自定义系统 Agent 提示词开关隔离。 */
 +  modelSystemPromptDraftOwnerKey?: string | null;
    updateComposerContent: (
      content: Pick<V4ComposerDraft, "text" | "editorStateJson" | "mention">,
@@ -13678,7 +13647,7 @@ index 0000000000000000000000000000000000000000..06b3f2b3b71acef0bb5bf30232b96786
 +  publicEntrypoints: ["contract.ts"],
 +} as const;
 diff --git a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx b/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
-index 8ef15aa09127a178e757f9408f184124b38f1363..39ba951f81dae20731ad381796c5d310b744247e 100644
+index 8ef15aa09127a178e757f9408f184124b38f1363..43c9d654513a4264de275edc23c8036135dd9c63 100644
 --- a/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
 +++ b/packages/ui/src/v4/composer/V4ComposerToolbar.tsx
 @@ -39,6 +39,10 @@ import type {
@@ -13720,7 +13689,7 @@ index 8ef15aa09127a178e757f9408f184124b38f1363..39ba951f81dae20731ad381796c5d310
    isMobileViewport?: boolean;
    /** 草稿态（sessionId=null），仅区分新任务呈现，不改变选择来源。 */
    draftMode?: boolean;
-+  /** 草稿模型补充提示词 owner（workspace/project/generation）。 */
++  /** 草稿自定义系统 Agent 提示词 owner（workspace/project/generation）。 */
 +  modelSystemPromptDraftOwnerKey?: string | null;
    /** 当前 scope 的 Composer 选择；新任务与已有会话都只显示这份状态。 */
    draftConfig?: Partial<SessionConfigState>;
@@ -14975,14 +14944,14 @@ index 0000000000000000000000000000000000000000..2501d7dda334f748f2209a3ccd42b9fb
 +}
 diff --git a/packages/ui/src/v4/composer/model-system-prompt/CONTRACT.md b/packages/ui/src/v4/composer/model-system-prompt/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..9d3e98809f5bfb74ed15752e65960764cbc545d4
+index 0000000000000000000000000000000000000000..4220d4431cf7a600d6a11f46a72be14bcf1c8bc8
 --- /dev/null
 +++ b/packages/ui/src/v4/composer/model-system-prompt/CONTRACT.md
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,52 @@
 +# composer-model-system-prompt
 +
-+Composer 侧的模型补充提示词开关与会话偏好。只处理 renderer 状态和发送快照，不读取设置文件、
-+不调用服务、不发送 RPC，也不决定运行时如何拼接系统提示词。
++Composer 侧的自定义系统 Agent 提示词开关与会话偏好。只处理 renderer 状态和发送快照，不读取设置文件、
++不调用服务、不发送 RPC，也不决定运行时如何替换系统提示词。
 +
 +## 不变量
 +
@@ -15000,11 +14969,16 @@ index 0000000000000000000000000000000000000000..9d3e98809f5bfb74ed15752e65960764
 +- 草稿 owner 由 workspace/project/generation/rendererEpoch 组成；Toggle/read/write/capture
 +  使用同一 key，不使用 prewarm transport generation。
 +- 开关不触发模型切换、生成、restart 或任何 Host/CLI 写路径。
-+- Host capability 是唯一门控：共享 `hostSupportsModelSystemPrompt(hello.capabilities)` 为
-+  false（含未知/旧 Host）时完全省略两个 Submission 字段，图标隐藏；不能发显式 false 让旧
-+  schema 失败。支持 capability 的 Host 关闭时发送显式 `modelSystemPromptEnabled:false`。
-+- 提交 helper 只解析当前选择的一份条目，不读取历史、不 append。关闭/无匹配返回显式
++- Host capability 是唯一门控：共享 `hostSupportsModelSystemPromptReplacement(hello.capabilities)`
++  为 false（含未知/旧 Host、以及仅有旧 `modelSystemPrompt:true` 的 Host）时完全省略两个
++  Submission 字段，图标隐藏；不能发显式 false 让旧 schema 失败。支持 replacement capability
++  的 Host 关闭时发送显式 `modelSystemPromptEnabled:false`。旧 helper
++  `hostSupportsModelSystemPrompt` 只转调新位。
++- 提交 helper 只解析当前选择的一份条目，不读取历史、不拼接。关闭/无匹配返回显式
 +  `modelSystemPromptEnabled:false`；启用且命中时复制 normalized 文本并冻结进 Submission。
++  启用后运行时以该内容替换其它默认 Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与
++  Sandbox 执行机制不变。
++- 本功能不设固定字数上限，冻结与透传不截断；实际可用长度仍受模型上下文与请求限制。
 +- 已经冻结的 Submission 不受后续开关/模型变化影响；失败重试和 pending replay 复用原快照。
 +
 +## API
@@ -15539,12 +15513,12 @@ index 0000000000000000000000000000000000000000..d343522fb51e5ff62dac7d42964264cb
 +export type { ModelSystemPromptToggleProps } from "./ModelSystemPromptToggle.js";
 diff --git a/packages/ui/src/v4/composer/model-system-prompt/hostCapability.ts b/packages/ui/src/v4/composer/model-system-prompt/hostCapability.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..434261ccbfbc537d8022d25eeccd7a420e7df603
+index 0000000000000000000000000000000000000000..227e2c6c8e04c27784f6268db683aa9775af61c5
 --- /dev/null
 +++ b/packages/ui/src/v4/composer/model-system-prompt/hostCapability.ts
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,74 @@
 +import { useEffect, useState } from "react";
-+import { hostSupportsModelSystemPrompt } from "@zcode/shared/zcode-protocol-v4";
++import { hostSupportsModelSystemPromptReplacement } from "@zcode/shared/zcode-protocol-v4";
 +import { ensureAgentV4ConnectionHandshake } from "@/v4/agentV4ConnectionHandshake.js";
 +
 +type HostHandshakeService = Parameters<typeof ensureAgentV4ConnectionHandshake>[0];
@@ -15556,7 +15530,7 @@ index 0000000000000000000000000000000000000000..434261ccbfbc537d8022d25eeccd7a42
 +  return service ?? null;
 +}
 +
-+/** 同步读取当前 host 是否声明接受 Submission 的补充提示词字段；未知按 false。 */
++/** 同步读取当前 host 是否声明接受 Submission 的自定义系统 Agent 提示词字段；未知按 false。 */
 +export function getModelSystemPromptHostSupport(
 +  service: HostHandshakeService | null | undefined,
 +): boolean {
@@ -15565,8 +15539,9 @@ index 0000000000000000000000000000000000000000..434261ccbfbc537d8022d25eeccd7a42
 +}
 +
 +/**
-+ * 复用既有 hello 握手声明（`capabilities.modelSystemPrompt`）。旧 Host 缺失该位时返回
-+ * false，调用方必须完全省略两个 Submission 字段，不能发送显式 false 让旧 schema 失败。
++ * 复用既有 hello 握手声明（`capabilities.modelSystemPromptReplacement`）。旧 Host 只有
++ * `modelSystemPrompt`（append 语义）或缺失新位时返回 false，调用方必须隐藏入口并完全
++ * 省略两个 Submission 字段，不能发送显式 false 让旧 schema 失败。
 + */
 +export function ensureModelSystemPromptHostSupport(
 +  service: HostHandshakeService | null | undefined,
@@ -15577,7 +15552,7 @@ index 0000000000000000000000000000000000000000..434261ccbfbc537d8022d25eeccd7a42
 +  if (known !== undefined) return Promise.resolve(known);
 +  return ensureAgentV4ConnectionHandshake(service)
 +    .then((hello) => {
-+      const supported = hostSupportsModelSystemPrompt(hello.capabilities);
++      const supported = hostSupportsModelSystemPromptReplacement(hello.capabilities);
 +      supportByService.set(key, supported);
 +      for (const listener of listenersByService.get(key) ?? []) listener();
 +      return supported;
@@ -24191,6 +24166,561 @@ index 4e549b6bff8aaf4b88004242ff4955086c2fb39c..af85d885c4f05169887970122cb0dc4b
    it.each(["individual-coding-plan", "team-coding-plan", "start-plan", "manual", "standard"])(
      "设置页共享视觉标判断，连接=%s",
      (mode) => {
+diff --git a/packages/ui/test/modelSystemPromptLongText.test.ts b/packages/ui/test/modelSystemPromptLongText.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f7970668850c94ba4078cf08acb23bf03c33d09
+--- /dev/null
++++ b/packages/ui/test/modelSystemPromptLongText.test.ts
+@@ -0,0 +1,549 @@
++// @vitest-environment jsdom
++import { act, createElement, type ReactNode } from "react";
++import { createRoot, type Root } from "react-dom/client";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import type { ModelSystemPromptEntry } from "@zcode/shared";
++import type {
++  CommandAck,
++  CommandEnvelope,
++  ConversationSnapshot,
++} from "@zcode/shared/zcode-protocol-v4";
++import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
++import {
++  buildModelSystemPromptEntries,
++  ModelSystemPromptsSettingsSection,
++  modelSystemPromptEntryKey,
++  normalizeModelSystemPromptEntries,
++} from "@/settings/model-system-prompts/index.js";
++import {
++  attachModelSystemPromptToSubmission,
++  ensureModelSystemPromptHostSupport,
++  resolveModelSystemPromptScope,
++  resolveModelSystemPromptSubmission,
++  setModelSystemPromptEnabled,
++} from "@/v4/composer/model-system-prompt/index.js";
++import { SessionPane } from "@/v4/SessionPane.js";
++
++(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
++
++vi.mock("@/i18n/IntlProvider.js", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("@/i18n/IntlProvider.js")>();
++  return {
++    ...actual,
++    useZCodeIntl: () => ({
++      intl: { formatMessage: ({ id }: { id: string }) => id },
++      locale: "zh-CN",
++    }),
++  };
++});
++vi.mock("@/settings/SettingsPageParts.js", () => ({
++  SettingsGroupCard: ({ children }: { children?: ReactNode }) =>
++    createElement("section", null, children),
++}));
++
++const handshakeMock = vi.hoisted(() => ({ supported: true, legacyOnly: false }));
++vi.mock("@/v4/agentV4ConnectionHandshake.js", () => ({
++  ensureAgentV4ConnectionHandshake: async () => ({
++    capabilities: handshakeMock.legacyOnly
++      ? { modelSystemPrompt: true }
++      : { modelSystemPromptReplacement: handshakeMock.supported },
++  }),
++}));
++
++const settingsState = vi.hoisted(() => ({
++  current: { zcodeInteractionBehavior: "queue", modelSystemPromptAppends: [] as unknown[] },
++}));
++vi.mock("@/hooks/useSettingService.js", () => ({
++  useSettings: () => ({
++    settings: settingsState.current,
++    loading: false,
++    error: null,
++    update: vi.fn(async () => {}),
++    refresh: vi.fn(async () => {}),
++  }),
++}));
++
++const readinessMock = vi.hoisted(() => ({
++  gate: Promise.resolve(),
++  ensureReadyForSend: vi.fn(async () => {
++    await readinessMock.gate;
++    return true;
++  }),
++}));
++vi.mock("@/v4/composer/useDraftModelReadinessGate.js", () => ({
++  useDraftModelReadinessGate: () => ({
++    agentStartupAllowed: true,
++    error: null,
++    dismissError: vi.fn(),
++    ensureReadyForSend: readinessMock.ensureReadyForSend,
++    markProviderNotReady: vi.fn(),
++  }),
++}));
++vi.mock("@/v4/composer/useDraftRuntimeRebuildGate.js", () => ({
++  useDraftRuntimeRebuildGate: () => ({ rebuilding: false }),
++}));
++const prewarmMock = vi.hoisted(() => ({
++  binding: null as null | {
++    workspaceKey: string;
++    sessionId: string;
++    beginPromotion: () => boolean;
++    promote: () => void;
++    discard: () => void;
++  },
++}));
++vi.mock("@/v4/composer/useDraftSessionPrewarm.js", () => ({
++  useDraftSessionPrewarm: () => ({
++    binding: prewarmMock.binding,
++    waitForSession: async () => {
++      if (!prewarmMock.binding) throw new Error("no draft");
++      return prewarmMock.binding;
++    },
++  }),
++}));
++
++const recommendMock = vi.hoisted(() => ({
++  identityMode: true,
++  chosen: {
++    providerId: "p",
++    modelId: "b",
++    options: { reasoningLevel: "high" },
++  },
++}));
++vi.mock("@/hooks/useStartPlanRecommendation.js", () => ({
++  useStartPlanRecommendation: () => async (original: unknown) =>
++    recommendMock.identityMode ? original : recommendMock.chosen,
++}));
++
++const MODEL_VIEW = {
++  revision: 1,
++  providers: [
++    {
++      providerId: "p",
++      providerName: "P",
++      models: [
++        {
++          modelId: "a",
++          config: { optionSpecs: { reasoningLevel: { values: ["high"], map: "{}" } } },
++        },
++        {
++          modelId: "b",
++          config: { optionSpecs: { reasoningLevel: { values: ["high"], map: "{}" } } },
++        },
++      ],
++    },
++  ],
++  preferredSelection: {
++    providerId: "p",
++    modelId: "a",
++    options: { reasoningLevel: "high" },
++  },
++};
++const DRAFT_CONFIG = {
++  mode: "build",
++  planEnabled: false,
++  modelSelection: { providerId: "p", modelId: "a", options: { reasoningLevel: "high" } },
++  provider: "p",
++  model: "a",
++  thought: "high",
++};
++vi.mock("@/v4/composer/useDraftConfigControl.js", () => ({
++  buildDraftCreateConfigPayload: () => ({}),
++  useDraftConfigControl: () => ({
++    composerDraft: { text: "", updatedAt: 0 },
++    modelSelectionRead: { state: { status: "ready", view: MODEL_VIEW }, reload: vi.fn() },
++    draftConfig: DRAFT_CONFIG,
++    draftConfigRef: { current: DRAFT_CONFIG },
++    resolveInitialDraftConfig: () => undefined,
++    handleDraftSelectModel: vi.fn(),
++    handleDraftSelectThought: vi.fn(),
++    handleDraftSwitchMode: vi.fn(),
++    promoteComposerDraft: vi.fn(),
++    captureAcceptedModelSelection: () => vi.fn(),
++    replaceComposerDraft: vi.fn(),
++    updateComposerContent: vi.fn(),
++  }),
++}));
++
++const conversationMock = vi.hoisted(() => {
++  const lease = {
++    release: vi.fn(),
++    store: {
++      expectAcceptedInputProjection: vi.fn(),
++      markCommandPending: vi.fn(),
++      recoverFromStaleAuthority: vi.fn(),
++      onOnlineModelTransition: vi.fn(() => () => {}),
++      refreshPlans: vi.fn(async () => {}),
++      settleCommand: vi.fn(),
++    },
++  };
++  const sendCommand = vi.fn(
++    async (envelope: CommandEnvelope): Promise<CommandAck> => ({
++      commandId: envelope.commandId,
++      revisionAtDecision: 1,
++      status: "accepted",
++    }),
++  );
++  const layer = {
++    acquire: vi.fn(() => lease),
++    queryCommands: vi.fn(async () => ({ results: [] })),
++  };
++  return { layer, lease, sendCommand };
++});
++vi.mock("@/v4/V4ConversationContext.js", () => ({
++  useV4Conversation: () => ({
++    attachmentPut: vi.fn(),
++    fileChanges: vi.fn(),
++    fileRewindPreview: vi.fn(),
++    layer: conversationMock.layer,
++    sendCommand: conversationMock.sendCommand,
++    workflowRuns: () => new Promise(() => {}),
++  }),
++}));
++
++const projectionState = vi.hoisted(() => ({ current: null as unknown }));
++vi.mock("@/v4/useConversationProjection.js", () => ({
++  useConversationProjection: () => projectionState.current,
++}));
++vi.mock("@/store/StoreProvider.js", () => ({
++  useZCodeStoreWithDefault: (_selector: unknown, fallback: unknown) => fallback,
++}));
++
++const servicesMock = vi.hoisted(() => ({
++  modelSelectionService: { getView: vi.fn() },
++  botsService: {
++    getBotStates: vi.fn(async () => []),
++    getConfig: vi.fn(async () => ({ bots: [] })),
++  },
++  broadcastService: {
++    onMessage: vi.fn(() => ({ dispose: vi.fn() })),
++    send: vi.fn(async () => {}),
++  },
++  highspeedCardService: {
++    getSnapshot: vi.fn(async () => ({ card: null, nextDrawAt: null, drawing: false })),
++    prepareTurn: vi.fn(async () => ({
++      kind: "fallback" as const,
++      reason: "draw-miss" as const,
++      nextDrawAt: null,
++    })),
++    healthy: vi.fn(),
++    share: vi.fn(),
++  },
++  zcodeAgentService: {},
++  zcodeSessionService: { updateProviderRegistry: vi.fn() },
++  zcodeTaskService: { restartWorkspaceProcess: vi.fn() },
++}));
++vi.mock("@/hooks/useServices.js", () => ({
++  useComposerClientNamespace: () => "desktop",
++  useOptionalServices: () => null,
++  useServices: () => servicesMock,
++}));
++vi.mock("@/hooks/useWorkspaceServices.js", () => ({
++  useBaseWorkspaceServices: () => ({
++    projectService: {
++      resolveSessionDirectories: vi.fn(async (task: Record<string, unknown>) => ({
++        ...task,
++        projectId: null,
++        additionalDirectories: [],
++      })),
++    },
++  }),
++  useWorkspaceServices: () => ({}),
++}));
++
++const composerCapture = vi.hoisted(() => ({
++  props: null as null | {
++    createSubmissionFromComposer?: () => Record<string, unknown> | null;
++    onSendText?: (
++      text: string,
++      options?: { submission?: Record<string, unknown> | null; submittedDraftText?: string },
++    ) => Promise<string>;
++    modelSystemPromptDraftOwnerKey?: string | null;
++  },
++}));
++vi.mock("@/v4/ConversationComposer.js", async () => {
++  const React = await import("react");
++  return {
++    ConversationComposer: (props: typeof composerCapture.props) => {
++      composerCapture.props = props;
++      return React.createElement("div", { "data-testid": "mock-composer" });
++    },
++  };
++});
++
++vi.mock("@/project-sidebar/ProjectDirectoryProvider.js", () => ({
++  useOptionalProjectDirectory: () => ({
++    commitCreatedTask: vi.fn(async () => {}),
++    groups: { refresh: vi.fn() },
++  }),
++}));
++vi.mock("@/v4/ConversationHeader.js", () => ({ ConversationHeader: () => null }));
++vi.mock("@/v4/ConversationStatusPanel.js", () => ({ ConversationStatusPanel: () => null }));
++vi.mock("@/v4/ConversationQueuePanel.js", () => ({ ConversationQueuePanel: () => null }));
++vi.mock("@/v4/V4InteractionDialogs.js", () => ({ V4InteractionDialogs: () => null }));
++vi.mock("@/request-security-edition/V4ProviderRuntimeHeadersController.js", () => ({
++  V4ProviderRuntimeHeadersController: () => null,
++}));
++vi.mock("@/v4/ConversationDraftEmptyState.js", () => ({ ConversationDraftEmptyState: () => null }));
++vi.mock("@/v4/ConversationDraftSuggestedPromptsContainer.js", () => ({
++  ConversationDraftSuggestedPromptsContainer: () => null,
++}));
++vi.mock("@/v4/ConversationTimeline.js", async () => {
++  const React = await import("react");
++  return {
++    ConversationTimeline: ({ bottomDock }: { bottomDock?: ReactNode }) =>
++      React.createElement("div", null, bottomDock),
++  };
++});
++
++/** 远大于旧 8000 字符上限，用于确认 UI 与发送链路不再截断。 */
++const LONG_TEXT = `  ${"x".repeat(20_000)}\r\n  tail  `;
++/** SessionPane 真实发送链路的 9000+ 正文。 */
++const LONG_PROMPT = "p".repeat(9_500);
++
++function entry(providerId: string, modelId: string, text: string): ModelSystemPromptEntry {
++  return { providerId, modelId, text };
++}
++
++function makeSnapshot(): ConversationSnapshot {
++  return {
++    protocolVersion: 1,
++    sessionId: "session-1",
++    logEpoch: "epoch-1",
++    seq: 1,
++    revision: 1,
++    control: {
++      phase: "idle",
++      sessionEnded: false,
++      canStop: false,
++      stopState: "idle",
++      stopTargetKind: "unknown",
++      activeWorks: [],
++      lastError: null,
++      apiRetry: null,
++    },
++    availability: {
++      fork: { allowed: true },
++      compact: { allowed: true },
++      switchModelConfig: { allowed: true },
++      setFollowupMode: { allowed: true },
++      queueEdit: { allowed: true },
++      sendQueuedNow: { allowed: true },
++      pauseGoal: { allowed: false, reasonCode: "noGoalToPause" },
++      resumeGoal: { allowed: false, reasonCode: "noGoalToResume" },
++    },
++    inputRouting: { mode: "startNow" },
++    meta: { title: "Session", titleSource: "generated" },
++    config: { provider: "p", model: "a", thought: "high", followupMode: "queue", mode: "build" },
++    usage: {
++      contextWindow: null,
++      cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
++    },
++    queue: { items: [], autoDrain: true },
++    pendingInteractions: [],
++    pendingCommands: [],
++    backgroundWorks: [],
++    goal: null,
++    plan: null,
++    rows: { window: [], totalCount: 0, firstRowId: null },
++  };
++}
++
++const roots: Root[] = [];
++function renderSessionPane(): Root {
++  projectionState.current = {
++    status: "live",
++    snapshot: makeSnapshot(),
++    subscriptionId: "sub-1",
++    lastError: null,
++    optimisticCommands: [],
++    loadingOlder: false,
++  };
++  const container = document.createElement("div");
++  document.body.appendChild(container);
++  const root = createRoot(container);
++  roots.push(root);
++  act(() => {
++    root.render(
++      createElement(
++        ZCodeIntlProvider,
++        { initialLocale: "zh-CN" },
++        createElement(SessionPane, {
++          paneId: "workspace-main",
++          sessionId: "session-1",
++          workspacePath: "/workspace",
++        }),
++      ),
++    );
++  });
++  return root;
++}
++
++async function flush() {
++  await act(async () => {
++    await Promise.resolve();
++    await Promise.resolve();
++  });
++}
++
++function commandPayload(type: "sendText" | "sendGoalCommand"): Record<string, unknown> {
++  const envelope = conversationMock.sendCommand.mock.calls
++    .map(([value]) => value as CommandEnvelope)
++    .find((value) => value.type === type);
++  if (!envelope) throw new Error(`${type} envelope missing`);
++  return envelope.payload as Record<string, unknown>;
++}
++
++afterEach(() => {
++  cleanup();
++  for (const root of roots.splice(0)) act(() => root.unmount());
++  document.body.innerHTML = "";
++  conversationMock.sendCommand.mockClear();
++});
++
++describe("model system prompt without a fixed character cap", () => {
++  beforeEach(() => {
++    servicesMock.modelSelectionService.getView.mockReset();
++    servicesMock.modelSelectionService.getView.mockResolvedValue({
++      revision: 1,
++      providers: [
++        {
++          providerId: "provider-a",
++          providerName: "Provider A",
++          models: [{ modelId: "model-a", config: {} }],
++        },
++      ],
++    });
++  });
++
++  it("builds and saves a single entry longer than 8000 characters", async () => {
++    const built = buildModelSystemPromptEntries(
++      [],
++      { providerId: "provider-a", modelId: "model-a" },
++      LONG_TEXT,
++    );
++    expect(built.ok).toBe(true);
++    expect(built.ok && built.text.length).toBeGreaterThan(8_000);
++    expect(built.ok && built.text.endsWith("tail")).toBe(true);
++
++    // 读取侧同样不能因为长度丢弃已保存条目。
++    const reloaded = normalizeModelSystemPromptEntries([entry("provider-a", "model-a", LONG_TEXT)]);
++    expect(reloaded).toHaveLength(1);
++    expect(reloaded[0]?.text.length).toBeGreaterThan(8_000);
++
++    const update = vi.fn(async () => {});
++    render(
++      createElement(ModelSystemPromptsSettingsSection, {
++        settings: { modelSystemPromptAppends: [] },
++        onUpdateSettings: update,
++      }),
++    );
++    await screen.findByRole("option", { name: "Provider A · model-a" });
++    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
++      target: { value: modelSystemPromptEntryKey("provider-a", "model-a") },
++    });
++    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
++      target: { value: LONG_TEXT },
++    });
++    await act(async () => {
++      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
++    });
++
++    expect(update).toHaveBeenCalledExactlyOnceWith({
++      modelSystemPromptAppends: [
++        entry("provider-a", "model-a", LONG_TEXT.replace(/\r\n?/g, "\n").trim()),
++      ],
++    });
++    expect(screen.queryByTestId("model-system-prompt-error")).toBeNull();
++  });
++
++  it("freezes and wires the full long text without truncation", () => {
++    const fields = resolveModelSystemPromptSubmission({
++      entries: [entry("provider-a", "model-a", LONG_TEXT)],
++      enabled: true,
++      selection: { providerId: "provider-a", modelId: "model-a" },
++    });
++    expect(fields.modelSystemPromptEnabled).toBe(true);
++    const wireText = fields.modelSystemPrompt?.text ?? "";
++    expect(wireText.length).toBeGreaterThan(8_000);
++    expect(wireText).toBe(LONG_TEXT.replace(/\r\n?/g, "\n").trim());
++
++    const attached = attachModelSystemPromptToSubmission(
++      { modelSelection: { providerId: "provider-a", modelId: "model-a" }, mode: "build" },
++      fields,
++    );
++    expect(attached.modelSystemPrompt?.text.length).toBe(wireText.length);
++    expect(Object.isFrozen(attached)).toBe(true);
++    expect(Object.isFrozen(attached.modelSystemPrompt)).toBe(true);
++  });
++});
++
++describe("SessionPane long model prompt payloads", () => {
++  beforeEach(async () => {
++    conversationMock.sendCommand.mockClear();
++    readinessMock.gate = Promise.resolve();
++    handshakeMock.supported = true;
++    handshakeMock.legacyOnly = false;
++    servicesMock.zcodeAgentService = {};
++    prewarmMock.binding = null;
++    recommendMock.identityMode = true;
++    await ensureModelSystemPromptHostSupport(servicesMock.zcodeAgentService);
++    settingsState.current = {
++      zcodeInteractionBehavior: "queue",
++      modelSystemPromptAppends: [{ providerId: "p", modelId: "a", text: LONG_PROMPT }],
++    };
++    const session = resolveModelSystemPromptScope("/workspace", undefined, "session-1")!;
++    setModelSystemPromptEnabled(session, true);
++  });
++
++  it("treats the legacy append-only capability bit as unsupported", async () => {
++    handshakeMock.legacyOnly = true;
++    servicesMock.zcodeAgentService = {};
++    expect(await ensureModelSystemPromptHostSupport(servicesMock.zcodeAgentService)).toBe(false);
++    renderSessionPane();
++    await flush();
++    const submission = composerCapture.props?.createSubmissionFromComposer?.();
++    expect(Object.hasOwn(submission ?? {}, "modelSystemPromptEnabled")).toBe(false);
++    expect(Object.hasOwn(submission ?? {}, "modelSystemPrompt")).toBe(false);
++    await act(async () => {
++      await composerCapture.props!.onSendText!("hello", {
++        submission,
++        submittedDraftText: "hello",
++      });
++    });
++    const payload = commandPayload("sendText");
++    expect(Object.hasOwn(payload, "modelSystemPromptEnabled")).toBe(false);
++    expect(Object.hasOwn(payload, "modelSystemPrompt")).toBe(false);
++  });
++
++  it.each(["sendText", "sendGoalCommand"] as const)(
++    "carries the full 9000+ prompt through a real %s submission",
++    async (type) => {
++      renderSessionPane();
++      await flush();
++      const submission = composerCapture.props?.createSubmissionFromComposer?.();
++      expect(submission).toMatchObject({
++        modelSystemPromptEnabled: true,
++        modelSystemPrompt: { providerId: "p", modelId: "a", text: LONG_PROMPT },
++      });
++
++      const text = type === "sendGoalCommand" ? `/goal ${LONG_PROMPT}` : "hello";
++      await act(async () => {
++        await composerCapture.props!.onSendText!(text, {
++          submission,
++          submittedDraftText: text,
++        });
++      });
++
++      const payload = commandPayload(type);
++      expect(payload.modelSystemPromptEnabled).toBe(true);
++      expect(payload.modelSystemPrompt).toMatchObject({
++        providerId: "p",
++        modelId: "a",
++        text: LONG_PROMPT,
++      });
++      expect((payload.modelSystemPrompt as { text?: string }).text?.length).toBeGreaterThan(9_000);
++      if (type === "sendGoalCommand") expect(payload.text).toBe(LONG_PROMPT);
++    },
++  );
++});
 diff --git a/packages/ui/test/modelSystemPromptPromotion.test.ts b/packages/ui/test/modelSystemPromptPromotion.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e536e5b606e3da3ec8540fe701ea63ea6ca4326d
@@ -24819,10 +25349,10 @@ index 0000000000000000000000000000000000000000..5428b1611789f90a1f95903fb0e0da2f
 +});
 diff --git a/packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts b/packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..547f8a925b4da991bd4bf14e24ee8fa3191e196f
+index 0000000000000000000000000000000000000000..2a7b18006b96d09d98f3be5c25deed57f95af431
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptSessionPaneFreeze.test.ts
-@@ -0,0 +1,547 @@
+@@ -0,0 +1,570 @@
 +// @vitest-environment jsdom
 +import { act, createElement, type ReactNode } from "react";
 +import { createRoot, type Root } from "react-dom/client";
@@ -24845,10 +25375,12 @@ index 0000000000000000000000000000000000000000..547f8a925b4da991bd4bf14e24ee8fa3
 +
 +(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 +
-+const handshakeMock = vi.hoisted(() => ({ supported: true }));
++const handshakeMock = vi.hoisted(() => ({ supported: true, legacyOnly: false }));
 +vi.mock("@/v4/agentV4ConnectionHandshake.js", () => ({
 +  ensureAgentV4ConnectionHandshake: async () => ({
-+    capabilities: { modelSystemPrompt: handshakeMock.supported },
++    capabilities: handshakeMock.legacyOnly
++      ? { modelSystemPrompt: true }
++      : { modelSystemPromptReplacement: handshakeMock.supported },
 +  }),
 +}));
 +
@@ -25228,6 +25760,7 @@ index 0000000000000000000000000000000000000000..547f8a925b4da991bd4bf14e24ee8fa3
 +  beforeEach(async () => {
 +    readinessMock.gate = Promise.resolve();
 +    handshakeMock.supported = true;
++    handshakeMock.legacyOnly = false;
 +    servicesMock.zcodeAgentService = {};
 +    prewarmMock.binding = null;
 +    recommendMock.identityMode = false;
@@ -25328,6 +25861,26 @@ index 0000000000000000000000000000000000000000..547f8a925b4da991bd4bf14e24ee8fa3
 +    expect(Object.hasOwn(payload, "modelSystemPrompt")).toBe(false);
 +  });
 +
++  it("treats the legacy append-only modelSystemPrompt bit as unsupported", async () => {
++    handshakeMock.legacyOnly = true;
++    servicesMock.zcodeAgentService = {};
++    expect(await ensureModelSystemPromptHostSupport(servicesMock.zcodeAgentService)).toBe(false);
++    renderSessionPane();
++    await flush();
++    const submission = composerCapture.props?.createSubmissionFromComposer?.();
++    expect(Object.hasOwn(submission ?? {}, "modelSystemPromptEnabled")).toBe(false);
++    expect(Object.hasOwn(submission ?? {}, "modelSystemPrompt")).toBe(false);
++    await act(async () => {
++      await composerCapture.props!.onSendText!("hello", {
++        submission,
++        submittedDraftText: "hello",
++      });
++    });
++    const payload = sendTextPayload();
++    expect(Object.hasOwn(payload, "modelSystemPromptEnabled")).toBe(false);
++    expect(Object.hasOwn(payload, "modelSystemPrompt")).toBe(false);
++  });
++
 +  it("wires a root draft receipt through the real pending registry despite navigation abort", async () => {
 +    prewarmMock.binding = {
 +      workspaceKey: "/workspace",
@@ -25372,19 +25925,15 @@ index 0000000000000000000000000000000000000000..547f8a925b4da991bd4bf14e24ee8fa3
 +});
 diff --git a/packages/ui/test/modelSystemPromptSettings.test.ts b/packages/ui/test/modelSystemPromptSettings.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d5e91f8820fe3042669619fbd9ba7a2d3f9ac605
+index 0000000000000000000000000000000000000000..fe82ce4204e31cf3797d5a72e4ca261acb6f6b75
 --- /dev/null
 +++ b/packages/ui/test/modelSystemPromptSettings.test.ts
-@@ -0,0 +1,373 @@
+@@ -0,0 +1,348 @@
 +// @vitest-environment jsdom
 +import { createElement, type ReactNode } from "react";
 +import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-+import {
-+  MODEL_SYSTEM_PROMPT_MAX_CHARS,
-+  MODEL_SYSTEM_PROMPT_MAX_ENTRIES,
-+  type ModelSystemPromptEntry,
-+} from "@zcode/shared";
++import { MODEL_SYSTEM_PROMPT_MAX_ENTRIES, type ModelSystemPromptEntry } from "@zcode/shared";
 +import {
 +  modelSystemPromptMessagesEnUS,
 +  modelSystemPromptMessagesZhCN,
@@ -25525,7 +26074,7 @@ index 0000000000000000000000000000000000000000..d5e91f8820fe3042669619fbd9ba7a2d
 +    });
 +  });
 +
-+  it("rejects the 21st entry and overlong text before writing", async () => {
++  it("rejects the 21st entry before writing", async () => {
 +    const entries = Array.from({ length: MODEL_SYSTEM_PROMPT_MAX_ENTRIES }, (_, index) =>
 +      entry("provider-a", `model-${index}`, `text ${index}`),
 +    );
@@ -25558,20 +26107,6 @@ index 0000000000000000000000000000000000000000..d5e91f8820fe3042669619fbd9ba7a2d
 +    expect(update).not.toHaveBeenCalled();
 +    expect(screen.getByTestId("model-system-prompt-error").textContent).toBe(
 +      "settings.advanced.modelSystemPrompts.tooMany",
-+    );
-+
-+    fireEvent.change(screen.getByTestId("model-system-prompt-model-select"), {
-+      target: { value: modelSystemPromptEntryKey("provider-a", "model-0") },
-+    });
-+    fireEvent.change(screen.getByTestId("model-system-prompt-textarea"), {
-+      target: { value: "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1) },
-+    });
-+    await act(async () => {
-+      fireEvent.click(screen.getByTestId("model-system-prompt-save"));
-+    });
-+    expect(update).not.toHaveBeenCalled();
-+    expect(screen.getByTestId("model-system-prompt-error").textContent).toBe(
-+      "settings.advanced.modelSystemPrompts.tooLong",
 +    );
 +  });
 +
@@ -25731,13 +26266,6 @@ index 0000000000000000000000000000000000000000..d5e91f8820fe3042669619fbd9ba7a2d
 +        " new ",
 +      ),
 +    ).toEqual({ ok: true, entries: [entry("p", "m", "new")], text: "new" });
-+    expect(
-+      buildModelSystemPromptEntries(
-+        [entry("p", "m", "old")],
-+        { providerId: "p", modelId: "m" },
-+        "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1),
-+      ),
-+    ).toEqual({ ok: false, error: "too-long" });
 +  });
 +
 +  it("keeps bilingual message keys aligned and covers the example", () => {

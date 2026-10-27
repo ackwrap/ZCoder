@@ -2133,17 +2133,24 @@ index 99e38d30789607dab5ba02d8f685c33edcea4e9e..eada318486c5238d836b677b86e60226
  }
 diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md b/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..f7accb2c85c436069ddc213a3d15d80b2d05c74b
+index 0000000000000000000000000000000000000000..a6fdc8679f9a4f8d7a62236bd40db4207e48765c
 --- /dev/null
 +++ b/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,14 @@
 +# ZCode agent model system prompt support
 +
 +Public entry: `index.ts` / `contract.ts`. Layer: app. Owner: agent.
 +
-+Host hello capability is not proof that the workspace's actual CLI understands the additive submission fields. Before forwarding `sendText`, `sendGoalCommand` or `createSession.firstInput` that carries `modelSystemPromptEnabled`/`modelSystemPrompt`, the Host queries the CLI's `runtime/capabilities` and requires `modelSystemPrompt === true`.
++Host hello capability is not proof that the workspace's actual CLI understands the replacement submission semantics. Before forwarding `sendText`, `sendGoalCommand` or `createSession.firstInput` that carries `modelSystemPromptEnabled`/`modelSystemPrompt`, the Host queries the CLI's `runtime/capabilities` and reads the dedicated `modelSystemPromptReplacement === true` bit.
 +
-+Old CLIs reject explicitly with `proto.modelSystemPromptUnsupported` instead of silently stripping the fields. The check is cached per client and deleted after failures so a rebuilt CLI can be re-negotiated. This module does not relax command schemas, permissions, sandboxing or approvals.
++The older `modelSystemPrompt === true` bit is **append-only** (3.16.7: append plus an 8000-character cap) and must not be treated as replacement support. Four outcomes:
++
++- `replacement`: forward the fields, including an explicit `false`.
++- `append-only`: reject an enabled replacement with `proto.modelSystemPromptUnsupported`; for an explicit `false`, keep `modelSystemPromptEnabled:false` so the old CLI can clear an active append, and strip only the residual `modelSystemPrompt` object.
++- `unsupported`: reject enabled fields; strip both fields for an explicit `false`.
++- `unavailable`: reject without forwarding any command, so a failed query cannot fake a successful disable.
++
++The check is cached per client and deleted after failures so a rebuilt CLI can be re-negotiated. This module does not relax command schemas, permissions, sandboxing or approvals.
 diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.example.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.example.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..7abf20381e734ebb3866be63876e44f2aff25d63
@@ -2163,25 +2170,34 @@ index 0000000000000000000000000000000000000000..7abf20381e734ebb3866be63876e44f2
 +}
 diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b35cc6c370bede16f61b58eaf48c54aef4cde56
+index 0000000000000000000000000000000000000000..e8211d76534bcfd121c1eb0606e92b95658fa9a6
 --- /dev/null
 +++ b/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,117 @@
 +import { describe, expect, it, vi } from "vitest";
 +import {
 +  commandPayloadEnablesModelSystemPrompt,
 +  commandPayloadUsesModelSystemPrompt,
 +  resolveModelSystemPromptSupport,
 +  stripModelSystemPromptFields,
++  stripModelSystemPromptPromptFields,
 +} from "./contract.js";
 +
 +describe("model system prompt CLI capability", () => {
-+  it("distinguishes supported, explicitly unsupported and unavailable", async () => {
++  it("distinguishes replacement, append-only, unsupported and unavailable", async () => {
++    await expect(
++      resolveModelSystemPromptSupport({
++        request: vi
++          .fn()
++          .mockResolvedValue({ modelSystemPrompt: true, modelSystemPromptReplacement: true }),
++      } as never),
++    ).resolves.toBe("replacement");
++    // 旧 3.16.7：只有 append 位，不能当作替换支持。
 +    await expect(
 +      resolveModelSystemPromptSupport({
 +        request: vi.fn().mockResolvedValue({ modelSystemPrompt: true }),
 +      } as never),
-+    ).resolves.toBe("supported");
++    ).resolves.toBe("append-only");
 +    await expect(
 +      resolveModelSystemPromptSupport({
 +        request: vi.fn().mockResolvedValue({ independentPlanState: true }),
@@ -2204,13 +2220,15 @@ index 0000000000000000000000000000000000000000..2b35cc6c370bede16f61b58eaf48c54a
 +      request: vi
 +        .fn()
 +        .mockRejectedValueOnce(new Error("temporary disconnect"))
-+        .mockResolvedValue({ modelSystemPrompt: true }),
++        .mockResolvedValue({ modelSystemPrompt: true, modelSystemPromptReplacement: true }),
 +    };
 +    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("unavailable");
-+    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("supported");
-+    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("supported");
++    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("replacement");
++    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("replacement");
 +    expect(first.request).toHaveBeenCalledTimes(2);
-+    const second = { request: vi.fn().mockResolvedValue({ modelSystemPrompt: true }) };
++    const second = {
++      request: vi.fn().mockResolvedValue({ modelSystemPromptReplacement: true }),
++    };
 +    await resolveModelSystemPromptSupport(second as never);
 +    await resolveModelSystemPromptSupport(second as never);
 +    expect(second.request).toHaveBeenCalledTimes(1);
@@ -2253,17 +2271,46 @@ index 0000000000000000000000000000000000000000..2b35cc6c370bede16f61b58eaf48c54a
 +      }),
 +    ).toEqual({ text: "send", firstInput: { text: "nested" } });
 +  });
++
++  it("keeps explicit false while stripping only the residual prompt for append-only CLIs", () => {
++    expect(
++      stripModelSystemPromptPromptFields({
++        text: "send",
++        modelSystemPromptEnabled: false,
++        modelSystemPrompt: { text: "residual" },
++        firstInput: {
++          text: "nested",
++          modelSystemPromptEnabled: false,
++          modelSystemPrompt: { text: "nested residual" },
++        },
++      }),
++    ).toEqual({
++      text: "send",
++      modelSystemPromptEnabled: false,
++      firstInput: { text: "nested", modelSystemPromptEnabled: false },
++    });
++  });
 +});
 diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4f5c2a06e2bd6ed730d197791b06f4f6b059a5a1
+index 0000000000000000000000000000000000000000..3099b21cd4ec4fbd0f62828a025ea1254fed9413
 --- /dev/null
 +++ b/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,115 @@
 +import { zcodeProtocolMethods, zcodeRuntimeCapabilitiesSchema } from "@zcode/shared";
 +import type { ZCodeProtocolClient } from "../zcodeProtocolClient.js";
 +
-+export type ModelSystemPromptSupport = "supported" | "unsupported" | "unavailable";
++/**
++ * - replacement: 支持“自定义正文替换默认 Agent 提示词”的新语义。
++ * - append-only: 旧 3.16.7 CLI，只支持 append + 8000 上限；开启替换必须拒绝。
++ * - unsupported: 完全不认识这两个字段，连显式 false 都要剥离。
++ * - unavailable: 能力查询失败，不能猜测。
++ */
++export type ModelSystemPromptSupport =
++  | "replacement"
++  | "append-only"
++  | "unsupported"
++  | "unavailable";
 +
 +const checks = new WeakMap<object, Promise<ModelSystemPromptSupport>>();
 +
@@ -2313,6 +2360,24 @@ index 0000000000000000000000000000000000000000..4f5c2a06e2bd6ed730d197791b06f4f6
 +  return next as T;
 +}
 +
++/**
++ * append-only CLI 仍需要显式 false 来关闭已有 active prompt；只剥离残留正文对象，
++ * 保留 modelSystemPromptEnabled:false。true 已在调用方拒绝。
++ */
++export function stripModelSystemPromptPromptFields<T extends Record<string, unknown>>(
++  payload: T,
++): T {
++  const next: Record<string, unknown> = { ...payload };
++  delete next.modelSystemPrompt;
++  const firstInput = next.firstInput;
++  if (firstInput !== null && typeof firstInput === "object") {
++    const nested = { ...(firstInput as Record<string, unknown>) };
++    delete nested.modelSystemPrompt;
++    next.firstInput = nested;
++  }
++  return next as T;
++}
++
 +function isMethodNotFound(error: unknown): boolean {
 +  return (
 +    typeof error === "object" &&
@@ -2324,7 +2389,8 @@ index 0000000000000000000000000000000000000000..4f5c2a06e2bd6ed730d197791b06f4f6
 +
 +/**
 + * Host 已更新不代表 workspace 内实际 CLI 已更新；旧 CLI 会剥掉 unknown submission 字段后
-+ * 正常处理。返回三态：supported / 明确 unsupported / 查询不可用，不能把暂时失败伪装成不支持。
++ * 正常处理。返回 replacement / append-only / unsupported / unavailable 四态。
++ * 旧 3.16.7 声明 modelSystemPrompt 但只 append，不能当作替换支持。
 + */
 +export function resolveModelSystemPromptSupport(
 +  client: Pick<ZCodeProtocolClient, "request">,
@@ -2334,7 +2400,9 @@ index 0000000000000000000000000000000000000000..4f5c2a06e2bd6ed730d197791b06f4f6
 +  const check = client
 +    .request(zcodeProtocolMethods.runtimeCapabilities, {}, zcodeRuntimeCapabilitiesSchema)
 +    .then((result): ModelSystemPromptSupport => {
-+      return result.modelSystemPrompt === true ? "supported" : "unsupported";
++      if (result.modelSystemPromptReplacement === true) return "replacement";
++      if (result.modelSystemPrompt === true) return "append-only";
++      return "unsupported";
 +    })
 +    .catch((cause: unknown): ModelSystemPromptSupport => {
 +      if (isMethodNotFound(cause)) return "unsupported";
@@ -2434,18 +2502,20 @@ index ea141344ff174c265a41925eaea7b90de18cf6e5..06d7175a691ef52fb312c297b7cf540d
    conversationWorkflowRunEventsV4(
      params: ZCodeAgentConversationWorkflowRunEventsParams,
 diff --git a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
-index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..ac85282c2c844d3ca91fd30135d71c1437d05503 100644
+index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..1651c81e3faf497306979baabc1fb8a7000cd6ae 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
-@@ -225,6 +225,7 @@ function createHello(context: ZCodeAgentV4ConnectionContext): HelloMessage {
+@@ -225,6 +225,9 @@ function createHello(context: ZCodeAgentV4ConnectionContext): HelloMessage {
        // （那个 capabilities 是 .strict() 的，反过来会让老 Host 握不上手）。
        workflowRunDeltas: true,
        historyFirst: true,
++      // 旧位保留字段兼容；替换语义必须由客户端读取新位。
 +      modelSystemPrompt: true,
++      modelSystemPromptReplacement: true,
      },
      auth: {},
    };
-@@ -746,6 +747,19 @@ export function createZCodeAgentConnectionScope(
+@@ -746,6 +749,19 @@ export function createZCodeAgentConnectionScope(
          withTrustedConnection(params, forwardedConnection(params)),
        );
      },
@@ -2466,10 +2536,10 @@ index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..ac85282c2c844d3ca91fd30135d71c14
        assertReady();
        return base.conversationRowsRangeV4(
 diff --git a/packages/services/src/zcode-agent/zcodeAgentService.ts b/packages/services/src/zcode-agent/zcodeAgentService.ts
-index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722d68cf590 100644
+index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..8f17be31546cb2904299d68e029f17397b3619c2 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentService.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentService.ts
-@@ -31,6 +31,12 @@ import {
+@@ -31,6 +31,13 @@ import {
  } from "@zcode/shared";
  /* oxlint-disable eslint(max-lines) -- ZCode Protocol transport、通知 wiring 和 app-facing session 方法必须共享同一个 client/emitter 上下文。 */
  import { ensureIndependentPlanSupport } from "./independentPlanSupport.js";
@@ -2478,11 +2548,12 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
 +  commandPayloadUsesModelSystemPrompt,
 +  resolveModelSystemPromptSupport,
 +  stripModelSystemPromptFields,
++  stripModelSystemPromptPromptFields,
 +} from "./model-system-prompt-support/contract.js";
  import { createHash, randomUUID } from "node:crypto";
  import { createTopicResourceBridge } from "./topicResourceBridge.js";
  import { uploadTopicResourceToClient } from "./topicResourceUpload.js";
-@@ -154,6 +160,9 @@ import {
+@@ -154,6 +161,9 @@ import {
    type ZCodeAutomationRun,
    zcodeWorkspaceUpdateOffPeakToolPolicyResultSchema,
    zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema,
@@ -2492,7 +2563,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    type DynamicWorkflowClientConfig,
    type DynamicWorkflowMode,
    applyDynamicWorkflowUserMode,
-@@ -197,6 +206,7 @@ import type {
+@@ -197,6 +207,7 @@ import type {
    IZCodeAgentService,
    ZCodeAgentBackgroundBashOutputParams,
    ZCodeAgentAppRuntimePreferences,
@@ -2500,7 +2571,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    ZCodeAgentRuntimeLifecycleEvent,
    ZCodeAgentAddPluginMarketplaceParams,
    ZCodeAgentAppUsageParams,
-@@ -281,6 +291,7 @@ import type {
+@@ -281,6 +292,7 @@ import type {
    ZCodeAgentConversationFileRewindPreviewParams,
    ZCodeAgentConversationRowsRangeParams,
    ZCodeAgentConversationPlansParams,
@@ -2508,7 +2579,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    ZCodeAgentConversationWorkflowRunEventsParams,
    ZCodeAgentConversationWorkflowRunArtifactDataParams,
    ZCodeAgentConversationWorkflowRunArtifactReadParams,
-@@ -332,6 +343,8 @@ import {
+@@ -332,6 +344,8 @@ import {
    v4ConversationFileRewindPreviewResultSchema,
    v4ConversationRowsRangeResultSchema,
    v4ConversationPlansResultSchema,
@@ -2517,7 +2588,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    v4ConversationWorkflowRunEventsResultSchema,
    v4ConversationWorkflowRunArtifactDataResultSchema,
    v4ConversationWorkflowRunArtifactReadResultSchema,
-@@ -932,6 +945,10 @@ function createProviderReadinessSnapshotFromSelectionView(
+@@ -932,6 +946,10 @@ function createProviderReadinessSnapshotFromSelectionView(
    };
  }
  
@@ -2528,7 +2599,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
  interface WaitingWorkspaceStartup {
    cancelled: boolean;
    lastLoggedRevision?: string;
-@@ -953,6 +970,14 @@ interface ActiveWorkspaceClient {
+@@ -953,6 +971,14 @@ interface ActiveWorkspaceClient {
     * 只在 workspace/updateDynamicWorkflowPolicy 成功后更新；重同步据此跳过没有变化的请求。
     */
    dynamicWorkflowPolicyMode: DynamicWorkflowMode;
@@ -2543,7 +2614,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
  }
  
  function requiresProviderRegistryRefresh(commandType: string): boolean {
-@@ -996,6 +1021,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -996,6 +1022,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    mcpStatusIdleTimeoutMs?: number;
    accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
    accountRequestAuthService?: IAccountRequestAuthService;
@@ -2551,7 +2622,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
    authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
    modelSelectionReadinessSource?: ModelSelectionReadinessSource;
-@@ -1042,6 +1068,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -1042,6 +1069,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    resolveDynamicWorkflowUserMode?: () => Promise<DynamicWorkflowMode | undefined>;
    /** 用户选择同步后交给装配层转发（Desktop Host 推给本窗口的远程 Host）；值取自本机设置。 */
    forwardDynamicWorkflowUserMode?: (mode: DynamicWorkflowMode | undefined) => void;
@@ -2566,7 +2637,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    resolveOffPeakTaskService?: () =>
      | Pick<IOffPeakTaskService, "createTask" | "list" | "getCodingPlanSupport">
      | undefined;
-@@ -1361,6 +1395,10 @@ export function createZCodeAgentService(
+@@ -1361,6 +1396,10 @@ export function createZCodeAgentService(
    let pushedDynamicWorkflowUserMode: DynamicWorkflowMode | undefined;
    /** 每个 workspace 的策略同步链：后入队的步骤在前一步落地后才读取生效模式并发送。 */
    const dynamicWorkflowPolicySyncByWorkspaceKey = new Map<string, Promise<void>>();
@@ -2577,7 +2648,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    const waitingWorkspaceStartups = new Map<string, WaitingWorkspaceStartup>();
    function cancelWaitingWorkspaceStartup(workspaceKey: string): void {
      const waiting = waitingWorkspaceStartups.get(workspaceKey);
-@@ -1440,6 +1478,11 @@ export function createZCodeAgentService(
+@@ -1440,6 +1479,11 @@ export function createZCodeAgentService(
    async function resolveAccountRequestAuth(
      request: ZCodeProviderRuntimeHeadersRequestParams,
    ): Promise<AccountRequestAuthMaterial | undefined> {
@@ -2589,7 +2660,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
      if (!request.accountAccess || !accountRequestAuthService) {
        return undefined;
      }
-@@ -2648,9 +2691,10 @@ export function createZCodeAgentService(
+@@ -2648,9 +2692,10 @@ export function createZCodeAgentService(
            });
            const accountAccess = parsed.data.accountAccess;
            if (
@@ -2603,7 +2674,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
            ) {
              // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
              // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-@@ -3320,6 +3364,11 @@ export function createZCodeAgentService(
+@@ -3320,6 +3365,11 @@ export function createZCodeAgentService(
      if (active && isReusableActiveClientEntry(params, active)) {
        active.workspace = params;
        await active.interactionPreferencesReady;
@@ -2615,7 +2686,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
        return active;
      }
  
-@@ -3340,6 +3389,7 @@ export function createZCodeAgentService(
+@@ -3340,6 +3390,7 @@ export function createZCodeAgentService(
        modelExecutionEnabled: false,
        workspace: params,
        dynamicWorkflowPolicyMode: "disabled",
@@ -2623,7 +2694,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
      };
      activeClientsByWorkspaceKey.set(workspaceKey, entry);
      const interactionPreferencesReady = (async () => {
-@@ -3382,10 +3432,14 @@ export function createZCodeAgentService(
+@@ -3382,10 +3433,14 @@ export function createZCodeAgentService(
      // 生效模式为关闭时不发请求（CLI 缺省即关闭，对旧 CLI/测试假客户端零打扰）；之后用户改选择时
      // 经同一条 workspace 串行链重发（launch.md「The user's choice」）。
      const dynamicWorkflowPolicyReady = enqueueDynamicWorkflowPolicySync(entry);
@@ -2638,7 +2709,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
      ]).then(() => undefined);
      try {
        // 新建或重启 runtime 在允许任何 session 工作前追平缓存；同步期间的新开关
-@@ -3509,6 +3563,8 @@ export function createZCodeAgentService(
+@@ -3509,6 +3564,8 @@ export function createZCodeAgentService(
          workspace: params,
          // 只提升已有 client，不重放就绪阶段的策略同步；按 CLI 缺省记为关闭，用户改选择时再补发。
          dynamicWorkflowPolicyMode: "disabled",
@@ -2647,7 +2718,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
        });
        return existingClient;
      }
-@@ -3744,6 +3800,80 @@ export function createZCodeAgentService(
+@@ -3744,6 +3801,80 @@ export function createZCodeAgentService(
      return current;
    }
  
@@ -2728,7 +2799,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
    /** 三条创建路径共用：布尔 + mode 的下发对（关闭时两者都缺席）。 */
    async function resolveDynamicWorkflowSessionFlags(): Promise<{
      dynamicWorkflowEnabled: boolean;
-@@ -3925,6 +4055,19 @@ export function createZCodeAgentService(
+@@ -3925,6 +4056,19 @@ export function createZCodeAgentService(
        );
      },
  
@@ -2748,7 +2819,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
      async getWorkspaceRuntimeIdentity(params: ZCodeAgentWorkspaceTarget) {
        // 查询 runtime identity 只能观察现有进程，不能把 dormant workspace 变成活动进程。
        await getReadOnlyClient(params, "existing-only");
-@@ -5713,6 +5856,7 @@ export function createZCodeAgentService(
+@@ -5713,6 +5857,7 @@ export function createZCodeAgentService(
            ? {
                ...(accountRequestAuth?.apiKey ? { apiKey: accountRequestAuth.apiKey } : {}),
                ...(accountRequestAuth?.apiKeyId ? { apiKeyId: accountRequestAuth.apiKeyId } : {}),
@@ -2756,15 +2827,17 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
                ...(accountRequestAuth?.accountScope
                  ? { accountScope: accountRequestAuth.accountScope }
                  : {}),
-@@ -5955,6 +6099,7 @@ export function createZCodeAgentService(
+@@ -5955,6 +6100,9 @@ export function createZCodeAgentService(
            // 也能收到 `workflowRun.*` 增量（是否真收由它自己的 clientHello 决定）。
            workflowRunDeltas: true,
            historyFirst: true,
++          // 旧位保留字段兼容；替换语义必须由客户端读取新位。
 +          modelSystemPrompt: true,
++          modelSystemPromptReplacement: true,
          },
          auth: {},
        };
-@@ -6130,6 +6275,8 @@ export function createZCodeAgentService(
+@@ -6130,6 +6278,8 @@ export function createZCodeAgentService(
          planEnabled?: boolean;
          config?: { planEnabled?: boolean };
          firstInput?: { planEnabled?: boolean };
@@ -2773,7 +2846,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
        };
        if (
          planPayload.planEnabled ||
-@@ -6138,6 +6285,27 @@ export function createZCodeAgentService(
+@@ -6138,6 +6288,51 @@ export function createZCodeAgentService(
        ) {
          await ensureIndependentPlanSupport(client);
        }
@@ -2785,11 +2858,35 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
 +          // 省略 off 会让 core 保留旧 prompt，造成“关闭假成功”。
 +          throw new Error("proto.modelSystemPromptCapabilityUnavailable");
 +        }
-+        if (support === "unsupported") {
++        if (support === "replacement") {
++          // 替换语义直接透传；关闭态只需剥离残留正文，显式 false 必须保留。
++          if (!commandPayloadEnablesModelSystemPrompt(planPayload as Record<string, unknown>)) {
++            const strippedPayload = stripModelSystemPromptPromptFields(
++              params.envelope.payload as Record<string, unknown>,
++            );
++            params = {
++              ...params,
++              envelope: { ...params.envelope, payload: strippedPayload },
++            };
++          }
++        } else if (support === "unsupported") {
 +          if (commandPayloadEnablesModelSystemPrompt(planPayload as Record<string, unknown>)) {
 +            throw new Error("proto.modelSystemPromptUnsupported");
 +          }
 +          const strippedPayload = stripModelSystemPromptFields(
++            params.envelope.payload as Record<string, unknown>,
++          );
++          params = {
++            ...params,
++            envelope: { ...params.envelope, payload: strippedPayload },
++          };
++        } else if (support === "append-only") {
++          // 旧 3.16.7 只 append 且有 8000 上限：开启新替换语义必须拒绝，不能静默 append。
++          if (commandPayloadEnablesModelSystemPrompt(planPayload as Record<string, unknown>)) {
++            throw new Error("proto.modelSystemPromptUnsupported");
++          }
++          // 关闭态仍要传显式 false，让旧 CLI 关掉已有 active prompt；只剥残留正文。
++          const strippedPayload = stripModelSystemPromptPromptFields(
 +            params.envelope.payload as Record<string, unknown>,
 +          );
 +          params = {
@@ -2801,7 +2898,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722
        // RPC facade 会清掉调用方可伪造的顶层 clientMode，再用 trusted carrier 注入 host
        // 真值；host 内部 adapter 直调仍兼容显式 clientMode。
        const commandClientMode =
-@@ -6381,6 +6549,25 @@ export function createZCodeAgentService(
+@@ -6381,6 +6576,25 @@ export function createZCodeAgentService(
        );
      },
  
@@ -3578,10 +3675,10 @@ index d9ec8d6110704917de596efd79a7b05609e74d3a..2697efad4811d96b0793d4b984500c95
      rows.push({
 diff --git a/packages/services/test/model-system-prompt-support/facade.test.ts b/packages/services/test/model-system-prompt-support/facade.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..723c70c72d22171ccb1c7a0f74aab7081016c24e
+index 0000000000000000000000000000000000000000..01adc86e58296a2b058ac484899e567aac671f12
 --- /dev/null
 +++ b/packages/services/test/model-system-prompt-support/facade.test.ts
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,325 @@
 +import { describe, expect, it, vi } from "vitest";
 +import { zcodeProtocolMethods } from "@zcode/shared";
 +import { V4_METHODS } from "@zcode/shared/zcode-protocol-v4";
@@ -3711,10 +3808,10 @@ index 0000000000000000000000000000000000000000..723c70c72d22171ccb1c7a0f74aab708
 +
 +describe("sendConversationCommandV4 model prompt capability boundary", () => {
 +  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
-+    "supported keeps explicit false for %s",
++    "replacement keeps explicit false for %s",
 +    async (type) => {
 +      const { service, commandEnvelopes } = await setupFacade({
-+        capabilities: { modelSystemPrompt: true },
++        capabilities: { modelSystemPrompt: true, modelSystemPromptReplacement: true },
 +      });
 +      try {
 +        await service.sendConversationCommandV4({
@@ -3729,6 +3826,83 @@ index 0000000000000000000000000000000000000000..723c70c72d22171ccb1c7a0f74aab708
 +        } else {
 +          expect(payload.modelSystemPromptEnabled).toBe(false);
 +        }
++      } finally {
++        service.disposeAll();
++      }
++    },
++  );
++
++  it("replacement forwards an enabled prompt for sendText", async () => {
++    const { service, commandEnvelopes } = await setupFacade({
++      capabilities: { modelSystemPrompt: true, modelSystemPromptReplacement: true },
++    });
++    try {
++      const envelope = commandFor("sendText", "cmd-replacement-enabled");
++      const payload = envelope.payload as Record<string, unknown>;
++      payload.modelSystemPromptEnabled = true;
++      payload.modelSystemPrompt = { providerId: "deepseek", modelId: "chat", text: "replace" };
++      await service.sendConversationCommandV4({
++        workspacePath: WORKSPACE_PATH,
++        envelope,
++      });
++      const forwarded = commandEnvelopes[0]?.payload as Record<string, unknown>;
++      expect(forwarded.modelSystemPromptEnabled).toBe(true);
++      expect(forwarded.modelSystemPrompt).toEqual({
++        providerId: "deepseek",
++        modelId: "chat",
++        text: "replace",
++      });
++    } finally {
++      service.disposeAll();
++    }
++  });
++
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "append-only keeps explicit false but strips the residual prompt for %s",
++    async (type) => {
++      const { service, commandEnvelopes } = await setupFacade({
++        capabilities: { modelSystemPrompt: true },
++      });
++      try {
++        await service.sendConversationCommandV4({
++          workspacePath: WORKSPACE_PATH,
++          envelope: commandFor(type, `cmd-append-${type}`),
++        });
++        const payload = commandEnvelopes[0]?.payload as Record<string, unknown>;
++        expect(payload).not.toHaveProperty("modelSystemPrompt");
++        if (type === "createSession") {
++          const firstInput = payload.firstInput as Record<string, unknown>;
++          expect(firstInput.modelSystemPromptEnabled).toBe(false);
++          expect(firstInput).not.toHaveProperty("modelSystemPrompt");
++        } else {
++          expect(payload.modelSystemPromptEnabled).toBe(false);
++        }
++      } finally {
++        service.disposeAll();
++      }
++    },
++  );
++
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "append-only rejects enabled replacement for %s",
++    async (type) => {
++      const { service, commandEnvelopes } = await setupFacade({
++        capabilities: { modelSystemPrompt: true },
++      });
++      try {
++        const envelope = commandFor(type, `cmd-append-reject-${type}`);
++        const payload = envelope.payload as Record<string, unknown>;
++        payload.modelSystemPromptEnabled = true;
++        if (type === "createSession") {
++          (payload.firstInput as Record<string, unknown>).modelSystemPromptEnabled = true;
++        }
++        await expect(
++          service.sendConversationCommandV4({
++            workspacePath: WORKSPACE_PATH,
++            envelope,
++          }),
++        ).rejects.toThrow("proto.modelSystemPromptUnsupported");
++        expect(commandEnvelopes).toHaveLength(0);
 +      } finally {
 +        service.disposeAll();
 +      }
@@ -3805,7 +3979,10 @@ index 0000000000000000000000000000000000000000..723c70c72d22171ccb1c7a0f74aab708
 +
 +  it("recovers after an unavailable query and keeps explicit false", async () => {
 +    const recovered = await setupFacade({
-+      capabilityResults: [new Error("temporary disconnect"), { modelSystemPrompt: true }],
++      capabilityResults: [
++        new Error("temporary disconnect"),
++        { modelSystemPrompt: true, modelSystemPromptReplacement: true },
++      ],
 +    });
 +    try {
 +      await expect(

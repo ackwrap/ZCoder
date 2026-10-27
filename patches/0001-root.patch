@@ -37,7 +37,7 @@ index a755ec45888b605736fe8ef09e813c4200452049..e9c4ec1eb32e0ceda1413bd775e46060
      },
      {
 diff --git a/architecture-policy.yaml b/architecture-policy.yaml
-index b65fd2b75c27ac0281d7b0becf2c466fc8569069..552a377d515f4e79730aec0456fcfb2249a00937 100644
+index b65fd2b75c27ac0281d7b0becf2c466fc8569069..cb6fdb95fbb52fad16486e8b4da92af555344ffd 100644
 --- a/architecture-policy.yaml
 +++ b/architecture-policy.yaml
 @@ -2,12 +2,93 @@ version: 1
@@ -319,7 +319,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..552a377d515f4e79730aec0456fcfb22
      owner: conversation
  
    # task-groups：由 architecture:adopt 登记
-@@ -732,13 +854,338 @@ modules:
+@@ -732,13 +854,340 @@ modules:
      layers:
        ui: .
      owner: conversation
@@ -557,6 +557,8 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..552a377d515f4e79730aec0456fcfb22
 +    publicEntrypoints:
 +      - apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/index.ts
 +      - apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.ts
++      - apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/projection.ts
++      - apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/context-capacity-baseline.ts
 +      - apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/module.ts
 +    layers: { app: . }
 +    owner: agent
@@ -659,7 +661,7 @@ index b65fd2b75c27ac0281d7b0becf2c466fc8569069..552a377d515f4e79730aec0456fcfb22
    maxContractLines: 300
    maxPublicMethods: 12
    forbidCycles: true
-@@ -886,3 +1333,27 @@ exceptions:
+@@ -886,3 +1335,27 @@ exceptions:
        - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
        - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
      reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.

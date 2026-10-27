@@ -134,7 +134,7 @@ index 69eff10f3fd802a5a6fc8ad6a82be877fb0acfcb..eeeacdd9b13d294f6801e06d874840ff
  export * from "./zcode-task-types-core.js";
 diff --git a/packages/shared/src/model-system-prompts/CONTRACT.md b/packages/shared/src/model-system-prompts/CONTRACT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..546212bf84607163435db5454b5f31ea09b65926
+index 0000000000000000000000000000000000000000..801a37cb187983b821c66a4f7d006bc8454b470c
 --- /dev/null
 +++ b/packages/shared/src/model-system-prompts/CONTRACT.md
 @@ -0,0 +1,7 @@
@@ -142,17 +142,16 @@ index 0000000000000000000000000000000000000000..546212bf84607163435db5454b5f31ea
 +
 +Public entry: `index.ts` / `contract.ts`. Layer: domain. No IO, settings file access or network.
 +
-+Owns the persistent settings shape `modelSystemPromptAppends`, per-entry normalization, the 8,000-character / 20-entry bounds, and exact `providerId + modelId` resolution. It does not build prompt sections or decide when they are applied; the CLI prompt layer consumes this contract with the actual execution model.
++Owns the persistent settings shape `modelSystemPromptAppends`, per-entry normalization, the 20-entry bound, and exact `providerId + modelId` resolution. It does not build prompt sections or decide when they are applied; the CLI prompt layer consumes this contract with the actual execution model.
 +
-+Patch writes reject empty IDs, empty/overlong text and duplicate provider/model pairs. Full settings reads sanitize stale disk values by dropping invalid entries and keeping the last duplicate, so one bad record cannot invalidate the whole settings document.
++Entry text has no application-level character limit: the full text is stored, frozen into the submission, and passed to the provider. Only the entry count is capped at 20. Patch writes reject empty IDs, empty text and duplicate provider/model pairs. Full settings reads sanitize stale disk values by dropping invalid entries and keeping the last duplicate, so one bad record cannot invalidate the whole settings document.
 diff --git a/packages/shared/src/model-system-prompts/contract.example.ts b/packages/shared/src/model-system-prompts/contract.example.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3242d61920536a213d7783f1fd12f8fb0623a9ec
+index 0000000000000000000000000000000000000000..855e4fc0c1453e8203d7c199e4306230675670e7
 --- /dev/null
 +++ b/packages/shared/src/model-system-prompts/contract.example.ts
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,23 @@
 +import {
-+  MODEL_SYSTEM_PROMPT_MAX_CHARS,
 +  modelSystemPromptEntriesSchema,
 +  normalizeModelSystemPromptText,
 +  resolveModelSystemPromptEntry,
@@ -173,19 +172,19 @@ index 0000000000000000000000000000000000000000..3242d61920536a213d7783f1fd12f8fb
 +      providerId: "deepseek",
 +      modelId: "deepseek-chat",
 +    }),
-+    maxChars: MODEL_SYSTEM_PROMPT_MAX_CHARS,
 +  };
 +}
 diff --git a/packages/shared/src/model-system-prompts/contract.test.ts b/packages/shared/src/model-system-prompts/contract.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..142ba5aeb6cf5baba6d2ac742b286ae1ac76c259
+index 0000000000000000000000000000000000000000..95983faf5216449280afa6ddf313872d57eb45c4
 --- /dev/null
 +++ b/packages/shared/src/model-system-prompts/contract.test.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,167 @@
 +import { describe, expect, it } from "vitest";
 +import { appSettingsPatchSchema, appSettingsSchema } from "../validationAppSettings.js";
++import { commandPayloadSchemas } from "../zcode-protocol-v4/command.js";
++import { conversationInputIntentSchema } from "../zcode-protocol-v4/input-intent.js";
 +import {
-+  MODEL_SYSTEM_PROMPT_MAX_CHARS,
 +  MODEL_SYSTEM_PROMPT_MAX_ENTRIES,
 +  modelSystemPromptEntriesPatchSchema,
 +  modelSystemPromptEntriesSchema,
@@ -207,9 +206,22 @@ index 0000000000000000000000000000000000000000..142ba5aeb6cf5baba6d2ac742b286ae1
 +        { providerId: "deepseek", modelId: "chat", text: " second " },
 +        { providerId: "", modelId: "x", text: "drop" },
 +        { providerId: "x", modelId: "y", text: "   " },
-+        { providerId: "x", modelId: "z", text: "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1) },
 +      ]),
 +    ).toEqual([{ providerId: "deepseek", modelId: "chat", text: "second" }]);
++  });
++
++  it("keeps entry text beyond 8000 characters without truncation", () => {
++    const longText = "x".repeat(8_001);
++    expect(
++      modelSystemPromptEntriesSchema.parse([
++        { providerId: "p", modelId: "m", text: longText },
++      ]),
++    ).toEqual([{ providerId: "p", modelId: "m", text: longText }]);
++    expect(
++      modelSystemPromptEntriesPatchSchema.safeParse([
++        { providerId: "p", modelId: "m", text: longText },
++      ]).success,
++    ).toBe(true);
 +  });
 +
 +  it("caps full settings entries", () => {
@@ -233,11 +245,6 @@ index 0000000000000000000000000000000000000000..142ba5aeb6cf5baba6d2ac742b286ae1
 +    expect(
 +      modelSystemPromptEntriesPatchSchema.safeParse([{ providerId: "p", modelId: "m", text: " " }])
 +        .success,
-+    ).toBe(false);
-+    expect(
-+      modelSystemPromptEntriesPatchSchema.safeParse([
-+        { providerId: "p", modelId: "m", text: "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1) },
-+      ]).success,
 +    ).toBe(false);
 +  });
 +
@@ -291,15 +298,63 @@ index 0000000000000000000000000000000000000000..142ba5aeb6cf5baba6d2ac742b286ae1
 +    ).toBe(false);
 +  });
 +});
++
++describe("model system prompt wire schemas", () => {
++  const longText = "L".repeat(9_000);
++  const longEntry = { providerId: "deepseek", modelId: "chat", text: longText };
++
++  it("preserves long text through sendText, sendGoalCommand and createSession.firstInput", () => {
++    const sendText = commandPayloadSchemas.sendText.parse({
++      text: "send",
++      modelSystemPromptEnabled: true,
++      modelSystemPrompt: longEntry,
++    });
++    expect(sendText.modelSystemPrompt?.text).toBe(longText);
++
++    const goal = commandPayloadSchemas.sendGoalCommand.parse({
++      text: "goal",
++      modelSystemPromptEnabled: true,
++      modelSystemPrompt: longEntry,
++    });
++    expect(goal.modelSystemPrompt?.text).toBe(longText);
++
++    const create = commandPayloadSchemas.createSession.parse({
++      workspaceId: "/workspace",
++      firstInput: {
++        text: "first",
++        modelSystemPromptEnabled: true,
++        modelSystemPrompt: longEntry,
++      },
++    });
++    expect(create.firstInput?.modelSystemPrompt?.text).toBe(longText);
++  });
++
++  it("preserves long text through the canonical conversation input intent", () => {
++    const intent = conversationInputIntentSchema.parse({
++      sourceCommandId: "command-long",
++      queueItemId: "queue-long",
++      clientId: "desktop-long",
++      kind: "sendText",
++      text: "hello",
++      modelSystemPromptEnabled: true,
++      modelSystemPrompt: longEntry,
++      delivery: { requested: "startNow", admitted: "startNow" },
++      order: { admissionSeq: 1 },
++      steer: { state: "notRequested" },
++      dispatch: { state: "drained" },
++      admittedAt: 1,
++    });
++    expect(intent.modelSystemPrompt?.text).toBe(longText);
++  });
++});
 diff --git a/packages/shared/src/model-system-prompts/contract.ts b/packages/shared/src/model-system-prompts/contract.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8cbdb059ccfb8fa750b47460fa07dce626786ba9
+index 0000000000000000000000000000000000000000..d7dba231fef058b174dec6fabe10585eb50d0261
 --- /dev/null
 +++ b/packages/shared/src/model-system-prompts/contract.ts
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,95 @@
 +import { z } from "zod";
 +
-+export const MODEL_SYSTEM_PROMPT_MAX_CHARS = 8_000;
 +export const MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20;
 +
 +export interface ModelSystemPromptEntry {
@@ -326,10 +381,8 @@ index 0000000000000000000000000000000000000000..8cbdb059ccfb8fa750b47460fa07dce6
 +  .object({
 +    providerId: providerIdSchema,
 +    modelId: modelIdSchema,
-+    text: z
-+      .string()
-+      .transform(normalizeModelSystemPromptText)
-+      .pipe(z.string().min(1).max(MODEL_SYSTEM_PROMPT_MAX_CHARS)),
++    // 正文不设应用层字符上限；体积由模型上下文与实际请求负责，不再静默截断/拒绝。
++    text: z.string().transform(normalizeModelSystemPromptText).pipe(z.string().min(1)),
 +  })
 +  .strict();
 +export type ModelSystemPromptEntryInput = z.input<typeof modelSystemPromptEntrySchema>;
@@ -350,7 +403,7 @@ index 0000000000000000000000000000000000000000..8cbdb059ccfb8fa750b47460fa07dce6
 +    const providerId = candidate.providerId.trim();
 +    const modelId = candidate.modelId.trim();
 +    const text = normalizeModelSystemPromptText(candidate.text);
-+    if (!providerId || !modelId || !text || text.length > MODEL_SYSTEM_PROMPT_MAX_CHARS) {
++    if (!providerId || !modelId || !text) {
 +      continue;
 +    }
 +    // 同一精确 pair 只保留最后一条；磁盘脏值不能因为一条坏记录拖垮整份设置。
@@ -359,13 +412,13 @@ index 0000000000000000000000000000000000000000..8cbdb059ccfb8fa750b47460fa07dce6
 +  return [...byTarget.values()].slice(0, MODEL_SYSTEM_PROMPT_MAX_ENTRIES);
 +}
 +
-+/** 完整设置读取：过滤非法/空/超长/重复条目，不因单条脏值丢弃整份列表。 */
++/** 完整设置读取：过滤非法/空/重复条目，不因单条脏值丢弃整份列表。 */
 +export const modelSystemPromptEntriesSchema = z.preprocess(
 +  normalizeEntries,
 +  z.array(modelSystemPromptEntrySchema).max(MODEL_SYSTEM_PROMPT_MAX_ENTRIES),
 +);
 +
-+/** patch 写入：严格校验，重复 pair 与越界值直接拒绝，避免持久化歧义。 */
++/** patch 写入：严格校验，重复 pair 与越界条目数直接拒绝，避免持久化歧义。 */
 +export const modelSystemPromptEntriesPatchSchema = z
 +  .array(modelSystemPromptEntrySchema)
 +  .max(MODEL_SYSTEM_PROMPT_MAX_ENTRIES)
@@ -989,30 +1042,50 @@ index 6da9a4829cb67047b1cdf122c96e2e686701653a..5bb705abba4a7e27deb308a91e4f655e
      truncated: z.literal(true).optional(),
    })
 diff --git a/packages/shared/src/zcode-protocol-v4/transport.ts b/packages/shared/src/zcode-protocol-v4/transport.ts
-index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..c6d6ed6beea84490a5af789e5557942de50d571d 100644
+index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..c9d8a3fc79d5a213345cf96c5e9ea1ae01d62862 100644
 --- a/packages/shared/src/zcode-protocol-v4/transport.ts
 +++ b/packages/shared/src/zcode-protocol-v4/transport.ts
-@@ -29,6 +29,8 @@ export const hostCapabilitiesSchema = z.object({
+@@ -29,6 +29,13 @@ export const hostCapabilitiesSchema = z.object({
    // Wire-compatible：旧 Host 缺失等价于 false；调用方必须用 === true 判断。
    workspaceHookReview: z.boolean().optional(),
    independentPlanState: z.boolean().optional(),
-+  /** CLI 接受 modelSystemPromptEnabled/modelSystemPrompt submission 字段；旧 Host 缺失即 false。 */
++  /**
++   * 旧 3.16.7 Host/CLI 也声明该位，但只实现 append 且正文有 8000 上限。
++   * 新 UI/客户端必须用 modelSystemPromptReplacement 判断替换语义。
++   */
 +  modelSystemPrompt: z.boolean().optional(),
++  /** Host 会转发替换语义 submission；旧 Host 缺失即 false。 */
++  modelSystemPromptReplacement: z.boolean().optional(),
    /**
     * 本 Host 会发 `workflowRun.*` 键级增量（delta.ts 的两条 op），因而 `workflowRuns` 的
     * actors / nodes 可以到 1024 而不是旧界的 256。没有这个位的消费者收到的仍是整键
-@@ -103,6 +105,10 @@ export function hostSupportsWorkflowRunDeltas(capabilities: HostCapabilities): b
+@@ -103,6 +110,25 @@ export function hostSupportsWorkflowRunDeltas(capabilities: HostCapabilities): b
    return capabilities.workflowRunDeltas === true;
  }
  
++/**
++ * @deprecated 旧名只用于兼容；替换语义必须看 `modelSystemPromptReplacement`。
++ * 旧 3.16.7 Host 的 `modelSystemPrompt` 只是 append 位，不能当作替换支持。
++ * 保留该函数并转调新位，避免未同步的 UI 在旧 Host 上假启用。
++ */
 +export function hostSupportsModelSystemPrompt(capabilities: HostCapabilities): boolean {
-+  return capabilities.modelSystemPrompt === true;
++  return hostSupportsModelSystemPromptReplacement(capabilities);
++}
++
++/**
++ * 替换语义（自定义正文替换默认 Agent 提示词）的独立能力位。
++ * 旧 Host 的 `modelSystemPrompt` 只代表 append 字段，不能当作替换支持。
++ */
++export function hostSupportsModelSystemPromptReplacement(
++  capabilities: HostCapabilities,
++): boolean {
++  return capabilities.modelSystemPromptReplacement === true;
 +}
 +
  export function clientSupportsWorkflowRunDeltas(clientHello: ClientHello): boolean {
    return clientHello.capabilities?.workflowRunDeltas === true;
  }
-@@ -347,6 +353,7 @@ export const V4_METHODS = {
+@@ -347,6 +373,7 @@ export const V4_METHODS = {
    conversationRowsRange: "v4/conversation/rowsRange",
    // 当前有效分支的终态 ExitPlanMode 目录；只读、无状态、超时重发安全。
    conversationPlans: "v4/conversation/plans",
@@ -1021,19 +1094,24 @@ index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..c6d6ed6beea84490a5af789e5557942d
    backgroundBashOutput: "v4/conversation/backgroundBashOutput",
    offPeakControl: "v4/conversation/offPeakControl",
 diff --git a/packages/shared/src/zcode-protocol/index.ts b/packages/shared/src/zcode-protocol/index.ts
-index e606fa59fa5992bc11d4b92d63dc20fb291910c4..95324b504743242b8a6d218aa5c4a68b51508926 100644
+index e606fa59fa5992bc11d4b92d63dc20fb291910c4..2a696c6ba6de95c0301371f20bb7fa280ad63058 100644
 --- a/packages/shared/src/zcode-protocol/index.ts
 +++ b/packages/shared/src/zcode-protocol/index.ts
-@@ -132,6 +132,8 @@ export const ZCODE_PROTOCOL_V4_WIRE_VERSION = 3 as const;
+@@ -132,6 +132,13 @@ export const ZCODE_PROTOCOL_V4_WIRE_VERSION = 3 as const;
  export const zcodeRuntimeCapabilitiesSchema = z.object({
    historyFirst: z.boolean().optional(),
    independentPlanState: z.boolean().optional(),
-+  /** 实际执行端 CLI 接受 modelSystemPromptEnabled/modelSystemPrompt submission 字段。 */
++  /**
++   * 旧 3.16.7 CLI 也声明该位，但语义是“接受 append 字段且正文有 8000 上限”。
++   * 不能据此判定支持替换语义；替换能力必须看 modelSystemPromptReplacement。
++   */
 +  modelSystemPrompt: z.boolean().optional(),
++  /** 实际执行端 CLI 支持替换语义（自定义正文替换默认 Agent 提示词），而非 append。 */
++  modelSystemPromptReplacement: z.boolean().optional(),
  });
  export const zcodeProtocolErrorCodes = {
    sessionUnavailable: -32004,
-@@ -2089,6 +2091,13 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
+@@ -2089,6 +2096,13 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
      memoryEnabled: z.boolean().default(false),
      askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
      integratedTerminalShell: integratedTerminalShellSelectionSchema.optional(),
@@ -1047,7 +1125,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..95324b504743242b8a6d218aa5c4a68b
      // 兼容旧 Host：缺少字段时在协议解析边界使用当前默认策略。
      modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
        DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
-@@ -2678,6 +2687,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
+@@ -2678,6 +2692,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
    typeof zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema
  >;
  
@@ -1087,7 +1165,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..95324b504743242b8a6d218aa5c4a68b
  export const zcodePermissionRequestParamsSchema = z
    .object({
      requestId: nonEmptyString,
-@@ -2790,6 +2832,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
+@@ -2790,6 +2837,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
      modelSelection: modelSelectionSchema,
      providerId: nonEmptyString,
      accountAccess: zcodeProviderAccountAccessSchema.optional(),
@@ -1095,7 +1173,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..95324b504743242b8a6d218aa5c4a68b
      expectedAccountScope: z
        .string()
        .regex(/^[a-f0-9]{64}$/)
-@@ -2826,6 +2869,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
+@@ -2826,6 +2874,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
          .object({
            apiKey: nonEmptyString.optional(),
            apiKeyId: z.string().trim().min(1).optional(),
@@ -1103,7 +1181,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..95324b504743242b8a6d218aa5c4a68b
            accountScope: z
              .string()
              .regex(/^[a-f0-9]{64}$/)
-@@ -4156,6 +4200,8 @@ export const zcodeProtocolMethods = {
+@@ -4156,6 +4205,8 @@ export const zcodeProtocolMethods = {
    workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",
    // 动态工作流灰度门禁：同 Off-Peak 的同步模式。
    workspaceUpdateDynamicWorkflowPolicy: "workspace/updateDynamicWorkflowPolicy",

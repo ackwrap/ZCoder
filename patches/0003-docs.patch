@@ -427,15 +427,15 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
 diff --git a/docs/model-system-prompts.md b/docs/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..1f5172be85d03f3813e8657d4bdd6f985842fc2e
+index 0000000000000000000000000000000000000000..a67f523a979fb922648ed5768762525ad4621fdd
 --- /dev/null
 +++ b/docs/model-system-prompts.md
-@@ -0,0 +1,86 @@
-+# 模型自定义补充提示词
+@@ -0,0 +1,101 @@
++# 模型自定义系统 Agent 提示词
 +
 +## 范围
 +
-+高级设置按 `providerId + modelId` 维护一份用户补充提示词。它只作为主 Agent 当前请求的附加 system 段，不替换内置 system prompt、工具、Skills、MCP、AGENTS.md、权限、沙箱或审批规则。
++高级设置按 `providerId + modelId` 维护一份用户自定义系统 Agent 提示词。启用且模型精确匹配时，它**替换其它默认 Agent 提示词**，仅保留工具、MCP 与 Skill 说明；权限、审批、沙箱与工具执行机制不变，不构成安全绕过。
 +
 +- 配置是 Host 级设置；无全局默认，无 provider/wildcard 匹配。
 +- 会话级开关默认关闭，是 renderer 的 per-session 状态：真实会话使用独立的 renderer flag + localStorage scope，新任务草稿由草稿内存 owner 持有；它不是 AppSettings，不随 Host 设置持久化，不同会话互不影响。
@@ -455,9 +455,9 @@ index 0000000000000000000000000000000000000000..1f5172be85d03f3813e8657d4bdd6f98
 +```
 +
 +- 精确大小写匹配 `providerId + modelId`。
-+- 单条正常化后最多 `MODEL_SYSTEM_PROMPT_MAX_CHARS = 8000` 字符；最多 `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20` 条。
++- 最多 `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20` 条；单条 `text` 不设应用层字符上限，不再有 8000 字符常量、截断或拒绝。
 +- 正常化：`\r\n`/`\r` → `\n`；裁剪首尾空白；保留内部换行与缩进；正常化后为空表示删除该条。
-+- patch schema 严格拒绝越界、空 ID 和重复 pair；完整 schema 对脏磁盘值安全降级。
++- patch schema 只拒绝空 ID、空正文、条目数越界和重复 pair；不因正文长度拒绝；完整 schema 对脏磁盘值安全降级。
 +- 留空保存即删除，不做全局 append。
 +
 +## Submission 与协议
@@ -473,29 +473,44 @@ index 0000000000000000000000000000000000000000..1f5172be85d03f3813e8657d4bdd6f98
 +- 只有开关开启且当前所选模型有精确配置时才携带 `modelSystemPrompt`。
 +- 字段随现有 `sendText`、`sendGoalCommand`、`createSession.firstInput` payload 和 canonical intent / QueueItem 透传，不新增 RPC。
 +- 旧客户端缺省字段：新 turn 按未启用处理；inline guide 缺省时保留当前 active turn 的原意图。
-+- CLI Host hello 声明 `capabilities.modelSystemPrompt = true`。新 Host 的关闭态发送显式 `modelSystemPromptEnabled:false`，不省略；只有旧 Host/明确 unsupported 才应省略或由 Host 剥离两个字段，避免 strict command schema 拒绝。
-+- Host 在转发 sendText/sendGoalCommand/createSession.firstInput 前，若 payload 携带任一字段，调用 `resolveModelSystemPromptSupport` 查询实际 workspace CLI 的 `runtime/capabilities`，三态处理：
-+  - supported：保留显式 false；
-+  - unsupported：true/残留 prompt 拒绝 `proto.modelSystemPromptUnsupported`；false 剥离顶层与 `firstInput` 两字段后转发；
++- CLI/Host hello 声明替换能力位 `capabilities.modelSystemPromptReplacement = true`。旧的 `modelSystemPrompt` 位只表示 append 字段兼容；3.16.7 也会声明它但仍是 append + 8000 上限，不能当作替换支持。新 UI 必须用 `hostSupportsModelSystemPromptReplacement` 判断是否显示替换开关。
++- 新 Host 的关闭态发送显式 `modelSystemPromptEnabled:false`，不省略；只有旧 Host/明确 unsupported 才应省略或由 Host 剥离两个字段，避免 strict command schema 拒绝。
++- Host 在转发 sendText/sendGoalCommand/createSession.firstInput 前，若 payload 携带任一字段，调用 `resolveModelSystemPromptSupport` 查询实际 workspace CLI 的 `runtime/capabilities`，四态处理：
++  - replacement（`modelSystemPromptReplacement === true`）：保留显式 false；开启时透传正文；关闭时剥离残留正文对象。
++  - append-only（只有 `modelSystemPrompt === true`，如 3.16.7）：开启替换明确拒绝 `proto.modelSystemPromptUnsupported`，不静默 append；显式 false 仍转发并只剥离残留正文，让旧 CLI 关闭已有 active prompt。
++  - unsupported（两位都没有）：开启拒绝 `proto.modelSystemPromptUnsupported`；false 剥离顶层与 `firstInput` 两字段后转发。
 +  - unavailable：所有携带字段的请求拒绝 `proto.modelSystemPromptCapabilityUnavailable`，不转发 command。查询失败不能伪装 unsupported，也不能剥 false 继续造成“关闭假成功”。
 +  - 完全无字段：不查询能力。不能只相信 Host hello 或全局放宽 strict schema。
 +
 +## 请求组装
 +
 +- 实际执行模型以 `admittedModel`（含 fallback 后）为准，不使用草稿选择或 session 初始配置。
-+- 仅当 `admittedModel.providerId/modelId` 与 `modelSystemPrompt` 完全一致时，通过现有 `ContextBuilder.addSection()` 追加一个 `model_system_prompt` 动态 system 段。
-+- 段内容明确为“补充说明，不得覆盖上面的系统规则”，位于所有内置 system 段之后。
-+- Builder 把它单独组装成一个 system message；`systemMessageSources` 与 context history 的 `metadata.source` 保留 `model_system_prompt`，供压缩摘要按 source 过滤；内置 dynamic block 的其他内容保持不变。
-+- 每次 turn 重建 ContextBuilder；`rebuildContextPrefix` 用新的 context prefix 替换 `messageHistory` 前缀，因此同一请求最多一个 custom 段，旧模型/旧开关的段不会累加或残留。
-+- 关闭开关后的下一次发送不带段；已发送请求保持不变。
++- 仅当 `admittedModel.providerId/modelId` 与 `modelSystemPrompt` 完全一致时进入替换路径；不匹配、空正文或未启用时原样使用默认 Agent 提示词。
++- 替换正文即用户提供的原文：不添加“补充说明/不得覆盖上面的系统规则”之类包装、标题或协作代理身份。
++- 替换后保留的来源：
++  - `tools`：模型请求的工具 contract（内置工具与 MCP 工具），不在 ContextBuilder 内，始终不变；
++  - 工具执行片段：从 Harness 摘出的权限拒绝语义、hook 反馈、专用工具优先与并行调用，不整段保留 identity/Harness；
++  - `session_guidance`：仅工具相关 system 说明（当前为 Skill 调用说明的确切内容）；
++  - `skills`：meta_user 的 Skill 目录说明。
++- 移除的来源：`cli_prefix`、`identity`（含 Harness/防御提示）、`desktop_context`、`dynamic_behavior`、`memory`、`env_info`、`system_context`(git)、`output_style`、`context_management`、`request_user_context`（AGENTS/项目记忆索引）、`current_date`，以及其它非工具 `customSections`。
++- Builder 只处理初始前缀；后续追加的默认来源由 provider 请求前的 source 投影统一过滤：`context_prefix`、`instruction_file_update`、`memory_update`、`relevant_memory`、`output_style`、`date_change` 不进入请求。`context_source_update` 只保留 `skills`/`mcp_tools` 两种 kind。`runtime_mode` 仅保留当前只读状态与 ExitPlan/AskUserQuestion 工具契约，不含 4 阶段 Plan 默认策略。
++- 明确保留：`tools`（请求字段）、`skills_listing`、已加载 Skill、tool result、`tool_search_announcement`、`agent_listing_delta`、`todo_reminder`、任务/通知、真实用户 guide、`prompt_attachment`、用户工具 hook 产生的 `hook_context`。
++- 投影是只读视图：不改 canonical history，也不对用户内容做 regex 裁剪；capacity 与真实 provider request 共用同一投影函数。
++- Builder 在 `build()` 返回前做结果级替换；`systemMessageSources` 与 context history 的 `metadata.source` 保留 `model_system_prompt`，供压缩摘要按 source 过滤。
++- 每次 turn 重建 ContextBuilder；`rebuildContextPrefix` 用新的 context prefix 替换 `messageHistory` 前缀，因此同一请求最多一份替换正文，旧模型/旧开关的内容不会累加或残留。
++- 关闭开关后的下一次发送恢复默认 Agent 提示词；已发送请求保持不变。
 +- 主 Agent 的 `ensureContextInitialized` 与 `rebuildContextPrefix` 都接收本次 submission 的意图；active turn 保存该意图供 turn 中途 rebuild 复用。
-+- 请求期 fallback 可能在 model step 后改写 `state.model`。turn loop 在每次容量估算与 provider 请求准备前比较 `contextPrefixModelKey`，按当前实际 model 与 active turn 冻结意图重建 context prefix；不读取最新设置。
++- 请求期 fallback 可能在 model step 后改写 `state.model`。turn loop 在每次容量估算与 provider 请求准备前比较 `contextPrefixModelKey`，按当前实际 model 与 active turn 冻结意图重建 context prefix；fallback 到的模型不匹配时使用默认 Agent 提示词，不读取最新设置。
 +- inline guide 若有显式 `modelSystemPromptEnabled`，在下一个请求边界更新 active turn 意图并重建；不修改在途请求。
++- 容量基线：以「实际 model + 冻结 prompt 正文 + 当前 context prefix 签名」作为 key。prefix/model/prompt 变化时只失效上下文容量基线；只有本次新 assistant 真正具备可用的 `persistedTokenUsageBaseline`（input 可用，非零/缺失）时才重新有效。usage 0 或无 input 的新 assistant 会让 `findLatestCommittedAssistantUsage` 回退旧 prefix usage，因此必须保持 invalid 并用完整 provider 投影估算；不清账务、缓存或真实 provider tokens。相同 key 且无 prefix 变化继续复用 provider usage，避免所有 replacement 永久退化为全文估算。
++- 自动 output-token 续跑通过 `queryScope === "output_token_continuation"` 识别；replacement 视图把该条目替换为纯恢复事实（输出上限已到、从截断处继续），不包含 no apology/no recap/Break remaining。真实用户相同文本没有该 queryScope，原样保留。
 +
 +## 辅助请求
 +
 +- 标题生成使用独立 `buildTitleMessages`，不经过主 ContextBuilder，不套用自定义段。
 +- 压缩使用独立 `buildCompactPrompt`。压缩请求按 `metadata.source === "model_system_prompt"` 过滤该段，避免摘要把 custom 文本永久写入历史；不删除整个 dynamic block、不改 canonical history、不做用户文本字符串替换。post-compact 续跑前缀用 active turn 冻结意图与续跑实际 model 重建，auto/reactive 返回的 entries 也带该段。
++- Compact summary 拆成「摘要事实 + 默认 follow-up suffix」。replacement 视图只保留摘要事实与 transcript/recent/repl 连续性；带 `compactBoundary` 的历史 summary entry 在 provider 投影中移除已知 suffix，canonical 不变。
++- Compact summary 的 provider 请求与 ModelRequest 记录复用同一个 runtime replacement 投影，不再走旁路 source filter。真实 summary 请求与记录都不含 AGENTS/默认后缀，并继续使用同一 media/loaded-tools/compact prompt。记录侧先按 `queryScope` 移除 output-token continuation，再用同一投影重投影，因此历史 summary 记录不会重新带入默认文案或恢复事实。
 +- Target completion verifier 是辅助请求：复用同一 source 过滤后再投影 provider 请求和 ModelRequest 事件；不改 canonical，也不把 custom 注入 verifier。
 +- 只有 summary 请求不含该段；post-compact 续跑主请求仍按 active turn 冻结意图与实际续跑 model 恰好保留一次（匹配时）。上下文裁剪不改变“摘要不含、续跑一份”的规则。
 +
@@ -507,15 +522,15 @@ index 0000000000000000000000000000000000000000..1f5172be85d03f3813e8657d4bdd6f98
 +## 日志与隐私
 +
 +- 自定义文本不写入常规日志、诊断或遥测。
-+- 文本随 intent/queue metadata 持久化，属于会话数据；上限 8000 字符用于限制体积。
-+- 自定义段不是安全边界；权限、沙箱和审批仍在执行层强制。
++- 文本随 intent/queue metadata 持久化，属于会话数据；不设正文字符上限，体积由模型上下文与实际请求负责。
++- 自定义提示词不是安全边界；权限、沙箱、审批和工具执行仍在执行层强制。
 +
 +## 回归证据
 +
-+- shared：schema 默认/正常化/长度/条目数/重复 pair/精确匹配。
-+- core：真实 `admittedModel` 精确匹配、fallback 不匹配、内置段保留、关闭后移除、重复 turn 不累加、子 Agent/workflow 排除。
-+- bootstrap/protocol：sendText/goal/firstInput 透传，queue admission/promotion 保真，旧 payload 兼容。
-+- compaction：summary-safe prefix 不含 `model_system_prompt`，post-compact 可重建。
++- shared：schema 默认/正常化/条目数/重复 pair/精确匹配，以及超过 8000 字符的正文完整通过，不截断。
++- core：真实 `admittedModel` 精确匹配时替换默认提示词并只保留工具/MCP/Skill；provider 前投影移除后续追加的默认来源并保留工具/任务/真实用户条目；fallback 不匹配使用默认；关闭后恢复默认；重复 turn 不累加；子 Agent/workflow 排除。
++- bootstrap/protocol：sendText/goal/firstInput 透传，queue admission/promotion 保真，旧 payload 兼容；`runtime/capabilities` 新 CLI 声明 `modelSystemPromptReplacement`，旧 3.16.7 只有 `modelSystemPrompt` 时按 append-only 拒绝启用、保留 false 关闭。
++- compaction：summary 请求不含 `model_system_prompt`，post-compact 续跑按冻结意图重建一次替换正文；auto/micro compact 决策与真实请求使用同一替换投影。
 +- UI 由 UI 代理按 `docs/ui/model-system-prompts.md` 维护本地 DOM/mock 证据；本功能不引入真实外部 E2E，未运行真实网络或真实会话数据库。
 diff --git a/docs/permission-mode-live-switch.md b/docs/permission-mode-live-switch.md
 new file mode 100644
@@ -1749,29 +1764,30 @@ index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7
 +验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
 diff --git a/docs/ui/model-system-prompts.md b/docs/ui/model-system-prompts.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620cc47e7848
+index 0000000000000000000000000000000000000000..e16beb4630587b0952116b466a848147e4c2c870
 --- /dev/null
 +++ b/docs/ui/model-system-prompts.md
-@@ -0,0 +1,214 @@
-+# 模型补充系统提示词（UI 范围）
+@@ -0,0 +1,220 @@
++# 模型自定义系统 Agent 提示词（UI 范围）
 +
 +> 2026-10-27。本文只定义 `packages/ui/**` 的可观察行为、状态归属、接入点和回归边界。
-+> 共享契约由 `@zcode/shared` 的 `model-system-prompts` 模块提供；Host/CLI 如何把条目追加到
-+> 系统提示词、以及运行中 turn 的合并规则由运行时负责，不在本文重建设计。
++> 共享契约由 `@zcode/shared` 的 `model-system-prompts` 模块提供；Host/CLI 如何在启用时
++> 用条目替换其它默认 Agent 提示词、以及运行中 turn 的合并规则由运行时负责，不在本文重建设计。
 +
 +## 目标与边界
 +
-+用户可按 `providerId + modelId` **精确匹配**，为某个模型保存一份自定义补充提示词。补充内容
-+追加在内置系统提示词之后，**不替换**内置工具、Skills、权限规则或安全策略。
++用户可按 `providerId + modelId` **精确匹配**，为某个模型保存一份自定义系统 Agent 提示词。
++启用后，运行时以该内容**替换其它默认 Agent 提示词**，仅保留工具、MCP 与 Skill 说明；
++权限、审批与 Sandbox 执行机制不变。UI 不自行拼接或替换系统提示词。
 +
 +UI 只负责三件事：
 +
 +1. 高级设置中编辑/删除设置项，保存走现有 `useSettings.update` 持久化与广播链路。
 +2. Composer 模型选择器左侧的会话级开关：仅对当前会话的下一次发送生效。
-+3. 发送时把“当前模型的这一份补充提示词”冻结进 Submission，随现有 `sendText` /
++3. 发送时把“当前模型的这一份自定义系统 Agent 提示词”冻结进 Submission，随现有 `sendText` /
 +   `sendGoalCommand` / 队列 / pending replay 路径透传。
 +
-+不做：新增 Host/CLI 连接、模型请求、重启、第二份系统提示词权威、历史条目 append、真实
++不做：新增 Host/CLI 连接、模型请求、重启、第二份系统提示词权威、历史条目拼接、真实
 +凭据读取、全量提示词预览或测试。
 +
 +## 共享契约（依赖）
@@ -1780,8 +1796,8 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +
 +- `AppSettings.modelSystemPromptAppends?: ModelSystemPromptEntry[]`
 +- `ModelSystemPromptEntry = { providerId: string; modelId: string; text: string }`
-+- `MODEL_SYSTEM_PROMPT_MAX_CHARS = 8000`
 +- `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20`
++- 本功能不设固定字数上限；实际可用长度仍受模型上下文与请求限制。`> 8000` 字符必须能完整保存、冻结并透传。
 +- `normalizeModelSystemPromptText(value)`：CRLF/CR → LF，只裁剪首尾空白，保留内部换行与缩进。
 +- `resolveModelSystemPromptEntry(entries, selection)`：严格大小写精确匹配 `providerId` 与
 +  `modelId`，找不到返回 `undefined`。
@@ -1791,18 +1807,20 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +- `modelSystemPromptEnabled: boolean`
 +- `modelSystemPrompt?: ModelSystemPromptEntry`
 +
-+Host hello 的 `capabilities.modelSystemPrompt` 是唯一门控来源，UI 使用共享
-+`hostSupportsModelSystemPrompt(capabilities)` 判断；未知/握手失败按不支持处理。
++Host hello 的 `capabilities.modelSystemPromptReplacement` 是唯一门控来源，UI 使用共享
++`hostSupportsModelSystemPromptReplacement(capabilities)` 判断；未知/握手失败按不支持处理。
++旧 3.16.7 Host 的 `modelSystemPrompt: true` 只代表 append 字段，不能当作替换支持；
++只有该旧位时必须隐藏入口并省略新字段。旧 helper `hostSupportsModelSystemPrompt` 仅转调新位。
 +
-+- **支持 capability 的 Host**：每次发送都显式写 `modelSystemPromptEnabled`。关闭、无匹配、
++- **支持 replacement capability 的 Host**：每次发送都显式写 `modelSystemPromptEnabled`。关闭、无匹配、
 +  空正文或模型无配置时写 `false` 且不带 `modelSystemPrompt`；只有启用且精确命中非空条目时
 +  写 `true` 并携带该条目。
-+- **旧 Host（缺少 capability）**：完全省略 `modelSystemPromptEnabled` 与
-+  `modelSystemPrompt` 两个字段，不能发送显式 `false` 让旧严格 schema 拒绝；Composer 图标
-+  隐藏，不显示假启用入口。
++- **旧 Host（缺少 replacement capability，或仅有旧 `modelSystemPrompt` 位）**：完全省略
++  `modelSystemPromptEnabled` 与 `modelSystemPrompt` 两个字段，不能发送显式 `false` 让旧严格
++  schema 拒绝；Composer 图标隐藏，不显示假启用入口。
 +- `createSubmissionFromComposer`、推荐模型替换、`sendGoalCommand` 与队列/pending replay
 +  共用同一冻结 Submission；已排队或失败重试继续复用原 payload，不重新读取当前 toggle。
-+- 不把历史条目拼进正文，也不在 UI 侧 append。
++- 不把历史条目拼进正文，也不在 UI 侧拼接或替换系统提示词。
 +
 +## 模块与权威
 +
@@ -1837,12 +1855,14 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +### 条目规则
 +
 +- 每个 `providerId + modelId` 最多一条；精确大小写匹配，不按显示名或前缀归并。
-+- 最多 `20` 条；单条 normalized 文本最多 `8000` 字符。
++- 最多 `20` 条；本功能不设固定字数上限，不提供字数计数器或超长校验；实际可用长度仍受
++  模型上下文与请求限制。
 +- 新条目从现有模型目录选择（`modelSelectionService.getView()`），不读取任何凭据。
 +- 已保存但不在当前目录中的“孤儿条目”仍出现在选择器中，可查看、编辑、删除。
 +- 清空编辑器并保存即删除该条；显式“删除此条”等价。
 +- 文本换行统一为 LF，保留内部缩进；首尾空白在保存时裁剪。
-+- 说明文案明确：仅追加，不替换内置系统提示词、工具、Skills 与权限规则。
++- 说明文案明确：启用后替换其它默认 Agent 提示词，仅保留工具/MCP/Skill 说明；权限、审批与
++  Sandbox 执行机制不变。
 +
 +### 保存与并发
 +
@@ -1942,7 +1962,8 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +## 非目标与安全
 +
 +- 不读取/记录 API Key、OAuth token 或任何凭据；目录只来自既有 `ModelSelectionView`。
-+- 不新增提示词预览、注入检测、系统提示词替换或权限绕过能力。
++- 不新增提示词预览或注入检测。替换由运行时按冻结条目执行，仅作用于默认 Agent 提示词；
++  工具/MCP/Skill 说明保留，权限、审批与 Sandbox 不因启用而放宽或绕过。
 +- 不做真实桌面点击 E2E、不读真实 setting/DB；本范围用 jsdom 定向测试。
 +
 +## 回归矩阵
@@ -1951,7 +1972,7 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +| ------- | -------------------------- | ------------------------------------------------ |
 +| MSP-S01 | 高级设置新增条目           | 精确 pair、文本规范化、只发送完整数组 patch      |
 +| MSP-S02 | 编辑/清空/删除/孤儿        | 清空删除；孤儿仍可见可删                         |
-+| MSP-S03 | 20 条与 8000 字符边界      | 本地拒绝，不提交非法 patch                       |
++| MSP-S03 | 20 条边界与长文本         | 第 21 条本地拒绝；>8000 字符完整保存、冻结、透传 |
 +| MSP-S04 | 保存失败                   | 草稿与错误保留，可重试；pending 结束             |
 +| MSP-S05 | 外部刷新/快速换选/迟到保存 | 不覆盖 dirty 草稿，不串到新选择                  |
 +| MSP-C01 | 新会话与多会话             | 默认关闭；互不继承；重挂恢复                     |
@@ -1959,7 +1980,7 @@ index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620c
 +| MSP-C03 | 草稿 promotion             | 值迁移到真实 session 并清草稿；新任务仍关闭      |
 +| MSP-C04 | 冻结与排队/失败恢复        | payload 保持当次快照；重试不重新读取开关         |
 +| MSP-C05 | 存储失败                   | 内存选项不丢，只降级持久性                       |
-+| MSP-C06 | 旧 Host capability         | 两个字段完全省略；图标隐藏，不假启用             |
++| MSP-C06 | 旧 Host capability         | 旧 `modelSystemPrompt:true` 或缺失新位均隐藏/省略 |
 +| MSP-C07 | A pending 时外部加 C       | B 的 patch 保留 C；failed A 不成为 B 底稿        |
 +| MSP-C08 | 推荐换模 + barrier 改开关  | 只从冻结 intent/snapshot 解析最终模型            |
 +| MSP-C09 | 导航 abort / 迟到 ACK      | accepted 仍迁移；新 owner 不被清                 |
