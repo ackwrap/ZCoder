@@ -10195,6 +10195,37 @@ index 0000000000000000000000000000000000000000..1b2a5a6a5add3323c7b4dbed57200c2e
 +}
 +
 +export const autoCompactHandlers = { configureAutoCompact };
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/canonical-intent-replay.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/canonical-intent-replay.ts
+index ea47cc19826050e0fefdeab4d9dfd7fafd8a28c6..7602fea66b2e4cefbdc548deca6d31b5fb87d480 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/canonical-intent-replay.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/canonical-intent-replay.ts
+@@ -59,6 +59,8 @@ function buildCanonicalIntent(
+       modelSelection: editTarget.intent.modelSelection,
+       mode: editTarget.intent.mode,
+       planEnabled: editTarget.intent.planEnabled,
++      modelSystemPromptEnabled: editTarget.intent.modelSystemPromptEnabled,
++      modelSystemPrompt: editTarget.intent.modelSystemPrompt,
+       attachmentRefs,
+       provenance: editTarget.intent.provenance,
+     },
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts
+index 5724973ea6a48aaa6067db88df5d55c88fba1d31..6c36fa86cc1c399c599c6457ceeb51a08137de53 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts
+@@ -256,7 +256,12 @@ async function sendGoalCommand(
+     );
+   }
+   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
+-    inputIntentMetadata(envelope, { ...options, ...submittedExecutionState });
++    inputIntentMetadata(envelope, {
++      ...options,
++      ...submittedExecutionState,
++      modelSystemPromptEnabled: payload.modelSystemPromptEnabled,
++      modelSystemPrompt: payload.modelSystemPrompt,
++    });
+   const routingMode = host.getInputRoutingMode?.(record.app.sessionId) ?? null;
+   if (record.activeAbortController || routingMode === "enqueue" || routingMode === "guide") {
+     // /goal 是目标控制命令，active turn 中不能直接写 target；
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts
 index 6ab19fb0a13557bf463423714cd336ba8b4d6da3..f95038637036328fab3d4a3598645b62b1953e1d 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts
@@ -10225,8 +10256,30 @@ index 3db5cb2dff7aabc4d81872b2f4bae309fa9f5ac6..4a952857692a78121de0c3d0183e1fc0
    return undefined;
  }
  
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts
+index 842d966c8d9a9e3a37411aa1dad8980303e4d93a..de134a113e1fc41ddb66b61e3322152a7f9318f1 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts
+@@ -132,6 +132,8 @@ async function sendText(
+         admittedDelivery: "queue",
+         ...(routingMode === "guide" ? { fallbackReasonCode: HIGHSPEED_QUEUE_FALLBACK_REASON } : {}),
+         attachmentRefs: payload.attachments,
++        modelSystemPromptEnabled: payload.modelSystemPromptEnabled,
++        modelSystemPrompt: payload.modelSystemPrompt,
+       });
+       intent.modelSelection = ordinarySelection;
+       if (!retainQueuedTurnExecution) delete intent.highspeed;
+@@ -237,6 +239,8 @@ async function sendText(
+         : {}),
+       attachmentRefs: payload.attachments,
+       sharedContextRefs: payload.context_refs,
++      modelSystemPromptEnabled: payload.modelSystemPromptEnabled,
++      modelSystemPrompt: payload.modelSystemPrompt,
+       ...(payload.source ? { source: payload.source } : {}),
+     });
+     started = await startPromptTurn(host, record, {
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
-index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c05352c8b 100644
+index 859fce79163da5beb7befe3eeac51ccba87442b4..2215926e46ea52992a84e3ad53064715f43173a7 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-mgmt.ts
 @@ -8,7 +8,8 @@ import type {
@@ -10239,7 +10292,16 @@ index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c
  import { startPromptTurn } from "../prompt-turn.js";
  import { requireRecord } from "../record-access.js";
  import type { V4CommandCoreHost } from "../types.js";
-@@ -165,6 +166,57 @@ async function renameSession(
+@@ -105,6 +106,8 @@ async function createSession(
+         requestedDelivery: "startNow",
+         attachmentRefs: payload.firstInput.attachments,
+         ...resolveSubmittedExecutionState(record, payload.firstInput),
++        modelSystemPromptEnabled: payload.firstInput.modelSystemPromptEnabled,
++        modelSystemPrompt: payload.firstInput.modelSystemPrompt,
+       });
+       const started = await startPromptTurn(host, record, {
+         content: payload.firstInput.text,
+@@ -165,6 +168,57 @@ async function renameSession(
    return undefined;
  }
  
@@ -10297,7 +10359,7 @@ index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c
  /** CLI 先持久化软删除，再关闭运行实例；正文保留，后续冷种子不会复活该会话。 */
  async function deleteSession(
    host: V4CommandCoreHost,
-@@ -175,6 +227,8 @@ async function deleteSession(
+@@ -175,6 +229,8 @@ async function deleteSession(
      // 关闭不能静默降级：钩子缺失说明 binder 接线不完整，直接失败（ACK failed）。
      throw new Error("v4 deleteSession requires host.deleteSession capability");
    }
@@ -10306,7 +10368,7 @@ index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c
    await host.deleteSession(record.app.sessionId);
    return undefined;
  }
-@@ -200,6 +254,9 @@ async function discardSharedContext(
+@@ -200,6 +256,9 @@ async function discardSharedContext(
  export const sessionMgmtHandlers = {
    createSession,
    renameSession,
@@ -10316,6 +10378,61 @@ index 859fce79163da5beb7befe3eeac51ccba87442b4..54786416c937407052177aa59c78070c
    deleteSession,
    discardSharedContext,
  };
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/input-intent.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/input-intent.ts
+index bb2df1a2f2d98aa12175773d5cac2e14a64904c1..44db93b78810744e77366be1cc1165264da2f20b 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/input-intent.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/input-intent.ts
+@@ -18,6 +18,8 @@ export interface CanonicalCommandIntent {
+   modelSelection?: ModelSelection;
+   mode?: SubmissionMode;
+   planEnabled?: boolean;
++  modelSystemPromptEnabled?: boolean;
++  modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
+   sourceCommandId?: string;
+   clientId?: string;
+   queueItemId?: string;
+@@ -44,6 +46,8 @@ export function inputIntentMetadata(
+     modelSelection?: ModelSelection;
+     mode?: SubmissionMode;
+     planEnabled?: boolean;
++    modelSystemPromptEnabled?: boolean;
++    modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
+     sharedContextRefs?: TurnInputIntentMetadata["sharedContextRefs"];
+     source?: TurnInputIntentMetadata["source"];
+   },
+@@ -72,6 +76,10 @@ export function inputIntentMetadata(
+     ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
+     ...(options.mode ? { mode: options.mode } : {}),
+     ...(options.planEnabled !== undefined ? { planEnabled: options.planEnabled } : {}),
++    ...(options.modelSystemPromptEnabled !== undefined
++      ? { modelSystemPromptEnabled: options.modelSystemPromptEnabled }
++      : {}),
++    ...(options.modelSystemPrompt ? { modelSystemPrompt: options.modelSystemPrompt } : {}),
+     admissionSeq: admission.admissionSeq,
+     admittedAt: admission.admittedAt,
+     requestedDelivery: options.requestedDelivery,
+@@ -111,6 +119,10 @@ export function inputIntentMetadataFromCanonical(
+     ...(canonical.modelSelection ? { modelSelection: canonical.modelSelection } : {}),
+     ...(canonical.mode ? { mode: canonical.mode } : {}),
+     ...(canonical.planEnabled !== undefined ? { planEnabled: canonical.planEnabled } : {}),
++    ...(canonical.modelSystemPromptEnabled !== undefined
++      ? { modelSystemPromptEnabled: canonical.modelSystemPromptEnabled }
++      : {}),
++    ...(canonical.modelSystemPrompt ? { modelSystemPrompt: canonical.modelSystemPrompt } : {}),
+     admissionSeq: admission.admissionSeq,
+     admittedAt: admission.admittedAt,
+     requestedDelivery: canonical.requestedDelivery ?? "startNow",
+@@ -148,6 +160,10 @@ export function inputIntentMetadataFromQueueItem(
+     ...(item.modelSelection ? { modelSelection: item.modelSelection } : {}),
+     ...(item.mode ? { mode: item.mode } : {}),
+     ...(item.planEnabled !== undefined ? { planEnabled: item.planEnabled } : {}),
++    ...(item.modelSystemPromptEnabled !== undefined
++      ? { modelSystemPromptEnabled: item.modelSystemPromptEnabled }
++      : {}),
++    ...(item.modelSystemPrompt ? { modelSystemPrompt: item.modelSystemPrompt } : {}),
+     admissionSeq: item.order.admissionSeq,
+     admittedAt: item.admittedAt,
+     requestedDelivery: item.delivery.requested,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/compact-summary-read.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/compact-summary-read.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a8c3e6be36b743229769b39d5a90214bc22a345
@@ -10520,10 +10637,37 @@ index 0000000000000000000000000000000000000000..360adafe6c4e8d871c36bfce2b1734e7
 +  });
 +}
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/conversation-topic-publisher.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/conversation-topic-publisher.ts
-index 7a4aaecc716e79e878708734efb8d8e31e7d4b69..60b381c7035018dee3ffe21c8bdedfaff72807f8 100644
+index 7a4aaecc716e79e878708734efb8d8e31e7d4b69..fdeb2c24755c4d16eaa832e7b810d81ab8b65965 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/conversation-topic-publisher.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/conversation-topic-publisher.ts
-@@ -522,6 +522,10 @@ export class ConversationTopicPublisher {
+@@ -410,7 +410,14 @@ export class ConversationTopicPublisher {
+       text?: string;
+       displayText?: string;
+       attachments?: QueueItem["attachments"];
+-      firstInput?: { text: string; attachments?: QueueItem["attachments"] };
++      modelSystemPromptEnabled?: QueueItem["modelSystemPromptEnabled"];
++      modelSystemPrompt?: QueueItem["modelSystemPrompt"];
++      firstInput?: {
++        text: string;
++        attachments?: QueueItem["attachments"];
++        modelSystemPromptEnabled?: QueueItem["modelSystemPromptEnabled"];
++        modelSystemPrompt?: QueueItem["modelSystemPrompt"];
++      };
+     };
+     const input = envelope.type === "createSession" ? raw.firstInput : raw;
+     if (
+@@ -440,6 +447,10 @@ export class ConversationTopicPublisher {
+             ? raw.displayText?.trim() || `/goal ${(input.text ?? "").trim()}`
+             : (input.text ?? ""),
+       attachments: input.attachments ?? [],
++      ...(input.modelSystemPromptEnabled !== undefined
++        ? { modelSystemPromptEnabled: input.modelSystemPromptEnabled }
++        : {}),
++      ...(input.modelSystemPrompt ? { modelSystemPrompt: input.modelSystemPrompt } : {}),
+       delivery: { requested: "queue", admitted: "queue" },
+       order: {
+         admissionSeq: admission.admissionSeq,
+@@ -522,6 +533,10 @@ export class ConversationTopicPublisher {
      };
    }
  
@@ -10534,8 +10678,34 @@ index 7a4aaecc716e79e878708734efb8d8e31e7d4b69..60b381c7035018dee3ffe21c8bdedfaf
    /** rowId → 权威 messageId（forkAssistant/editUserQuery 桥接翻译）。 */
    getMessageIdForRow(rowId: number): string | null {
      return this.projection.getMessageIdForRow(rowId);
+diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/event-normalizer.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/event-normalizer.ts
+index f9498b36c3630f8f547533c5c4826868120c8300..1f10127efb761fbd25f9a9e3537039081ca4da1f 100644
+--- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/event-normalizer.ts
++++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/event-normalizer.ts
+@@ -94,6 +94,8 @@ export interface CanonicalUserIntentFact extends CanonicalConversationFactBase {
+   modelSelection?: TurnInputIntentMetadata["modelSelection"];
+   mode?: TurnInputIntentMetadata["mode"];
+   planEnabled?: boolean;
++  modelSystemPromptEnabled?: boolean;
++  modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
+   provenance?: {
+     sourceCommandId: string;
+     queueItemId?: string;
+@@ -289,6 +291,12 @@ function normalizeTurnStarted(
+     ...(payload.intent?.planEnabled !== undefined
+       ? { planEnabled: payload.intent.planEnabled }
+       : {}),
++    ...(payload.intent?.modelSystemPromptEnabled !== undefined
++      ? { modelSystemPromptEnabled: payload.intent.modelSystemPromptEnabled }
++      : {}),
++    ...(payload.intent?.modelSystemPrompt
++      ? { modelSystemPrompt: payload.intent.modelSystemPrompt }
++      : {}),
+     ...(payload.intent?.inputOrigin ? { inputOrigin: payload.intent.inputOrigin } : {}),
+     ...(payload.intent?.conversationQuotes
+       ? { conversationQuotes: payload.intent.conversationQuotes }
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
-index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfdb1b2d213 100644
+index f2503bdbd528b26ac1418b079253440d13298084..358c7e60f4b9e31581f452db8823f5305aead899 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
 @@ -1,4 +1,7 @@
@@ -10564,7 +10734,16 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
  }
  
  interface ContextWindowProjectionState {
-@@ -488,6 +501,9 @@ export class ProductProjection {
+@@ -334,6 +347,8 @@ export interface ConversationEditTarget {
+     modelSelection?: TurnInputIntentMetadata["modelSelection"];
+     mode?: TurnInputIntentMetadata["mode"];
+     planEnabled?: boolean;
++    modelSystemPromptEnabled?: boolean;
++    modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
+     provenance?: CanonicalUserIntentFact["provenance"];
+   };
+ }
+@@ -488,6 +503,9 @@ export class ProductProjection {
    // Highspeed 分享需要的真实耗时由 CLI 事件聚合，避免 renderer 离场后丢失拆分数据。
    private highspeedModelDurationByTurnId = new Map<string, number>();
    private highspeedToolIntervalsByTurnId = new Map<string, Map<string, HighspeedToolInterval>>();
@@ -10574,7 +10753,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
    // 投递语义侧表：TurnSteerQueued 时按事件 payload（或 followupMode 兜底）记录，
    // drain 时决定切轮 vs 内联；账本落地后以账本为准。
    private deliveryByPendingInputId = new Map<string, "guide" | "queue">();
-@@ -526,6 +542,13 @@ export class ProductProjection {
+@@ -526,6 +544,13 @@ export class ProductProjection {
      return this.snapshot;
    }
  
@@ -10588,7 +10767,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
    /** 生命周期状态独立于 run phase；更新必须推进水位，避免旧 base 漏掉门禁。 */
    setRuntimeInitialization(
      state: NonNullable<ConversationSnapshot["runtimeInitialization"]>,
-@@ -681,6 +704,9 @@ export class ProductProjection {
+@@ -681,6 +706,9 @@ export class ProductProjection {
    }
  
    seedUsage(seed: SessionUsageSeed): void {
@@ -10598,7 +10777,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      const current = this.snapshot.usage;
      const currentContextWindow = current.contextWindow;
      if (currentContextWindow) {
-@@ -740,6 +766,35 @@ export class ProductProjection {
+@@ -740,6 +768,35 @@ export class ProductProjection {
      };
    }
  
@@ -10634,7 +10813,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
    /**
     * 冷恢复的 subagent store 校验种子。transcript 可以恢复可见 row，但只有 session
     * store 能证明 child 已持久化为 subagent_child；因此在 candidate publisher 发布前
-@@ -1175,6 +1230,7 @@ export class ProductProjection {
+@@ -1175,6 +1232,7 @@ export class ProductProjection {
      );
      clone.currentProductTurnStartedAtMs = this.currentProductTurnStartedAtMs;
      clone.highspeedModelDurationByTurnId = new Map(this.highspeedModelDurationByTurnId);
@@ -10642,7 +10821,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      clone.highspeedToolIntervalsByTurnId = new Map(
        [...this.highspeedToolIntervalsByTurnId].map(([turnId, intervals]) => [
          turnId,
-@@ -1225,6 +1281,7 @@ export class ProductProjection {
+@@ -1225,6 +1283,7 @@ export class ProductProjection {
      this.productTurnSplitOrdinalByRuntimeTurnId = candidate.productTurnSplitOrdinalByRuntimeTurnId;
      this.currentProductTurnStartedAtMs = candidate.currentProductTurnStartedAtMs;
      this.highspeedModelDurationByTurnId = candidate.highspeedModelDurationByTurnId;
@@ -10650,7 +10829,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      this.highspeedToolIntervalsByTurnId = candidate.highspeedToolIntervalsByTurnId;
      this.deliveryByPendingInputId = candidate.deliveryByPendingInputId;
      this.currentTurnId = candidate.currentTurnId;
-@@ -1389,6 +1446,16 @@ export class ProductProjection {
+@@ -1389,6 +1448,16 @@ export class ProductProjection {
          return this.onSessionResumed(event);
        case SessionEventType.SessionTitleUpdated:
          return this.onSessionTitleUpdated(event);
@@ -10667,7 +10846,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
        case SessionEventType.TurnStarted:
          if (fact.semanticKind !== "userIntent") return [];
          return [
-@@ -1526,6 +1593,8 @@ export class ProductProjection {
+@@ -1526,6 +1595,8 @@ export class ProductProjection {
          return this.onTurnComplete(event);
        case SessionEventType.TurnError:
          return this.onTurnError(event);
@@ -10676,7 +10855,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
        case SessionEventType.CompactStarted:
        case SessionEventType.CompactCompleted:
        case SessionEventType.CompactFailed:
-@@ -1909,12 +1978,28 @@ export class ProductProjection {
+@@ -1909,12 +1980,28 @@ export class ProductProjection {
        (payload.branchGeneration !== undefined && payload.branchCutAfterMessageId !== undefined) ||
        payload.createdMessageId !== undefined;
      if ((payload.scope !== "conversation" && payload.scope !== "both") || !applied) return [];
@@ -10708,7 +10887,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      // 从该行所属 turn 的首行起移除（整段 turn 被 rewind/edit/retry 替换）。
      const turnHeaderRowId = this.turnHeaderRowIdByTurnId.get(targetRow.turnId) ?? targetRowId;
      const fromRowId = Math.min(turnHeaderRowId, targetRowId);
-@@ -1937,7 +2022,7 @@ export class ProductProjection {
+@@ -1937,7 +2024,7 @@ export class ProductProjection {
          this.hookRowIdByInvocationId.delete(hookInvocationId);
        }
      }
@@ -10717,7 +10896,18 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
    }
  
    /** messageId → rowId 反查（messageIdByRowId 的逆向线性扫描；行数有界，无需额外索引）。 */
-@@ -2470,11 +2555,25 @@ export class ProductProjection {
+@@ -2193,6 +2280,10 @@ export class ProductProjection {
+                 ...(fact.modelSelection ? { modelSelection: fact.modelSelection } : {}),
+                 ...(fact.mode ? { mode: fact.mode } : {}),
+                 ...(fact.planEnabled !== undefined ? { planEnabled: fact.planEnabled } : {}),
++                ...(fact.modelSystemPromptEnabled !== undefined
++                  ? { modelSystemPromptEnabled: fact.modelSystemPromptEnabled }
++                  : {}),
++                ...(fact.modelSystemPrompt ? { modelSystemPrompt: fact.modelSystemPrompt } : {}),
+                 ...(fact.provenance ? { provenance: fact.provenance } : {}),
+               },
+             }
+@@ -2470,11 +2561,25 @@ export class ProductProjection {
    private onModelNetworkStatus(event: SessionEvent): ConversationDelta[] {
      if (!this.acceptsActiveModelEvent(event)) return [];
      const payload = event.payload as ModelNetworkStatusPayload;
@@ -10745,7 +10935,30 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
        isHighspeedProviderId(payload.providerId) &&
        payload.durationMs !== undefined
      ) {
-@@ -4939,6 +5038,39 @@ export class ProductProjection {
+@@ -3708,6 +3813,9 @@ export class ProductProjection {
+       modelSelection: payload.intent?.modelSelection ?? existing?.modelSelection,
+       mode: payload.intent?.mode ?? existing?.mode,
+       planEnabled: payload.intent?.planEnabled ?? existing?.planEnabled,
++      modelSystemPromptEnabled:
++        payload.intent?.modelSystemPromptEnabled ?? existing?.modelSystemPromptEnabled,
++      modelSystemPrompt: payload.intent?.modelSystemPrompt ?? existing?.modelSystemPrompt,
+       sharedContextRefs: payload.intent?.sharedContextRefs ?? existing?.sharedContextRefs,
+       provenance: payload.intent?.provenance ?? existing?.provenance,
+       // 排队事件和原地编辑都必须保留可信接入来源，不能在 UI 投影时丢掉发送者。
+@@ -3963,6 +4071,12 @@ export class ProductProjection {
+                 ...(item.intent?.planEnabled !== undefined
+                   ? { planEnabled: item.intent.planEnabled }
+                   : {}),
++                ...(item.intent?.modelSystemPromptEnabled !== undefined
++                  ? { modelSystemPromptEnabled: item.intent.modelSystemPromptEnabled }
++                  : {}),
++                ...(item.intent?.modelSystemPrompt
++                  ? { modelSystemPrompt: item.intent.modelSystemPrompt }
++                  : {}),
+                 ...(item.intent?.provenance ? { provenance: item.intent.provenance } : {}),
+               },
+             }
+@@ -4939,6 +5053,39 @@ export class ProductProjection {
      return deltas;
    }
  
@@ -10785,7 +10998,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
    // ── compact marker（compact 命令效果）──
    // 同一 operationId 全生命周期占同一 marker row：running → success/failed/noop/cancelled。
    // 归属：marker 落在事件到达时的行尾，客户端零归属逻辑。
-@@ -4955,7 +5087,10 @@ export class ProductProjection {
+@@ -4955,7 +5102,10 @@ export class ProductProjection {
          ? existingRow.marker
          : undefined;
  
@@ -10797,7 +11010,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      if (status === "success") {
        const coverageMessageId = payload.tailStartMessageId ?? payload.anchorMessageId;
        const coverageRowId = coverageMessageId ? this.rowIdForMessageId(coverageMessageId) : null;
-@@ -4976,10 +5111,11 @@ export class ProductProjection {
+@@ -4976,10 +5126,11 @@ export class ProductProjection {
          }
        }
      }
@@ -10811,7 +11024,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
        origin: prev?.origin ?? mapCompactMarkerOrigin(payload.trigger),
        status,
        // 终态事件才带 token 计数；upsert 时保留已知值（retry 不清零）。
-@@ -4988,7 +5124,7 @@ export class ProductProjection {
+@@ -4988,7 +5139,7 @@ export class ProductProjection {
          : {}),
        ...(tokensAfter !== undefined ? { tokensAfter } : {}),
        // summary 全文按 ref 拉（同 toolOutput/get）；以 summaryMessageId 占位。
@@ -10820,7 +11033,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
          ? {
              summaryRef:
                payload.summaryMessageId !== undefined
-@@ -5497,6 +5633,7 @@ export class ProductProjection {
+@@ -5497,6 +5648,7 @@ export class ProductProjection {
      const row = this.turnHeaderForEvent(event);
      if (!row) return [];
      const endedAt = this.ms(event);
@@ -10828,7 +11041,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
      return [
        {
          op: "row.upserted",
-@@ -5505,7 +5642,9 @@ export class ProductProjection {
+@@ -5505,7 +5657,9 @@ export class ProductProjection {
            state,
            endedAt,
            ...(activeMs !== undefined ? { activeMs } : {}),
@@ -10839,7 +11052,7 @@ index f2503bdbd528b26ac1418b079253440d13298084..5a0cc2486d03ecb66202488862a09dfd
            ...(historyRoundCount !== undefined ? { historyRoundCount } : {}),
            ...(row.workSegments
              ? {
-@@ -5542,13 +5681,26 @@ export class ProductProjection {
+@@ -5542,13 +5696,26 @@ export class ProductProjection {
      this.highspeedToolIntervalsByTurnId.set(turnId, intervals);
    }
  
@@ -10880,7 +11093,7 @@ index 94257167783cc545c7c5a24952150453231118a1..9b4b22157b5786dc2ed82f9d6b955f91
      revision: 0,
      control: {
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts
-index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be1338824d89 100644
+index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..ffec94dda49054c081f8a9ffbe7157a7bde7a740 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts
 @@ -49,6 +49,7 @@ import {
@@ -10943,7 +11156,18 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
        ...(part.phase ? { phase: part.phase } : {}),
        ...(part.compactReason ? { compactReason: part.compactReason } : {}),
        ...(part.reason ? { reason: part.reason } : {}),
-@@ -852,14 +877,19 @@ function synthesizeToolPart(
+@@ -416,6 +441,10 @@ function inputIntentOfMessage(message: MessageWithParts): TurnInputIntentMetadat
+       ...(value.modelSelection ? { modelSelection: value.modelSelection } : {}),
+       ...(value.mode ? { mode: value.mode } : {}),
+       ...(value.planEnabled !== undefined ? { planEnabled: value.planEnabled } : {}),
++      ...(value.modelSystemPromptEnabled !== undefined
++        ? { modelSystemPromptEnabled: value.modelSystemPromptEnabled }
++        : {}),
++      ...(value.modelSystemPrompt ? { modelSystemPrompt: value.modelSystemPrompt } : {}),
+       admissionSeq: value.order.admissionSeq,
+       admittedAt: value.admittedAt,
+       requestedDelivery: value.delivery.requested,
+@@ -852,14 +881,19 @@ function synthesizeToolPart(
    return { resultType: "cancelled", toolCallCount: 1 };
  }
  
@@ -10965,7 +11189,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
      part.type === "timeline"
        ? compactPayloadFromTimelinePart(part)
        : part.type === "compaction"
-@@ -867,24 +897,22 @@ function synthesizeCompactPart(
+@@ -867,24 +901,22 @@ function synthesizeCompactPart(
          : null;
    if (!compact) return false;
    const operationId = String(compact.payload.operationId);
@@ -11004,7 +11228,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
    return true;
  }
  
-@@ -1218,7 +1246,7 @@ function synthesizeSubtaskPart(
+@@ -1218,7 +1250,7 @@ function synthesizeSubtaskPart(
  function synthesizeAssistantParts(
    message: MessageWithParts,
    emittedCompactOperations: Set<string>,
@@ -11013,7 +11237,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
    emittedGoalVerifications: Set<string>,
    push: PushEvent,
    turnId: string,
-@@ -1417,7 +1445,7 @@ function collectTurnOutput(options: {
+@@ -1417,7 +1449,7 @@ function collectTurnOutput(options: {
    turnId: string;
    turnStartedAtMs: number;
    emittedCompactOperations: Set<string>;
@@ -11022,7 +11246,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
    emittedGoalVerifications: Set<string>;
    goalVerificationsByAnchor: ReadonlyMap<string, GoalVerificationFact[]>;
    onModelChange: (selection: HydratedTimelineModel) => void;
-@@ -1435,6 +1463,8 @@ function collectTurnOutput(options: {
+@@ -1435,6 +1467,8 @@ function collectTurnOutput(options: {
    let turnEndedAtMs = options.turnStartedAtMs;
    while (index < messages.length && !isTurnBoundaryStarter(messages[index]!)) {
      const message = messages[index]!;
@@ -11031,7 +11255,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
      if (isProviderContextOnlyAssistant(message)) {
        // selection side chat 会把继承的 assistant 历史标成 model-only，
        // 旧 cold hydration 却只隐藏 user carrier，随后把 assistant 当作 preface/上一轮输出合成，
-@@ -1492,6 +1522,16 @@ function collectTurnOutput(options: {
+@@ -1492,6 +1526,16 @@ function collectTurnOutput(options: {
        continue;
      }
      if (message.info.role !== "assistant") {
@@ -11048,7 +11272,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
        index += 1;
        continue;
      }
-@@ -1631,10 +1671,7 @@ export function synthesizeEventsFromMessages(
+@@ -1631,10 +1675,7 @@ export function synthesizeEventsFromMessages(
    let turnNumber = 0;
    let index = 0;
    const emittedCompactOperations = new Set<string>();
@@ -11060,7 +11284,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
    for (const message of messages) {
      for (const part of message.parts) {
        if (part.type !== "compaction") continue;
-@@ -1642,9 +1679,28 @@ export function synthesizeEventsFromMessages(
+@@ -1642,9 +1683,28 @@ export function synthesizeEventsFromMessages(
        const operationId = String(
          part.operationId ?? part.boundaryId ?? `legacy-compact-${String(part.id)}`,
        );
@@ -11091,7 +11315,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
        }
      }
    }
-@@ -1753,6 +1809,8 @@ export function synthesizeEventsFromMessages(
+@@ -1753,6 +1813,8 @@ export function synthesizeEventsFromMessages(
  
    while (index < messages.length) {
      const message = messages[index]!;
@@ -11100,7 +11324,7 @@ index 97fde0d39b5a41b029874c0c60fd695c62a0e5b5..17f2faa9308b0e6a0f50651cadb3be13
      if (isProviderContextOnlyAssistant(message)) {
        index += 1;
        continue;
-@@ -1897,6 +1955,18 @@ export function synthesizeEventsFromMessages(
+@@ -1897,6 +1959,18 @@ export function synthesizeEventsFromMessages(
          });
          continue;
        }
@@ -11467,7 +11691,7 @@ index 7f6c5430d405a2639aa3f9a38a0029f5b8c816a4..06b79bdd7459337da4c629621b82e108
    // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
    // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
-index af7bbc7f688e33ec6b2c89984ad5536568640b04..dbc7270795e93464a3f98af710cf526fdb706533 100644
+index af7bbc7f688e33ec6b2c89984ad5536568640b04..0c9df73992b051e47ee2c588450ca365f3a03370 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts
 @@ -112,7 +112,7 @@ import {
@@ -11506,6 +11730,15 @@ index af7bbc7f688e33ec6b2c89984ad5536568640b04..dbc7270795e93464a3f98af710cf526f
        case zcodeProtocolMethods.workspaceGenerateText:
          return await this.withWorkspaceGenerateTextSignal(request, (signal) =>
            generateWorkspaceText(this.context, request.params, signal),
+@@ -808,7 +814,7 @@ export class ZCodeProtocolAgentServer {
+       case zcodeProtocolMethods.processChildProcesses:
+         return listChildProcesses(this.context.deps.mcpTelemetry?.listProcesses() ?? []);
+       case zcodeProtocolMethods.runtimeCapabilities:
+-        return { independentPlanState: true, historyFirst: true };
++        return { independentPlanState: true, historyFirst: true, modelSystemPrompt: true };
+       case zcodeProtocolMethods.pluginsMarketplaceAdd:
+         return await this.withPluginOperationSignal(request, (signal) =>
+           addPluginMarketplace(this.context, request.params, signal),
 @@ -985,7 +991,7 @@ export class ZCodeProtocolAgentServer {
                PROTOCOL_CLIENT_REQUEST_ERROR_CODES.timedOut,
                `Client request timed out: ${method}`,
@@ -13411,6 +13644,379 @@ index 0000000000000000000000000000000000000000..be34a08b43a1c15a4687f4857dd17ce2
 +    expect(noticeRows(merged.events)).toHaveLength(1);
 +  });
 +});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/cold-hydration.test.ts b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/cold-hydration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7e2b5a114df3a4a946bffddec727259c2a043fb
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/cold-hydration.test.ts
+@@ -0,0 +1,134 @@
++import { describe, expect, it } from "vitest";
++import type { MessageWithParts } from "@zcode/contracts";
++import { ProductProjection } from "../../src/zcode-protocol-v4/index.js";
++import { synthesizeEventsFromMessages } from "../../src/zcode-protocol-v4/transcript-hydration.js";
++
++function userMessage(id: string, text: string, created: number): MessageWithParts {
++  return {
++    info: {
++      id: id as never,
++      sessionID: "s1" as never,
++      role: "user",
++      time: { created },
++      agent: "default",
++      modelSelection: { providerId: "p" as never, modelId: "m" as never },
++    },
++    parts: [
++      {
++        id: `${id}-t` as never,
++        sessionID: "s1" as never,
++        messageID: id as never,
++        type: "text",
++        text,
++      },
++    ],
++  };
++}
++
++function assistantMessage(
++  id: string,
++  parentId: string,
++  text: string,
++  created: number,
++): MessageWithParts {
++  return {
++    info: {
++      id: id as never,
++      sessionID: "s1" as never,
++      role: "assistant",
++      time: { created, completed: created + 1 },
++      parentID: parentId as never,
++      modelId: "m" as never,
++      providerId: "p" as never,
++      mode: "default",
++      agent: "default",
++      path: { cwd: "/", root: "/" },
++      cost: 0,
++      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++    },
++    parts: [
++      {
++        id: `${id}-t` as never,
++        sessionID: "s1" as never,
++        messageID: id as never,
++        type: "text",
++        text,
++      },
++    ],
++  };
++}
++
++function reduce(messages: MessageWithParts[]) {
++  const events = synthesizeEventsFromMessages(messages, { sessionId: "s1" });
++  const projection = new ProductProjection("s1", "epoch");
++  for (const event of events) projection.applyEvent(event);
++  return { events, projection };
++}
++
++describe("cold hydration model system prompt intent", () => {
++  it("preserves explicit false and true prompt fields", () => {
++    const disabled = userMessage("u-prompt-off", "no prompt", 1000);
++    disabled.info.metadata = {
++      conversationInputIntent: {
++        sourceCommandId: "command-prompt-off",
++        queueItemId: "queue-command-prompt-off",
++        clientId: "desktop-prompt",
++        kind: "sendText",
++        text: "no prompt",
++        attachments: [],
++        modelSystemPromptEnabled: false,
++        delivery: { requested: "startNow", admitted: "startNow" },
++        order: { admissionSeq: 1 },
++        steer: { state: "notRequested" },
++        dispatch: { state: "drained" },
++        admittedAt: 999,
++      },
++    };
++    const enabled = userMessage("u-prompt-on", "with prompt", 2000);
++    enabled.info.metadata = {
++      conversationInputIntent: {
++        sourceCommandId: "command-prompt-on",
++        queueItemId: "queue-command-prompt-on",
++        clientId: "desktop-prompt",
++        kind: "sendText",
++        text: "with prompt",
++        attachments: [],
++        modelSystemPromptEnabled: true,
++        modelSystemPrompt: {
++          providerId: "deepseek",
++          modelId: "deepseek-chat",
++          text: "hydrated custom prompt",
++        },
++        delivery: { requested: "startNow", admitted: "startNow" },
++        order: { admissionSeq: 2 },
++        steer: { state: "notRequested" },
++        dispatch: { state: "drained" },
++        admittedAt: 1999,
++      },
++    };
++
++    const disabledProjection = reduce([
++      disabled,
++      assistantMessage("a-prompt-off", "u-prompt-off", "done", 1001),
++    ]).projection;
++    const enabledProjection = reduce([
++      enabled,
++      assistantMessage("a-prompt-on", "u-prompt-on", "done", 2001),
++    ]).projection;
++
++    expect(disabledProjection.resolveEditTargetByEntityId("u-prompt-off")?.intent).toMatchObject(
++      { modelSystemPromptEnabled: false },
++    );
++    expect(
++      disabledProjection.resolveEditTargetByEntityId("u-prompt-off")?.intent,
++    ).not.toHaveProperty("modelSystemPrompt");
++    expect(enabledProjection.resolveEditTargetByEntityId("u-prompt-on")?.intent).toMatchObject({
++      modelSystemPromptEnabled: true,
++      modelSystemPrompt: {
++        providerId: "deepseek",
++        modelId: "deepseek-chat",
++        text: "hydrated custom prompt",
++      },
++    });
++  });
++});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/edit-retry.test.ts b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/edit-retry.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e6bbb3325555752d6a34d101e367fed1c717889
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/edit-retry.test.ts
+@@ -0,0 +1,161 @@
++import { describe, expect, it, vi } from "vitest";
++import { RewindStrategy, SessionEventType } from "@zcode/contracts";
++import type { CommandEnvelope } from "@zcode/shared/zcode-protocol-v4";
++import { V4CommandExecutor } from "../../src/zcode-protocol-v4/commands/executor.js";
++import type {
++  V4CommandCoreHost,
++  V4SessionRecordView,
++} from "../../src/zcode-protocol-v4/commands/types.js";
++
++function makeApp(overrides: Record<string, unknown> = {}) {
++  return {
++    sessionId: "s1",
++    sendInput: vi.fn().mockImplementation(async (_input, options) => {
++      options?.onTurnStartedObserved?.({
++        id: "event-started",
++        type: SessionEventType.TurnStarted,
++        payload: { messageId: "msg-event-started" },
++      });
++      return { completion: Promise.resolve({}), kind: "started_turn", turnId: "turn-1" };
++    }),
++    steerTurn: vi.fn().mockResolvedValue({}),
++    readTarget: vi.fn().mockResolvedValue(null),
++    updateTargetStatus: vi.fn().mockResolvedValue(null),
++    ...overrides,
++    runtime: {
++      rewindConversationToMessage: vi
++        .fn()
++        .mockResolvedValue({ strategy: RewindStrategy.ActiveChain }),
++    },
++  };
++}
++
++function makeRecord(app = makeApp()): V4SessionRecordView {
++  return {
++    app: app as unknown as V4SessionRecordView["app"],
++    traceContext: { traceId: "trace-1", sessionId: "s1" } as never,
++    workspace: { workspacePath: "/w" },
++    persistence: "immediate",
++  } as V4SessionRecordView;
++}
++
++function makeHost(record: V4SessionRecordView, overrides: Partial<V4CommandCoreHost> = {}) {
++  return {
++    getRecord: (id: string) => (id === "s1" ? record : undefined),
++    isLatestEditableUserRow: () => true,
++    isLatestRetryAssistantRow: () => true,
++    waitForProjectionEventCommit: async () => {},
++    ...overrides,
++  } as V4CommandCoreHost;
++}
++
++function envelope(type: string, payload: unknown): CommandEnvelope {
++  return {
++    type,
++    payload,
++    sessionId: "s1",
++    commandId: "cmd-1",
++    baseRevision: 0,
++    baseLogEpoch: "epoch-1",
++    clientId: "client-new",
++  } as unknown as CommandEnvelope;
++}
++
++async function settle() {
++  await new Promise((resolve) => setTimeout(resolve, 0));
++  await new Promise((resolve) => setTimeout(resolve, 0));
++}
++
++const modelSystemPrompt = {
++  providerId: "deepseek",
++  modelId: "deepseek-chat",
++  text: "Keep the original request intent.",
++};
++
++describe("edit/retry model system prompt intent", () => {
++  it("edit reuses the original turn prompt", async () => {
++    const app = makeApp();
++    const record = makeRecord(app);
++    const host = makeHost(record, {
++      getTurnRewindAnchor: () => "msg-a",
++      resolveRowActionTarget: (_sessionId, target, action) =>
++        action === "editUserQuery"
++          ? {
++              ok: true,
++              action,
++              row: { rowId: target.rowId, turnId: "turn-7" } as never,
++              editTarget: {
++                entityId: target.entityId,
++                productTurnId: "turn-7",
++                transcriptMessageId: "msg-user",
++                coveredByStableCompact: false,
++                intent: {
++                  kind: "sendText" as const,
++                  text: "original prompt",
++                  modelSystemPromptEnabled: true,
++                  modelSystemPrompt,
++                },
++              },
++            }
++          : { ok: false, status: "rejected", reasonCode: "guard.actionUnavailable" },
++    });
++
++    await new V4CommandExecutor(host).execute(
++      envelope("editUserQuery", {
++        target: { rowId: 7, entityId: "entity-7" },
++        newText: "edited prompt",
++      }),
++    );
++    await settle();
++
++    expect(app.sendInput).toHaveBeenCalledWith(
++      { text: "edited prompt" },
++      expect.objectContaining({
++        intent: expect.objectContaining({
++          modelSystemPromptEnabled: true,
++          modelSystemPrompt,
++        }),
++      }),
++    );
++  });
++
++  it("retry reuses the original turn prompt", async () => {
++    const app = makeApp();
++    const record = makeRecord(app);
++    const host = makeHost(record, {
++      resolveRowActionTarget: () => ({
++        ok: true,
++        action: "retryTurn",
++        row: {} as never,
++        messageId: "msg-assistant",
++        editTarget: {
++          entityId: "msg-user",
++          productTurnId: "turn-product",
++          transcriptMessageId: "msg-user",
++          coveredByStableCompact: false,
++          intent: {
++            kind: "sendText",
++            text: "original prompt",
++            modelSystemPromptEnabled: true,
++            modelSystemPrompt,
++          },
++        },
++      }),
++    });
++
++    await new V4CommandExecutor(host).execute(
++      envelope("retryTurn", { target: { rowId: 5, entityId: "msg-assistant" } }),
++    );
++    await settle();
++
++    expect(app.sendInput).toHaveBeenCalledWith(
++      expect.objectContaining({ text: "original prompt" }),
++      expect.objectContaining({
++        intent: expect.objectContaining({
++          modelSystemPromptEnabled: true,
++          modelSystemPrompt,
++        }),
++      }),
++    );
++  });
++});
+diff --git a/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/queue-intent.test.ts b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/queue-intent.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e8de6ed25b49161d9ad833b6fa9ebc1777f859f
+--- /dev/null
++++ b/apps/zcode-cli/packages/bootstrap/tests/model-system-prompt/queue-intent.test.ts
+@@ -0,0 +1,60 @@
++import { describe, expect, it } from "vitest";
++import {
++  SessionEventType,
++  type SessionEvent,
++  type TurnInputIntentMetadata,
++} from "@zcode/contracts";
++import { queueItemSchema } from "@zcode/shared/zcode-protocol-v4";
++import { ProductProjection } from "../../src/zcode-protocol-v4/index.js";
++import { inputIntentMetadataFromQueueItem } from "../../src/zcode-protocol-v4/commands/input-intent.js";
++
++const intent: TurnInputIntentMetadata = {
++  sourceCommandId: "source-command",
++  queueItemId: "queued-input",
++  clientId: "desktop-client",
++  kind: "sendText",
++  text: "queued prompt",
++  modelSelection: { providerId: "provider", modelId: "model", options: { reasoningLevel: "high" } },
++  mode: "yolo",
++  planEnabled: false,
++  modelSystemPromptEnabled: true,
++  modelSystemPrompt: {
++    providerId: "provider",
++    modelId: "model",
++    text: "Keep the queued intent frozen.",
++  },
++  admissionSeq: 1,
++  admittedAt: 1234,
++  requestedDelivery: "queue",
++  admittedDelivery: "queue",
++  queuePosition: 0,
++  attachmentRefs: [],
++};
++
++function queuedEvent(metadata: TurnInputIntentMetadata): SessionEvent {
++  return {
++    id: "event-1",
++    sessionId: "session",
++    turnId: "turn",
++    type: SessionEventType.TurnSteerQueued,
++    timestamp: new Date(1234),
++    traceId: "trace",
++    sequenceNumber: 1,
++    payload: {
++      pendingInputId: "queued-input",
++      input: intent.text,
++      queueLength: 1,
++      delivery: "queue",
++      intent: metadata,
++    },
++  } as SessionEvent;
++}
++
++describe("queued model system prompt intent", () => {
++  it("round-trips through the real projection and promotion", () => {
++    const projection = new ProductProjection("session", "epoch");
++    projection.applyEvent(queuedEvent(intent));
++    const item = queueItemSchema.parse(projection.getSnapshot().queue.items[0]);
++    expect(inputIntentMetadataFromQueueItem(item, item.text)).toEqual(intent);
++  });
++});
 diff --git a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts b/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
 index ab3246653a94c7e3d21ca0c8150ae95e07d4a4a9..8f9f160453bcee7f5a50da85c2053b8fbe317fd5 100644
 --- a/apps/zcode-cli/packages/bootstrap/tests/product-projection.test.ts
@@ -14938,6 +15544,21 @@ index 3514a449e321a8ee29e3d3122d13294ebf409802..d572563a09527c87fdade724ea68a71e
  export type SessionEntryType = (typeof SESSION_ENTRY_TYPES)[number];
  
  export interface SessionEntryInfo {
+diff --git a/apps/zcode-cli/packages/contracts/src/interfaces/session.port.ts b/apps/zcode-cli/packages/contracts/src/interfaces/session.port.ts
+index fca9d474293a4d09121d7c86510be64d560b9932..b19512d33471e9100abd54426e41fd6068696837 100644
+--- a/apps/zcode-cli/packages/contracts/src/interfaces/session.port.ts
++++ b/apps/zcode-cli/packages/contracts/src/interfaces/session.port.ts
+@@ -379,6 +379,10 @@ export interface TurnInputIntentMetadata {
+   modelSelection?: ModelSelection;
+   /** 与本次用户 Submission 一起固定的协作模式。 */
+   mode?: "build" | "edit" | "plan" | "yolo" | "guarded";
++  /** 与本次 Submission 一同冻结的模型自定义提示词开关；显式 false 表示移除旧段。 */
++  modelSystemPromptEnabled?: boolean;
++  /** 仅当开关开启且目标 model 精确匹配时随 Submission 冻结。 */
++  modelSystemPrompt?: import("@zcode/shared").ModelSystemPromptEntry;
+   admissionSeq: number;
+   admittedAt: number;
+   requestedDelivery: "auto" | "startNow" | "queue" | "guide";
 diff --git a/apps/zcode-cli/packages/contracts/src/model/index.ts b/apps/zcode-cli/packages/contracts/src/model/index.ts
 index 40c3ad1816a3295af9dcb79c39a93805310f16f1..d92bd1faf5ec113ae2ddb3d2cfad10eb097dab24 100644
 --- a/apps/zcode-cli/packages/contracts/src/model/index.ts
@@ -15780,7 +16401,7 @@ index 0000000000000000000000000000000000000000..757b133e3b1536b23a19cd6d3b1382d5
 +  return typeof value === "object" && value !== null && !Array.isArray(value);
 +}
 diff --git a/apps/zcode-cli/packages/core/src/agent/message-history.ts b/apps/zcode-cli/packages/core/src/agent/message-history.ts
-index 48a88b307aaba0053fed4108de090c4360d0638d..9397ac62e2177562c6e0e54251c74807321222de 100644
+index 48a88b307aaba0053fed4108de090c4360d0638d..da84fbf2d355c3208d07737c88a7551f3d1cc9e2 100644
 --- a/apps/zcode-cli/packages/core/src/agent/message-history.ts
 +++ b/apps/zcode-cli/packages/core/src/agent/message-history.ts
 @@ -4,6 +4,9 @@
@@ -15805,7 +16426,18 @@ index 48a88b307aaba0053fed4108de090c4360d0638d..9397ac62e2177562c6e0e54251c74807
  import { SYSTEM_REMINDER_SOURCES, type SystemReminderSource } from "../system-reminder/source.js";
  
  // Tool call from model (simple type, no brand)
-@@ -69,7 +77,11 @@ export interface RuntimeMessageMetadata {
+@@ -59,7 +67,9 @@ export type RuntimeMessageSource =
+   | SystemReminderSource
+   | "shared_context"
+   | "real_user"
+-  | "legacy_synthetic";
++  | "legacy_synthetic"
++  /** 模型自定义补充 prompt；单独 system message，压缩摘要按 source 过滤。 */
++  | "model_system_prompt";
+ 
+ export interface RuntimeMessageMetadata {
+   compactBoundary?: { boundaryId: string; preCompactDiscoveredTools?: readonly string[] };
+@@ -69,7 +79,11 @@ export interface RuntimeMessageMetadata {
      readdedNames: readonly string[];
    };
    source: RuntimeMessageSource;
@@ -15817,7 +16449,7 @@ index 48a88b307aaba0053fed4108de090c4360d0638d..9397ac62e2177562c6e0e54251c74807
    inputPresentation?: RuntimeInputPresentation;
  }
  
-@@ -487,11 +499,21 @@ export function cloneRuntimeMessageMetadata(
+@@ -487,11 +501,21 @@ export function cloneRuntimeMessageMetadata(
    metadata: RuntimeMessageMetadata | undefined,
  ): RuntimeMessageMetadata | undefined {
    if (!metadata) return undefined;
@@ -16396,6 +17028,111 @@ index 0000000000000000000000000000000000000000..62caf480c38002e0c96cc7c105650f03
 +    return groups;
 +  });
 +}
+diff --git a/apps/zcode-cli/packages/core/src/context/builder.ts b/apps/zcode-cli/packages/core/src/context/builder.ts
+index 0d877ccdb42fd1ad3f3d3947f7ee70012a68cf46..2e23b46731f2ce8c83e178f2defc749900103b3a 100644
+--- a/apps/zcode-cli/packages/core/src/context/builder.ts
++++ b/apps/zcode-cli/packages/core/src/context/builder.ts
+@@ -8,6 +8,7 @@ import type {
+   ContextSection,
+   ContextBuildResult,
+   ContextBuilderConfig,
++  ContextSource,
+   EnvInfo,
+ } from "./types.js";
+ import type { ToolRegistry } from "../tool/registry.js";
+@@ -220,14 +221,15 @@ export class ContextBuilder {
+     const totalChars = orderedSections.reduce((sum, s) => sum + s.chars, 0);
+     const totalTokens = orderedSections.reduce((sum, s) => sum + s.tokens, 0);
+ 
+-    const systemMessages = this.assembleSystemMessages(orderedSections);
++    const assembledSystem = this.assembleSystemMessages(orderedSections);
+     const metaUserAttachments = this.assembleMetaUserAttachments(orderedSections);
+ 
+     return {
+       sections: orderedSections,
+       totalChars,
+       totalTokens,
+-      systemMessages,
++      systemMessages: assembledSystem.messages,
++      systemMessageSources: assembledSystem.sources,
+       metaUserAttachments,
+     };
+   }
+@@ -237,8 +239,12 @@ export class ContextBuilder {
+     return names === undefined || names.includes(SKILL_TOOL_NAME);
+   }
+ 
+-  private assembleSystemMessages(sections: ContextSection[]): ModelInputMessage[] {
++  private assembleSystemMessages(sections: ContextSection[]): {
++    messages: ModelInputMessage[];
++    sources: ContextSource[];
++  } {
+     const messages: ModelInputMessage[] = [];
++    const sources: ContextSource[] = [];
+ 
+     const cliPrefixContent = buildSectionContent(
+       sections.filter(
+@@ -250,6 +256,7 @@ export class ContextBuilder {
+         role: "system",
+         content: cliPrefixContent,
+       });
++      sources.push("cli_prefix");
+     }
+ 
+     const stableBodyContent = buildSectionContent(
+@@ -266,12 +273,23 @@ export class ContextBuilder {
+         content: stableBodyContent,
+         cacheControl: EPHEMERAL_CACHE_CONTROL,
+       });
++      sources.push(
++        sections.some(
++          (section) =>
++            section.injectionTarget === "system" &&
++            section.cacheHint === "stable" &&
++            section.source === "custom_system_prompt",
++        )
++          ? "custom_system_prompt"
++          : "identity",
++      );
+     }
+ 
++    const dynamicSections = sections.filter(
++      (section) => section.injectionTarget === "system" && section.cacheHint === "dynamic",
++    );
+     const dynamicSystemContent = buildSectionContent(
+-      sections.filter(
+-        (section) => section.injectionTarget === "system" && section.cacheHint === "dynamic",
+-      ),
++      dynamicSections.filter((section) => section.source !== "model_system_prompt"),
+     );
+     if (dynamicSystemContent) {
+       messages.push({
+@@ -280,9 +298,24 @@ export class ContextBuilder {
+         content: `\n\n${dynamicSystemContent}`,
+         cacheControl: EPHEMERAL_CACHE_CONTROL,
+       });
++      sources.push("dynamic_behavior");
++    }
++
++    // 结构化分离：模型自定义段单独成 message，compaction 可按 metadata.source 过滤，
++    // 不必删除整个 dynamic block 或对用户文本做字符串替换。
++    const modelSystemPromptContent = buildSectionContent(
++      dynamicSections.filter((section) => section.source === "model_system_prompt"),
++    );
++    if (modelSystemPromptContent) {
++      messages.push({
++        role: "system",
++        content: `\n\n${modelSystemPromptContent}`,
++        cacheControl: EPHEMERAL_CACHE_CONTROL,
++      });
++      sources.push("model_system_prompt");
+     }
+ 
+-    return messages;
++    return { messages, sources };
+   }
+ 
+   private assembleMetaUserAttachments(sections: ContextSection[]): ContextMetaUserAttachment[] {
 diff --git a/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md b/apps/zcode-cli/packages/core/src/context/sections/defensive-security/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7dbfad814fcd993717d266d73f513cdaf9404df3
@@ -16469,6 +17206,113 @@ index f018fd6e8b52c822bb1f12e239614919691c5926..fbc677bf697cda2a5f337ad415e4474b
  
    return [identityLines, "", buildHarnessBlock()].join("\n");
  }
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/CONTRACT.md b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b2b6b41472d13a884040d07f149f0fd6af84d05
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/CONTRACT.md
+@@ -0,0 +1,7 @@
++# CLI model system prompt section
++
++Public entry: `index.ts` / `contract.ts`. Layer: domain. No IO, settings access or model calls.
++
++Consumes the frozen `ModelSystemPromptEntry` from the current submission and the actual admitted model. Returns one `model_system_prompt` section only on an exact provider/model match. The section text explicitly states that it supplements rather than overrides system, permission, sandbox and approval rules. It does not replace the main system prompt, tools, skills, MCP or AGENTS.md, and it is not applied to subagent/workflow profile builders.
++
++Empty, non-matching or over-limit input yields `null`; the caller must not synthesize a replacement section.
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.example.ts b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..646b216662b61333f73996105b25125f93e81cf6
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.example.ts
+@@ -0,0 +1,12 @@
++import { buildModelSystemPromptSection } from "./contract.js";
++
++export function exampleModelSystemPromptSection() {
++  return buildModelSystemPromptSection(
++    { providerId: "deepseek", modelId: "deepseek-chat" },
++    {
++      providerId: "deepseek",
++      modelId: "deepseek-chat",
++      text: "Keep explanations short and cite file paths.",
++    },
++  );
++}
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.ts b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf9ac9b722dfeda7be4466540fbfa62d7bb96664
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/contract.ts
+@@ -0,0 +1,46 @@
++import {
++  MODEL_SYSTEM_PROMPT_MAX_CHARS,
++  normalizeModelSystemPromptText,
++  type ModelSystemPromptEntry,
++  type ModelSystemPromptTarget,
++} from "@zcode/shared";
++
++export interface ModelSystemPromptSectionInput {
++  name: string;
++  source: "model_system_prompt";
++  content: string;
++  preview: string;
++}
++
++/**
++ * 只在实际执行 model 与冻结目标完全一致时生成 section。
++ * 内容明确为补充说明，位于所有内置 system 段之后；不替换 identity/tools/skills/permissions。
++ */
++/** 压缩摘要等辅助请求按 source 过滤，不删除 dynamic block、不改 canonical history。 */
++export function omitModelSystemPromptEntries<T extends { metadata?: { source?: string } }>(
++  entries: readonly T[],
++): T[] {
++  return entries.filter((entry) => entry.metadata?.source !== "model_system_prompt");
++}
++
++export function buildModelSystemPromptSection(
++  model: ModelSystemPromptTarget | undefined,
++  prompt: ModelSystemPromptEntry | undefined,
++): ModelSystemPromptSectionInput | null {
++  if (!model || !prompt) return null;
++  if (model.providerId !== prompt.providerId || model.modelId !== prompt.modelId) return null;
++  const text = normalizeModelSystemPromptText(prompt.text);
++  if (!text || text.length > MODEL_SYSTEM_PROMPT_MAX_CHARS) return null;
++  const content = [
++    "# Model-specific user instructions",
++    "These instructions were provided by the user for this model. They supplement the system instructions above and must not override them or the execution-layer permission, sandbox, or approval rules.",
++    "",
++    text,
++  ].join("\n");
++  return {
++    name: "Model-specific user instructions",
++    source: "model_system_prompt",
++    content,
++    preview: content.slice(0, 100),
++  };
++}
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/index.ts b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f388ab89f54cc825a9b9966ae9af00839e62e89
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/index.ts
+@@ -0,0 +1,2 @@
++export * from "./contract.js";
++export { modelSystemPromptSectionModule } from "./module.js";
+diff --git a/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/module.ts b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0e27336e934f2831425196efb1295b9b6250d42
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/src/context/sections/model-system-prompt/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * cli-model-system-prompt 模块清单（architecture-governance managed 模块）。
++ * 层：domain。只把已冻结的用户补充 prompt 转换为一个有边界的 system section。
++ */
++export const modelSystemPromptSectionModule = {
++  id: "cli-model-system-prompt",
++  requires: ["shared", "zcode-cli"],
++  provides: ["model-system-prompt-section"],
++  publicEntrypoints: ["contract.ts", "module.ts"],
++} as const;
 diff --git a/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts b/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts
 index 82059cb532ed76a5ed45338672fe658611847776..d8cf486e096467a29ae66216f886feda6683809e 100644
 --- a/apps/zcode-cli/packages/core/src/context/sections/workflow-actor.ts
@@ -16502,6 +17346,27 @@ index 82059cb532ed76a5ed45338672fe658611847776..d8cf486e096467a29ae66216f886feda
      buildHarnessBlock(),
      "",
      buildWorkflowContract(),
+diff --git a/apps/zcode-cli/packages/core/src/context/types.ts b/apps/zcode-cli/packages/core/src/context/types.ts
+index c5238ff50991cbfe8b63bdb4535be0110613ed92..dac4d8b6e08e6e78e13f14d424d11346872cdd97 100644
+--- a/apps/zcode-cli/packages/core/src/context/types.ts
++++ b/apps/zcode-cli/packages/core/src/context/types.ts
+@@ -39,6 +39,7 @@ export type ContextSource =
+   | "memory" // 长期 memory read path
+   | "current_date" // 当前日期
+   | "custom_system_prompt" // 自定义 stable system body
++  | "model_system_prompt" // 按 provider/model 精确匹配的用户补充 system 段
+   | "workflow_actor_identity" // 动态工作流子代理身份：契约 + persona 叠加
+   | "subagent_agent_prompt" // 子 agent 专属身份/任务 prompt
+   | "subagent_notes" // 子 agent 通用操作提醒
+@@ -86,6 +87,8 @@ export interface ContextBuildResult {
+   totalChars: number;
+   totalTokens: number;
+   systemMessages: ModelInputMessage[]; // ContextBuilder 只组装 system messages
++  /** 与 systemMessages 同序的来源；只有需要保留 source 的主 builder 提供。 */
++  systemMessageSources?: ContextSource[];
+   metaUserAttachments: ContextMetaUserAttachment[]; // 未包裹 <system-reminder> 的 meta user body
+ }
+ 
 diff --git a/apps/zcode-cli/packages/core/src/mcp/index.ts b/apps/zcode-cli/packages/core/src/mcp/index.ts
 index 2002bf525a2e5ee83e9b577aa62a1adc4b4c2b36..ac88eab95a4675857b44d97a7af0a5a66bf63de0 100644
 --- a/apps/zcode-cli/packages/core/src/mcp/index.ts
@@ -17802,7 +18667,7 @@ index 0000000000000000000000000000000000000000..bee02310a18474ce326bbf61e9077798
 +    resolveInheritedChildMode(parent.getMode(), builtInExplore);
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
-index a3f20b7290ac9f629a4fd0b17db40522a3988e54..8e14f55b8f12b8d7c1bc81329a6fb5cc201f06e4 100644
+index a3f20b7290ac9f629a4fd0b17db40522a3988e54..a1d63687386943ce1cd0da5228948cc12143a28a 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts
 @@ -37,6 +37,7 @@ import type {
@@ -17839,7 +18704,29 @@ index a3f20b7290ac9f629a4fd0b17db40522a3988e54..8e14f55b8f12b8d7c1bc81329a6fb5cc
    recordUserInputAutoResolutionUpdate(
      input: UserInputAutoResolutionUpdatedPayload & { traceContext?: TraceContext },
    ): Promise<void>;
-@@ -256,7 +267,12 @@ export interface AgentRuntimeCoreMethods {
+@@ -119,7 +130,10 @@ export interface AgentRuntimeCoreMethods {
+     traceContext: TraceContext,
+     kind: ActiveTurnKind,
+     steerable: boolean,
+-    options?: { inputId?: string },
++    options?: {
++      inputId?: string;
++      modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
++    },
+   ): ActiveTurnSteeringState;
+   reserveTurnStart(turnId: TurnId, traceContext: TraceContext, kind: ActiveTurnKind): void;
+   releaseTurnStart(turnId: TurnId): void;
+@@ -251,12 +265,22 @@ export interface AgentRuntimeCoreMethods {
+   getToolExecutor(): ToolExecutor;
+   subscribeEvents(sink: SessionEventSink): () => void;
+   getContextBuilder(): ContextBuilder;
+-  ensureContextInitialized(traceContext: TraceContext, model?: Model): Promise<void>;
++  ensureContextInitialized(
++    traceContext: TraceContext,
++    model?: Model,
++    options?: { modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"] },
++  ): Promise<void>;
+   getSkillCatalog(traceContext: TraceContext): Promise<SkillLoadOutcome>;
    createContextBuilderFromSnapshot(
      snapshot: ContextSourceSnapshot,
      memoryRoot?: string,
@@ -17849,6 +18736,7 @@ index a3f20b7290ac9f629a4fd0b17db40522a3988e54..8e14f55b8f12b8d7c1bc81329a6fb5cc
 +      model?: Model;
 +      persistEnvInfo?: boolean;
 +      skillCatalog?: SkillLoadOutcome | null;
++      modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
 +    },
    ): ContextBuilder;
    loadProjectMemoryRoot(traceContext: TraceContext): Promise<string | undefined>;
@@ -17925,10 +18813,10 @@ index 1ea63fc4105aab36fb3530962ef3166e766a6d55..679c52efaa10a6cd6bfe06a2ac187b87
    workspaceRoot: string;
    sessionStore?: SessionStorePort;
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts b/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
-index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da2ad0fd16 100644
+index b7913758947a8a3d8292d127a51ba5189b7b478a..0764454ce8f1c5d0b1c1480fe8635ae87255f896 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts
-@@ -1,4 +1,12 @@
+@@ -1,4 +1,13 @@
  import { TOOL_SEARCH_NAME, type ModelToolContract } from "@zcode/contracts";
 +import { consumeInstructionFileUpdates, rebuildContextPrefix } from "./context-refresh.js";
 +import {
@@ -17937,11 +18825,12 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
 +} from "./context-source-updates.js";
 +import { currentMcpToolVersions } from "./mcp.js";
 +import { buildContextHistoryEntries } from "./context-history-entries.js";
++import { omitModelSystemPromptEntries } from "../../context/sections/model-system-prompt/contract.js";
 +import { countContextPrefixMessages } from "../../agent/message-history.js";
  import { buildToolSearchAnnouncement, buildToolExposure } from "../../tool/search/exposure.js";
  import { prepareRuntimeProviderRequest } from "../helpers/runtime-provider-request-messages.js";
  import { collectDiscoveredTools, compactDiscoveryMetadata } from "../../tool/search/history.js";
-@@ -21,7 +29,7 @@ import {
+@@ -21,7 +30,7 @@ import {
    createCompactBoundaryId,
    getUsageTotalTokens,
  } from "../deps.js";
@@ -17950,7 +18839,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
  import {
    defaultCompactPhaseForTrigger,
    defaultCompactReasonForTrigger,
-@@ -48,7 +56,6 @@ import {
+@@ -48,7 +57,6 @@ import {
    readApprovedPlanFileReferenceEntry,
  } from "../helpers/index.js";
  import type { CompactTimelineContext, RuntimeModelTextResult } from "../types.js";
@@ -17958,7 +18847,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
  import type { AgentRuntimeInternal } from "../internal.js";
  import type { CompactAttemptOutcome } from "./turn-loop-state.js";
  import {
-@@ -65,6 +72,7 @@ import {
+@@ -65,6 +73,7 @@ import {
  } from "./compact-active-helpers.js";
  import { runCompactSummaryModelRequest } from "./compact-summary-model-request.js";
  import { resolveNormalRequestMaxOutputTokens } from "./model-token-limits.js";
@@ -17966,7 +18855,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
  import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
  import { recordModelUsageFact } from "./usage-observability.js";
  import { resetProjectMemoryRecall } from "../helpers/project-memory-recall.js";
-@@ -177,6 +185,7 @@ async function compactActiveConversationImpl(
+@@ -177,6 +186,7 @@ async function compactActiveConversationImpl(
    tokenCount: number;
  }> {
    throwIfTurnAborted(options.abortSignal);
@@ -17974,7 +18863,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
    const trigger = options.trigger ?? CompactTrigger.Manual;
    const phase = options.phase ?? defaultCompactPhaseForTrigger(trigger);
    const compactReason = options.compactReason ?? defaultCompactReasonForTrigger(trigger);
-@@ -189,9 +198,34 @@ async function compactActiveConversationImpl(
+@@ -189,9 +199,37 @@ async function compactActiveConversationImpl(
    // Active compact 会跨多个 await 保留这份成员浅快照；它依赖 RuntimeMessageEntry
    // 不可变约定。selection、provider render 和最终 replace 会创建各自拥有的副本，
    // 禁止在 compact 期间原地修改 activeEntries 内共享的 entry/message/content。
@@ -18002,6 +18891,9 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
 +              model: options.model ?? compactModel,
 +              memoryIndexContent: this.memoryIndexContent,
 +              skillCatalog: nextSkillBaseline,
++              // post-compact 续跑前缀使用 active turn 冻结的 prompt 与实际续跑 model；
++              // summary 请求仍通过 source 过滤，不把 custom 文本写进摘要。
++              modelSystemPrompt: this.activeTurn?.modelSystemPrompt,
 +            },
 +          ).build(),
 +        )
@@ -18009,7 +18901,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
    const useMidConversationSystem =
      this.config.midConversationSystem?.mode === "force" ||
      compactModel.properties.supportsMidConversationSystem;
-@@ -200,6 +234,7 @@ async function compactActiveConversationImpl(
+@@ -200,6 +238,7 @@ async function compactActiveConversationImpl(
      initialPromptTooLongCause: options.initialPromptTooLongCause,
      trigger,
      useMidConversationSystem,
@@ -18017,7 +18909,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
    });
    let currentSelection = initialSelection;
    let preservedEntries = currentSelection.preservedEntries;
-@@ -294,7 +329,7 @@ async function compactActiveConversationImpl(
+@@ -294,7 +333,7 @@ async function compactActiveConversationImpl(
            querySource: "compact",
          },
        });
@@ -18026,7 +18918,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
        let result: RuntimeModelTextResult;
        let compactPromptTooLongAttempts = 0;
        let stripMediaForSummary = false;
-@@ -305,6 +340,7 @@ async function compactActiveConversationImpl(
+@@ -305,6 +344,7 @@ async function compactActiveConversationImpl(
            promptTooLongCause: cause,
            trigger,
            useMidConversationSystem,
@@ -18034,7 +18926,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
          });
          if (!reselected) return false;
  
-@@ -316,7 +352,8 @@ async function compactActiveConversationImpl(
+@@ -316,7 +356,8 @@ async function compactActiveConversationImpl(
          return true;
        };
        const truncateEntriesAfterPromptTooLong = (cause: unknown): boolean => {
@@ -18044,7 +18936,23 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
  
          const truncated = truncateCompactSummaryRequestEntriesAfterPromptTooLong({
            attempt: compactPromptTooLongAttempts,
-@@ -415,7 +452,10 @@ async function compactActiveConversationImpl(
+@@ -335,11 +376,14 @@ async function compactActiveConversationImpl(
+       };
+ 
+       while (true) {
++        // source 级过滤：只从摘要请求去掉模型自定义 system 段，不删 dynamic block、
++        // 不改 canonical history，也不对用户文本做字符串替换。
++        const compactRequestEntries = omitModelSystemPromptEntries(entriesForSummary);
+         const prepared = prepareRuntimeProviderRequest(this, {
+           model: compactModel,
+           tools: compactCandidates,
+           registry,
+-          entries: entriesForSummary,
++          entries: compactRequestEntries,
+           prompt: compactPrompt,
+           applyCacheControl: true,
+           skipCacheWrite: true,
+@@ -415,7 +459,10 @@ async function compactActiveConversationImpl(
          events.push(modelRequestEvent);
          const modelStartedAt = Date.now();
          const networkEventStartIndex = events.length;
@@ -18056,7 +18964,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
          const compactModelRequest = {
            abortSignal: options.abortSignal,
            maxOutputTokens: compactSummaryMaxOutputTokens,
-@@ -517,7 +557,6 @@ async function compactActiveConversationImpl(
+@@ -517,7 +564,6 @@ async function compactActiveConversationImpl(
        }
  
        const summary = formatCompactSummaryOrThrow(this, result);
@@ -18064,7 +18972,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
        const planFileReferenceEntry = this.fileSystemPort
          ? await readApprovedPlanFileReferenceEntry({
              abortSignal: options.abortSignal,
-@@ -551,6 +590,8 @@ async function compactActiveConversationImpl(
+@@ -551,6 +597,8 @@ async function compactActiveConversationImpl(
          preservedEntries,
          options.agentListingTools ?? this.getTools(options.model ?? compactModel),
        );
@@ -18073,7 +18981,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
        const postCompactReminderEntries = [
          ...(agentListingEntry ? [agentListingEntry] : []),
          ...(planFileReferenceEntry ? [planFileReferenceEntry] : []),
-@@ -576,7 +617,7 @@ async function compactActiveConversationImpl(
+@@ -576,7 +624,7 @@ async function compactActiveConversationImpl(
        events.push(modelCompleteEvent);
  
        const summaryMessageId = createMessageId();
@@ -18082,7 +18990,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
          suppressFollowup: true,
        });
        // Continue 没有对应 Session message；无 store 的统计也不能把它计入保留记录。
-@@ -587,13 +628,22 @@ async function compactActiveConversationImpl(
+@@ -587,13 +635,22 @@ async function compactActiveConversationImpl(
              sessionId: this.sessionId,
              groupsPreserved: currentSelection.groupsPreserved,
              summaryMessageId,
@@ -18107,7 +19015,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
          postCompactReminderEntries,
          preservedEntries,
        });
-@@ -631,13 +681,15 @@ async function compactActiveConversationImpl(
+@@ -631,13 +688,15 @@ async function compactActiveConversationImpl(
        await this.persistCompactSummary(
          summaryMessageId,
          summaryMessageContent,
@@ -18124,7 +19032,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
          },
        );
  
-@@ -668,6 +720,16 @@ async function compactActiveConversationImpl(
+@@ -668,6 +727,16 @@ async function compactActiveConversationImpl(
          events,
        );
  
@@ -18141,7 +19049,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
        this.latestConversationMessageId = summaryMessageId;
        const recordablePostCompactEntries = filterOutputTokenContinuationEntries(postCompactEntries);
        this.messageHistory.replaceMessages(
-@@ -752,10 +814,13 @@ function selectInitialCompactEntriesForActiveConversation(input: {
+@@ -752,10 +821,13 @@ function selectInitialCompactEntriesForActiveConversation(input: {
    initialPromptTooLongCause?: unknown;
    trigger: CompactTrigger;
    useMidConversationSystem?: boolean;
@@ -18155,7 +19063,7 @@ index b7913758947a8a3d8292d127a51ba5189b7b478a..8f0361678dc3c248954e5b14a3ce27da
    });
    if (input.initialPromptTooLongCause === undefined) {
      return baseSelection;
-@@ -767,17 +832,20 @@ function selectInitialCompactEntriesForActiveConversation(input: {
+@@ -767,17 +839,20 @@ function selectInitialCompactEntriesForActiveConversation(input: {
        promptTooLongCause: input.initialPromptTooLongCause,
        trigger: input.trigger,
        useMidConversationSystem: input.useMidConversationSystem,
@@ -18253,16 +19161,35 @@ index adc936f95d04637f9ec078e92a5205bfcc65df92..09e68efeb2374522d0c9a8ec49d52d20
  }
  
  export function getPlanEnabled(this: AgentRuntimeInternal): boolean {
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts
+index 7b8cee33c1776bb4cb3b8e081444d7d65edec115..3cf2c996374c48dec493c8a3206df3f27513f364 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts
+@@ -8,7 +8,12 @@ export function buildContextHistoryEntries(
+   contextResult: ContextBuildResult,
+ ): RuntimeMessageEntry[] {
+   return [
+-    ...contextResult.systemMessages.map((message): RuntimeMessageEntry => ({ message })),
++    ...contextResult.systemMessages.map((message, index): RuntimeMessageEntry => {
++      // 只有模型自定义段需要保留 source；其余 system message 维持原有形状。
++      return contextResult.systemMessageSources?.[index] === "model_system_prompt"
++        ? { message, metadata: { source: "model_system_prompt" } }
++        : { message };
++    }),
+     ...contextResult.metaUserAttachments.map((attachment) =>
+       systemReminderAttachmentEntry(attachment.source, attachment.content),
+     ),
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
-index 591619e469c542125350313fae1491cc246b89f2..eb3e1978df1dfe8638f94d62f4d153964033b835 100644
+index 591619e469c542125350313fae1491cc246b89f2..48066c54dd8b82ab2fdb165549f97ebe746efd7a 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts
-@@ -1,8 +1,199 @@
+@@ -1,13 +1,214 @@
 +import type {
 +  ContextSourceSnapshot,
 +  MessageWithParts,
 +  ResolvedUserInstructions,
 +  TraceContext,
++  TurnInputIntentMetadata,
 +  UserInstructionObservation,
 +} from "@zcode/contracts";
 +import { activeSessionMessages } from "../../agent/session-history-hydrator.js";
@@ -18457,7 +19384,30 @@ index 591619e469c542125350313fae1491cc246b89f2..eb3e1978df1dfe8638f94d62f4d15396
  
  export function rebuildContextPrefix(
    runtime: AgentRuntimeInternal,
-@@ -30,7 +221,12 @@ export function rebuildContextPrefix(
+-  options: { model?: Model; turnRequestEntries?: readonly RuntimeMessageEntry[] } = {},
++  options: {
++    model?: Model;
++    turnRequestEntries?: readonly RuntimeMessageEntry[];
++    /** 显式传 undefined 表示清空；缺席时沿用 active turn 已冻结的意图。 */
++    modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
++  } = {},
+ ): readonly RuntimeMessageEntry[] {
++  const modelSystemPrompt =
++    "modelSystemPrompt" in options
++      ? options.modelSystemPrompt
++      : runtime.activeTurn?.modelSystemPrompt;
+   if (!runtime.contextBuilder || !runtime.contextInitialized) {
+     // 首轮 context 初始化前，model/outputStyle/language 变更只能刷新同步预览，
+     // 不能把 config-only fallback envInfo 写入 config.envInfo。否则真实 context source
+@@ -20,6 +221,7 @@ export function rebuildContextPrefix(
+           memoryIndexContent: runtime.memoryIndexContent,
+           model: options.model,
+           persistEnvInfo: false,
++          modelSystemPrompt,
+         },
+       );
+     }
+@@ -30,9 +232,18 @@ export function rebuildContextPrefix(
      runtime.contextSourceSnapshot ??
      runtime.createConfigOnlyContextSnapshot(runtime.workingDirectory);
    runtime.contextBuilder = runtime.createContextBuilderFromSnapshot(
@@ -18469,8 +19419,15 @@ index 591619e469c542125350313fae1491cc246b89f2..eb3e1978df1dfe8638f94d62f4d15396
 +        : {}),
 +    },
      runtime.memoryRoot,
-     { memoryIndexContent: runtime.memoryIndexContent, model: options.model },
+-    { memoryIndexContent: runtime.memoryIndexContent, model: options.model },
++    {
++      memoryIndexContent: runtime.memoryIndexContent,
++      model: options.model,
++      modelSystemPrompt,
++    },
    );
+   const effectiveContextResult = runtime.contextBuilder.build();
+   const contextEntries = buildContextHistoryEntries(effectiveContextResult);
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context-source-updates.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context-source-updates.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..4cd3a13676edfcd2730ea6f2dadf15e28c17d7e4
@@ -18724,10 +19681,18 @@ index f06ca63b2b10ce1a1b34b7554ebfae2ee6cc3e36..ec6e2c31f99d6b4c53ac3b1f7838a247
    );
    const nonSystemMessageMetric = this.sumMetrics(conversationMessageBreakdown, "medium");
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/context.ts b/apps/zcode-cli/packages/core/src/runtime/methods/context.ts
-index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57ac3e5eefb 100644
+index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..c155575ff4029aa46d44f1487aefab76ed9340e1 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/context.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/context.ts
-@@ -34,6 +34,9 @@ import {
+@@ -1,5 +1,7 @@
+ import { join } from "node:path";
+ 
++import type { ModelSystemPromptEntry } from "@zcode/shared";
++import { buildModelSystemPromptSection } from "../../context/sections/model-system-prompt/contract.js";
+ import {
+   traceContextToLogContext,
+   createContextBuilder,
+@@ -34,43 +36,50 @@ import {
    resolveGenUiOutputDirectory,
  } from "../helpers/gen-ui-output.js";
  
@@ -18737,7 +19702,11 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
  export { buildContextHistoryEntries };
  
  export async function ensureContextInitialized(
-@@ -44,33 +47,36 @@ export async function ensureContextInitialized(
+   this: AgentRuntimeInternal,
+   traceContext: TraceContext,
+   model?: Model,
++  options: { modelSystemPrompt?: ModelSystemPromptEntry } = {},
+ ): Promise<void> {
    if (this.contextInitialized) return;
  
    const shellDisplayName = getContextSourceShellDisplayName(this);
@@ -18794,7 +19763,15 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
    this.memoryRoot = await this.loadProjectMemoryRoot(traceContext);
    this.memoryIndexContent = await loadProjectMemoryIndexContent(
      this,
-@@ -94,9 +100,8 @@ export async function getSkillCatalog(
+@@ -81,6 +90,7 @@ export async function ensureContextInitialized(
+   this.contextBuilder = this.createContextBuilderFromSnapshot(snapshot, this.memoryRoot, {
+     memoryIndexContent: this.memoryIndexContent,
+     model,
++    modelSystemPrompt: options.modelSystemPrompt,
+   });
+   // Bug 根因：模型创建失败轮会在 Context 首次可初始化前接纳并持久化用户输入。
+   // init 会替换全部内存历史，因此先保留这些权威运行条目，再接到新建的 Context 前缀之后。
+@@ -94,9 +104,8 @@ export async function getSkillCatalog(
    this: AgentRuntimeInternal,
    traceContext: TraceContext,
  ): Promise<SkillLoadOutcome> {
@@ -18806,7 +19783,7 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
    await this.ensureContextInitialized(traceContext);
    const outcome = this.skillLoadOutcome ?? {
      skills: [],
-@@ -114,9 +119,20 @@ export function createContextBuilderFromSnapshot(
+@@ -114,9 +123,21 @@ export function createContextBuilderFromSnapshot(
    this: AgentRuntimeInternal,
    snapshot: ContextSourceSnapshot,
    memoryRoot?: string,
@@ -18816,6 +19793,7 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
 +    model?: Model;
 +    persistEnvInfo?: boolean;
 +    skillCatalog?: SkillLoadOutcome | null;
++    modelSystemPrompt?: ModelSystemPromptEntry;
 +  } = {},
  ): ContextBuilder {
    const envInfo = snapshot.envInfo;
@@ -18828,7 +19806,7 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
    // 同步 preview / config-only fallback 会构造 unknown envInfo。
    // 这类临时值不能写回 config，否则首轮真实 context source 会把它当作显式 envInfo，
    // 从而跳过 Node env/git 探测。
-@@ -131,8 +147,10 @@ export function createContextBuilderFromSnapshot(
+@@ -131,8 +152,10 @@ export function createContextBuilderFromSnapshot(
        envInfo,
        model: options.model,
        skillMetadataBudget: this.config.skillMetadataBudget,
@@ -18841,7 +19819,7 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
      });
    }
  
-@@ -148,7 +166,7 @@ export function createContextBuilderFromSnapshot(
+@@ -148,7 +171,7 @@ export function createContextBuilderFromSnapshot(
      projectContext: snapshot.projectContext,
      memoryIndexContent: options.memoryIndexContent,
      memoryRoot,
@@ -18850,6 +19828,34 @@ index 07ff5b95247623933ed8270b9f45c06f3ca8bd22..72f9a1c21b7173a8dd9bf8bd9b65e57a
      agentProfiles: this.config.subagents?.profiles,
      embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(this),
      skillMetadataBudget: this.config.skillMetadataBudget,
+@@ -160,7 +183,13 @@ export function createContextBuilderFromSnapshot(
+     guidanceToolNames: this.getTools(options.model).map((tool) => tool.name),
+   };
+ 
+-  return createContextBuilder(contextConfig).setToolRegistry(this.registry);
++  const builder = createContextBuilder(contextConfig).setToolRegistry(this.registry);
++  // 主 Agent 专用：显式 systemPrompt（替换路径）与 workflow actor 不得混入补充段。
++  if (!this.config.systemPrompt && !this.config.workflowActor) {
++    const section = buildModelSystemPromptSection(options.model, options.modelSystemPrompt);
++    if (section) builder.addSection(section);
++  }
++  return builder;
+ }
+ 
+ export async function loadProjectMemoryRoot(
+@@ -318,8 +347,10 @@ export function initializeMessageHistoryFromContext(
+       tokenMethod: "estimated",
+       confidence: "medium",
+       tokenizer: "zcode.estimateTokens.v1",
+-      preview: s.preview,
+-      content: s.content,
++      // 用户自定义 prompt 只记录来源与体积，不把正文/预览写入常规诊断。
++      ...(s.source === "model_system_prompt"
++        ? { redacted: true }
++        : { preview: s.preview, content: s.content }),
+     })),
+   });
+ }
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts b/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
 index b4509560520c8df72abe407653a7e7d78a4d044a..86f66fdc09597cccc87c5cc4668888abd198e69f 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/index.ts
@@ -18902,6 +19908,21 @@ index b4509560520c8df72abe407653a7e7d78a4d044a..86f66fdc09597cccc87c5cc4668888ab
    proto.createContextBuilderFromSnapshot = createContextBuilderFromSnapshot;
    proto.loadProjectMemoryRoot = loadProjectMemoryRoot;
    proto.logMemorySkipped = logMemorySkipped;
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/input-intent-persistence.ts b/apps/zcode-cli/packages/core/src/runtime/methods/input-intent-persistence.ts
+index 5384220268cc4e4af9ae25fa9065132432043cd9..0a9befc88f23c2566af58426541292d3da25256a 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/input-intent-persistence.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/input-intent-persistence.ts
+@@ -36,6 +36,10 @@ export function buildPersistedConversationInputIntent(
+     ...(intent.modelSelection ? { modelSelection: intent.modelSelection } : {}),
+     ...(intent.mode ? { mode: intent.mode } : {}),
+     ...(intent.planEnabled !== undefined ? { planEnabled: intent.planEnabled } : {}),
++    ...(intent.modelSystemPromptEnabled !== undefined
++      ? { modelSystemPromptEnabled: intent.modelSystemPromptEnabled }
++      : {}),
++    ...(intent.modelSystemPrompt ? { modelSystemPrompt: intent.modelSystemPrompt } : {}),
+     ...(intent.sharedContextRefs ? { sharedContextRefs: intent.sharedContextRefs } : {}),
+     delivery: {
+       requested: intent.requestedDelivery,
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts b/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts
 index 0687887760539f5b276f923ff03e1672e4ca1c39..0176b921e4b4fb8ef05b5f06975d9227e9da1cab 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts
@@ -21703,6 +22724,40 @@ index 547243e05f1c3f65492c6f12eb6be87285301902..fd0bf933054b3606fea6573db5652010
 +    !isActiveCompactionBoundaryMessage(message)
 +  );
 +}
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/steering.ts b/apps/zcode-cli/packages/core/src/runtime/methods/steering.ts
+index 693213bea13763098bd473d4d7cf174470062c13..56efbc1948ae23b9c490d0f8885cdf8340849c8b 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/steering.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/steering.ts
+@@ -29,6 +29,7 @@ import type {
+   TurnSteerResult,
+   TurnSteerSource,
+   TurnId,
++  TurnInputIntentMetadata,
+ } from "../deps.js";
+ import { cloneModelSelection } from "../model-selection.js";
+ import { acceptSubmissionModelSelection, recordPublishedModelSelection } from "./turn-model.js";
+@@ -331,7 +332,10 @@ export function beginActiveTurn(
+   traceContext: TraceContext,
+   kind: ActiveTurnKind,
+   steerable: boolean,
+-  options?: { inputId?: string },
++  options?: {
++    inputId?: string;
++    modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
++  },
+ ): ActiveTurnSteeringState {
+   if (this.activeTurn) {
+     throw createTurnInProgressError(kind, this.activeTurn.turnId, turnId);
+@@ -349,6 +353,9 @@ export function beginActiveTurn(
+     traceContext,
+     turnId,
+     ...(options?.inputId === undefined ? {} : { inputId: options.inputId }),
++    ...(options?.modelSystemPrompt === undefined
++      ? {}
++      : { modelSystemPrompt: options.modelSystemPrompt }),
+   };
+   this.activeTurnStartReservation = undefined;
+   this.activeTurn = activeTurn;
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts b/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
 index 372999d848356c01116f8041e1df4f31b558232e..c3de09dee3b2969e02e9bab9744f733980461a1d 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
@@ -21896,11 +22951,14 @@ index 372999d848356c01116f8041e1df4f31b558232e..c3de09dee3b2969e02e9bab9744f7339
            childRuntime.sealBackgroundTaskNotifications({
              reason: cancelled ? "subagent_cancelled" : "subagent_terminal",
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/target-completion-verification.ts b/apps/zcode-cli/packages/core/src/runtime/methods/target-completion-verification.ts
-index 28b18be0434e1e2d3e067aa0459d45d3fc25cfc8..3de92009456270f4625e91f0e43e25252a3d6bb7 100644
+index 28b18be0434e1e2d3e067aa0459d45d3fc25cfc8..137c2bff6742f0efbf2ea9b53797d5f76a8115e2 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/target-completion-verification.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/target-completion-verification.ts
-@@ -22,6 +22,8 @@ import type { AgentRuntimeInternal } from "../internal.js";
+@@ -20,8 +20,11 @@ import { prepareRuntimeProviderRequest, throwIfTurnAborted } from "../helpers/in
+ import { projectMessagesForModelMediaPolicy } from "../helpers/media-budget.js";
+ import type { AgentRuntimeInternal } from "../internal.js";
  import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../../agent/message-history.js";
++import { omitModelSystemPromptEntries } from "../../context/sections/model-system-prompt/contract.js";
  import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
  import { createRuntimeModel } from "./runtime-model.js";
 +import { consumeInstructionFileUpdates } from "./context-refresh.js";
@@ -21908,15 +22966,23 @@ index 28b18be0434e1e2d3e067aa0459d45d3fc25cfc8..3de92009456270f4625e91f0e43e2525
  import { isStartPlanBusyStreamRecoveryFailure } from "./streaming-recovery.js";
  import { recordModelUsageFact } from "./usage-observability.js";
  import { runTargetCompletionVerificationWithTelemetry } from "./target-completion-verification-telemetry.js";
-@@ -129,6 +131,8 @@ async function verifyTargetCompletion(
+@@ -129,9 +132,14 @@ async function verifyTargetCompletion(
      ),
      modelTraceContext,
    );
 +  await consumeSkillCatalogUpdates(this, modelTraceContext);
 +  await consumeInstructionFileUpdates(this, modelTraceContext);
    const prepared = prepareRuntimeProviderRequest(this, {
-     entries: withoutTrailingPendingAssistantToolCallEntries(
-       this.messageHistory.borrowReadOnlyRuntimeEntries(),
+-    entries: withoutTrailingPendingAssistantToolCallEntries(
+-      this.messageHistory.borrowReadOnlyRuntimeEntries(),
++    // 辅助 verifier 不继承主 Agent 的模型自定义提示词；只过滤 source，不改 canonical。
++    entries: omitModelSystemPromptEntries(
++      withoutTrailingPendingAssistantToolCallEntries(
++        this.messageHistory.borrowReadOnlyRuntimeEntries(),
++      ),
+     ),
+     prompt: formatGoalCompletionVerificationPrompt(input.target),
+     tools: [],
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts b/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
 index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..02793a3972e2219c0c49fd585ae866607a4b2a13 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/title-generation-sidecar.ts
@@ -22117,19 +23183,122 @@ index 6a1786e81ddebcba1af92fc53a3b3b6deff179d3..02793a3972e2219c0c49fd585ae86660
    ];
  }
  
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts
+index 4b29e8eae6ab51f94812216cae01c3ef1746d34d..984401f16089adf10eda401ec14500e832e3cd89 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts
+@@ -1,9 +1,21 @@
+ import type { AgentRuntimeInternal } from "../internal.js";
+-import type { RegularTurnLoopState } from "./turn-loop-state.js";
++import { turnContextModelKey, type RegularTurnLoopState } from "./turn-loop-state.js";
+ import { applySubmissionExecutionState, sameModelSelection } from "./turn-model.js";
+ import { rebuildContextPrefix } from "./context-refresh.js";
+ import { appendTurnRequestEntries } from "./turn-output-token-continuation.js";
+ import { applyRuntimeExecutionState } from "../execution-state.js";
++import type { TurnInputIntentMetadata } from "@zcode/contracts";
++
++function sameModelSystemPrompt(
++  left: TurnInputIntentMetadata["modelSystemPrompt"],
++  right: TurnInputIntentMetadata["modelSystemPrompt"],
++): boolean {
++  return (
++    left?.providerId === right?.providerId &&
++    left?.modelId === right?.modelId &&
++    left?.text === right?.text
++  );
++}
+ 
+ /**
+  * 在合法的 model-step 边界最多消费一条 guide，并准备下一次 provider request。
+@@ -37,16 +49,26 @@ export async function drainInlineGuideForNextRequest(
+     state.modelSelectionScope === "execution"
+       ? undefined
+       : await applySubmissionExecutionState(runtime, drained?.intent, state.turnTraceContext);
+-  if (guideModel) {
++  // 旧客户端 guide 缺省 enabled 时保留 active turn 原意图；显式 false 才在下一请求边界移除。
++  const guidePromptProvided = drained.intent?.modelSystemPromptEnabled !== undefined;
++  const nextModelSystemPrompt = guidePromptProvided
++    ? drained.intent?.modelSystemPromptEnabled === true
++      ? drained.intent.modelSystemPrompt
++      : undefined
++    : activeTurn.modelSystemPrompt;
++  const promptChanged =
++    guidePromptProvided && !sameModelSystemPrompt(activeTurn.modelSystemPrompt, nextModelSystemPrompt);
++  if (guidePromptProvided) activeTurn.modelSystemPrompt = nextModelSystemPrompt;
++  const selectionChanged = guideModel ? !sameModelSelection(state.model, guideModel) : false;
++  if (guideModel) state.model = guideModel;
++  if (selectionChanged || promptChanged) {
+     // 配置重新解析不等于切模；比较 Loop 的执行选择，而不是可能已被外部更新的 Session。
+-    const selectionChanged = !sameModelSelection(state.model, guideModel);
+-    state.model = guideModel;
+-    if (selectionChanged) {
+-      state.turnRequestState.entries = rebuildContextPrefix(runtime, {
+-        model: guideModel,
+-        turnRequestEntries: state.turnRequestState.entries,
+-      });
+-    }
++    state.turnRequestState.entries = rebuildContextPrefix(runtime, {
++      model: state.model,
++      turnRequestEntries: state.turnRequestState.entries,
++      modelSystemPrompt: nextModelSystemPrompt,
++    });
++    state.contextPrefixModelKey = turnContextModelKey(state.model);
+   }
+   state.currentUserMessageId = drained?.latestMessageId ?? state.currentUserMessageId;
+   const nextQueryId = drained?.queryIds?.[0];
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop-state.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop-state.ts
+index bfc1e1c267362556623bc93121e9728e203fd54f..e888a5c2be7c2fb750337d7c5a167698a4337b98 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop-state.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop-state.ts
+@@ -78,6 +78,13 @@ export interface TurnRequestState {
+   outputTokenContinuationCount: number;
+ }
+ 
++/** provider/model 身份键；用于请求准备前发现执行模型变化并重建 context prefix。 */
++export function turnContextModelKey(
++  model: Pick<Model, "providerId" | "modelId">,
++): string {
++  return `${model.providerId}\u0000${model.modelId}`;
++}
++
+ export interface RegularTurnLoopState {
+   offPeakExecutionId?: string;
+   activeTurn?: ActiveTurnSteeringState;
+@@ -101,6 +108,8 @@ export interface RegularTurnLoopState {
+   modelResponse: string;
+   /** 本轮固定使用的可调用模型；配置变化只影响以后创建的 Loop。 */
+   model: Model;
++  /** 当前 turnRequestState 的 context prefix 是按哪个 provider/model 构建的。 */
++  contextPrefixModelKey?: string;
+   /** execution 表示当前 Active Model 不能被同 loop 的 guide 改写。 */
+   modelSelectionScope?: "execution";
+   /** 本轮执行 Selection 的降级声明；命中一次后清空，退回后的模型不再二次降级。 */
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts
-index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e2a7900f7 100644
+index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..e3a970e15ce42cb36596c45910662fc11cf2c0c9 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts
-@@ -1,4 +1,7 @@
+@@ -1,4 +1,8 @@
++import type { ModelInputMessage } from "@zcode/contracts";
  import { getTurnTools } from "./turn-tool-visibility.js";
-+import { consumeInstructionFileUpdates } from "./context-refresh.js";
++import { consumeInstructionFileUpdates, rebuildContextPrefix } from "./context-refresh.js";
 +import { consumeSkillCatalogUpdates } from "./context-source-updates.js";
 +import { consumeMcpContractUpdates, attachMcpCatalogAudit } from "./mcp.js";
  import { refreshOffPeakTurnAfterTakeover } from "../off-peak/turn.js";
  import { appendRuntimeAgentListing } from "../helpers/agent-listing.js";
  import { beginLocalTurnPreparation } from "@zcode/contracts";
-@@ -80,6 +83,14 @@ export async function runRegularTurnLoop(
+@@ -36,7 +40,10 @@ import {
+   recordCompactHistoryRound,
+   recordCompactSuccess,
+ } from "./turn-loop-state.js";
+-import type { RegularTurnLoopState } from "./turn-loop-state.js";
++import {
++  turnContextModelKey,
++  type RegularTurnLoopState,
++} from "./turn-loop-state.js";
+ import { consumeSettledProjectMemoryRecall } from "../helpers/project-memory-recall.js";
+ import { consumePendingProjectMemoryUpdate } from "../helpers/project-memory-dream.js";
+ import { ACTIVE_PROJECT_MEMORY_RETRIEVAL_BRANCH } from "../../memory/project-memory-retrieval-branch.js";
+@@ -80,6 +87,14 @@ export async function runRegularTurnLoop(
        appendTurnRequestEntries(state.turnRequestState, recallEntry ? [recallEntry] : []);
      }
  
@@ -22144,7 +23313,7 @@ index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e
      const compactPhase =
        state.modelStepCount === 0 ? CompactPhase.PreRequest : CompactPhase.MidTurn;
      await this.microcompactIfNeeded(state.turnTraceContext, state.events, state.turnAbortSignal, {
-@@ -90,39 +101,43 @@ export async function runRegularTurnLoop(
+@@ -90,39 +105,47 @@ export async function runRegularTurnLoop(
      });
      throwIfTurnAborted(state.turnAbortSignal);
  
@@ -22208,6 +23377,10 @@ index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e
 +      }
 +      throwIfTurnAborted(state.turnAbortSignal);
 +    };
++    // 请求期 fallback 可能在上一次 model step 后把 state.model 换成另一 provider/model；
++    // 在容量估算和 provider 请求准备前统一重建 context prefix，使用 active turn 冻结意图，
++    // 不读取最新设置。无模型变化时保持原 entries，避免每轮重复 build。
++    syncTurnContextPrefixForModel(this, state);
 +    await checkCapacity();
 +    const entriesAfterCapacity = new Set(state.turnRequestState.entries);
  
@@ -22218,7 +23391,7 @@ index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e
      await this.refreshMcpToolsIfChanged(state.turnTraceContext);
      finishMcp();
      throwIfTurnAborted(state.turnAbortSignal);
-@@ -180,31 +195,49 @@ export async function runRegularTurnLoop(
+@@ -180,31 +203,49 @@ export async function runRegularTurnLoop(
          systemReminderAttachmentEntry("output_style", outputStyleReminderBody),
        ]);
      }
@@ -22290,6 +23463,49 @@ index 9f8fa6d1653728b894d8d4bc05f174d6db020f79..f14e66a62f88d54fe1d0977bc091cb8e
      const providerEntries = [...state.turnRequestState.entries];
      // Dream 可能在同一 turn 的首个模型请求期间完成；每次 attachment collection 都检查，
      // 才能把一次性更新放进紧随其后的模型请求，而不是延迟到下一次用户输入。
+@@ -265,7 +306,10 @@ export async function runRegularTurnLoop(
+       messages,
+       sourceEntries: providerProjection.sourceEntries,
+       requestEntries,
+-      recordedMessages: recordableProjection.messages,
++      recordedMessages: redactModelSystemPromptRecordedMessages(
++        recordableProjection.messages,
++        recordableProjection.sourceEntries,
++      ),
+       tools: prepared.request.tools,
+       toolSearch: prepared.toolSearch,
+     });
+@@ -275,3 +319,30 @@ export async function runRegularTurnLoop(
+     }
+   }
+ }
++
++/** ModelRequest 诊断轨迹不复制用户模型自定义 prompt 正文；真实 provider 请求不变。 */
++function redactModelSystemPromptRecordedMessages(
++  messages: readonly ModelInputMessage[],
++  sourceEntries: readonly ({ metadata?: { source?: string } } | undefined)[],
++): ModelInputMessage[] {
++  return messages.map((message, index) =>
++    sourceEntries[index]?.metadata?.source === "model_system_prompt"
++      ? { ...message, content: "[model-specific user instructions redacted]" }
++      : message,
++  );
++}
++
++/** 请求准备/容量估算前把 context prefix 对齐到当前实际执行模型；使用 active turn 冻结意图。 */
++function syncTurnContextPrefixForModel(
++  runtime: AgentRuntimeInternal,
++  state: RegularTurnLoopState,
++): void {
++  const key = turnContextModelKey(state.model);
++  if (state.contextPrefixModelKey === key) return;
++  state.turnRequestState.entries = rebuildContextPrefix(runtime, {
++    model: state.model,
++    turnRequestEntries: state.turnRequestState.entries,
++    ...(state.activeTurn ? { modelSystemPrompt: state.activeTurn.modelSystemPrompt } : {}),
++  });
++  state.contextPrefixModelKey = key;
++}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step-usage.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step-usage.ts
 index bc4e6dfe5ea90f3f686c745b245d7ef32816f23e..378508e0050074c7e9953f9ee7fc7303c535c165 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step-usage.ts
@@ -22452,18 +23668,69 @@ index bc4e6dfe5ea90f3f686c745b245d7ef32816f23e..378508e0050074c7e9953f9ee7fc7303
 +  }
 +}
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/turn.ts b/apps/zcode-cli/packages/core/src/runtime/methods/turn.ts
-index 22a30b77fff28dfcf4ba7a1293408e3e67b82699..81f70f4a535241f23633ada469d376d33f37cb22 100644
+index 22a30b77fff28dfcf4ba7a1293408e3e67b82699..ddabf4562196814f05241dddd1c0fb05aed963d6 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/turn.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/turn.ts
-@@ -59,6 +59,7 @@ import {
- import type { RegularTurnLoopState } from "./turn-loop-state.js";
+@@ -56,9 +56,13 @@ import {
+   maybeStartDeferredSessionTitleGeneration,
+   maybeStartSessionTitleGeneration,
+ } from "./session-title.js";
+-import type { RegularTurnLoopState } from "./turn-loop-state.js";
++import {
++  turnContextModelKey,
++  type RegularTurnLoopState,
++} from "./turn-loop-state.js";
  import { finishOutputTokenRecovery } from "./turn-output-token-continuation.js";
  import { recordTurnUsageFact } from "./usage-observability.js";
 +import { persistTurnModelTiming } from "./turn-model-step-usage.js";
  import { persistStableForkCompletionBoundary } from "./stable-fork-boundary.js";
  import {
    closeGoalStateChangeReminderDeferral,
-@@ -922,6 +923,10 @@ export async function executeTurnCommand(
+@@ -382,6 +386,11 @@ export async function executeTurnCommand(
+         }
+       }
+       let phaseStartedAt: number;
++      // 与模型选择一同冻结；显式 false/旧客户端缺省都不附加，下一 turn 自然重建移除旧段。
++      const modelSystemPrompt =
++        options?.intent?.modelSystemPromptEnabled === true
++          ? options.intent.modelSystemPrompt
++          : undefined;
+       // Bug 根因：创建错误确定后仍执行 Context/SessionStart，会在 TurnStarted 前被二次 I/O 错误覆盖，
+       // 并提前消费一次性 SessionStart。失败轮跳过它们，只复用后续输入持久化与终态主链。
+       if (!creationFailure) {
+@@ -389,11 +398,13 @@ export async function executeTurnCommand(
+         if (this.contextInitialized) {
+           // 每个后续 model step 都按该步骤实际持有的 Model 重新投影 Context；
+           // Session Selection 只决定未来创建哪个 Model，不能充当执行事实。
+-          rebuildContextPrefix(this, { model: admittedModel });
++          rebuildContextPrefix(this, { model: admittedModel, modelSystemPrompt });
+         } else {
+           // 首轮初始化已经用 admitted Model 构造并安装完整 Context，随后再 rebuild
+           // 会把同一 Prefix 连续构造两次。未初始化与已初始化分支互斥，每个 model step 只构造一次。
+-          await this.ensureContextInitialized(turnTraceContext, admittedModel);
++          await this.ensureContextInitialized(turnTraceContext, admittedModel, {
++            modelSystemPrompt,
++          });
+         }
+         completeTurnPhase("context_initialization", phaseStartedAt);
+         throwIfTurnAborted(turnAbortSignal);
+@@ -447,6 +458,7 @@ export async function executeTurnCommand(
+         creationFailure === undefined,
+         {
+           ...(options?.inputId === undefined ? {} : { inputId: options.inputId }),
++          ...(modelSystemPrompt === undefined ? {} : { modelSystemPrompt }),
+         },
+       );
+       this.logger?.info("Turn started", {
+@@ -812,6 +824,7 @@ export async function executeTurnCommand(
+           ...(options?.inputId ? { inputId: options.inputId } : {}),
+           modelResponse: "",
+           model: loopModel,
++          contextPrefixModelKey: turnContextModelKey(loopModel),
+           ...(options?.modelExecution?.selectionScope === "execution"
+             ? { modelSelectionScope: "execution" as const }
+             : {}),
+@@ -922,6 +935,10 @@ export async function executeTurnCommand(
            turnId,
            userMessageId,
          });
@@ -22474,7 +23741,7 @@ index 22a30b77fff28dfcf4ba7a1293408e3e67b82699..81f70f4a535241f23633ada469d376d3
          if (shouldRetryTitleGenerationAfterTurn && userMessageId) {
            // 需要请求前刷新 provider runtime headers 的模型
            // 若在主 turn 前生成标题，会先占用鉴权刷新窗口，导致真正的用户消息失败。
-@@ -1067,6 +1072,10 @@ export async function executeTurnCommand(
+@@ -1067,6 +1084,10 @@ export async function executeTurnCommand(
            turnId,
            userMessageId,
          });
@@ -22499,7 +23766,7 @@ index 0172b60ca5ab77910558039ce45155387ca7acf9..2369bb097a4517f7cc2eb815dbf33bba
      isPlanEnabled: () => readRuntimeExecutionState(runtime).planEnabled,
      async enterPlanMode(input) {
 diff --git a/apps/zcode-cli/packages/core/src/runtime/types.ts b/apps/zcode-cli/packages/core/src/runtime/types.ts
-index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..bf1fc8779e4ee1acfa5b30a1c0e7d32ae0650061 100644
+index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..5578c919150f8b367eb1cf86acb409daa2790ab5 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/types.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/types.ts
 @@ -244,6 +244,7 @@ export interface AgentRuntimeConfig {
@@ -22530,6 +23797,15 @@ index 51f1b88bbe49e86fb7a4fd9ee462856e20338f8a..bf1fc8779e4ee1acfa5b30a1c0e7d32a
      accountAccess?: ZCodeProviderAccountAccess;
      expectedAccountScope?: string;
      rejectedProjectTokenFingerprint?: string;
+@@ -830,6 +837,8 @@ export interface ActiveTurnSteeringState {
+   turnId: TurnId;
+   /** 本轮的 inputId（与 TurnStarted.inputId 同源）；regular turn 在 beginActiveTurn 时记下。 */
+   inputId?: string;
++  /** 本轮 submission 冻结的模型自定义 prompt；turn 中途 rebuild 复用，关闭时显式清空。 */
++  modelSystemPrompt?: TurnInputIntentMetadata["modelSystemPrompt"];
+ }
+ 
+ export interface ActiveTurnStartReservation {
 diff --git a/apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md b/apps/zcode-cli/packages/core/src/session-resources/CONTRACT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..d7290bf17de39510af9dc92fac2385077a9cd774
@@ -26815,6 +28091,657 @@ index 0000000000000000000000000000000000000000..55928071921e78290075cac04afe197c
 +    } finally {
 +      resumed.beginShutdown();
 +    }
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/compact.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/compact.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8aacf8644859ed09b0538cabbeae64f3fbeadf1
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/compact.test.ts
+@@ -0,0 +1,101 @@
++import { describe, expect, it } from "vitest";
++import { createSessionId } from "@zcode/contracts";
++import { createTestAgentRuntime } from "../test-agent-runtime.js";
++import { createTestSessionEventStore } from "../test-event-store.js";
++import { createTestModelFactory } from "../test-runtime-model.js";
++import { createTestModelSelection } from "../test-model-selection.js";
++
++function providerContentToText(content: unknown): string {
++  if (typeof content === "string") return content;
++  if (!Array.isArray(content)) return String(content ?? "");
++  return content
++    .map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
++    .join("\n");
++}
++
++describe("model system prompt across compaction", () => {
++  it("stays out of summaries and appears once in the continuation request", async () => {
++    const sessionId = createSessionId("runtime-auto-compact-model-prompt");
++    const eventStore = createTestSessionEventStore();
++    const requests: Array<{ text: string }> = [];
++    const longPrompt = "old context ".repeat(80);
++    let normalResponseCount = 0;
++    const modelSelection = createTestModelSelection("test/model-a");
++    const customPrompt = "CUSTOM_MODEL_PROMPT_A";
++    const runtime = createTestAgentRuntime(
++      sessionId,
++      {
++        compact: { bufferTokens: 10, contextWindow: 120, summaryReserveTokens: 0 },
++        maxOutputTokens: 1,
++        modelSelection,
++      },
++      {
++        eventStore,
++        modelFactory: createTestModelFactory({
++          async generateText(request) {
++            requests.push({
++              text: request.messages
++                .map((message) => providerContentToText(message.content))
++                .join("\n"),
++            });
++            const lastContent = providerContentToText(request.messages.at(-1)?.content);
++            if (lastContent.includes("create a detailed summary")) {
++              return {
++                finishReason: "stop",
++                text: "<summary>Auto summary keeps the plan.</summary>",
++                usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
++              };
++            }
++            normalResponseCount++;
++            return {
++              finishReason: "stop",
++              text: `normal response ${normalResponseCount}`,
++              usage: {
++                inputTokens: normalResponseCount === 2 ? 115 : 3,
++                outputTokens: 1,
++                totalTokens: normalResponseCount === 2 ? 116 : 4,
++              },
++            };
++          },
++        }),
++      },
++    );
++
++    await runtime.executeTurn("auto compact warmup setup");
++    await runtime.executeTurn(longPrompt);
++    const result = await runtime.executeTurn(
++      "continue with enough context to trigger auto compact",
++      undefined,
++      {
++        inputId: "command-auto-compact-prompt",
++        intent: {
++          sourceCommandId: "command-auto-compact-prompt",
++          kind: "sendText",
++          requestedDelivery: "startNow",
++          modelSelection,
++          modelSystemPromptEnabled: true,
++          modelSystemPrompt: { providerId: "test", modelId: "model-a", text: customPrompt },
++        },
++      },
++    );
++
++    expect(result.response).toBe("normal response 3");
++    const compactRequest = requests[2]?.text ?? "";
++    const postCompactRequest = requests[3]?.text ?? "";
++    expect(compactRequest).toContain("create a detailed summary");
++    expect(compactRequest).not.toContain(customPrompt);
++    expect(postCompactRequest.split(customPrompt)).toHaveLength(2);
++
++    await runtime.executeTurn("disable prompt after compact", undefined, {
++      inputId: "command-disable-after-compact",
++      intent: {
++        sourceCommandId: "command-disable-after-compact",
++        kind: "sendText",
++        requestedDelivery: "startNow",
++        modelSelection,
++        modelSystemPromptEnabled: false,
++      },
++    });
++    expect(requests.at(-1)?.text ?? "").not.toContain(customPrompt);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/context-builder.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/context-builder.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..eb237a4287610936c63c7b02c7c88695d9f0c6cf
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/context-builder.test.ts
+@@ -0,0 +1,61 @@
++import { describe, expect, it } from "vitest";
++import { createContextBuilder } from "../../src/context/index.js";
++import { buildContextHistoryEntries } from "../../src/runtime/methods/context-history-entries.js";
++
++describe("ContextBuilder model system prompt section", () => {
++  const envInfo = {
++    cwd: "/workspace",
++    platform: "darwin",
++    shell: "zsh",
++    osVersion: "Darwin 25.4.0",
++    nodeVersion: "v24.14.0",
++  };
++
++  it("keeps the custom section separate, sourced, and additive to built-ins", () => {
++    const builder = createContextBuilder({
++      workingDirectory: "/workspace",
++      envInfo,
++      guidanceToolNames: ["Read", "Edit", "Bash"],
++    });
++    builder.addSection({
++      name: "Model-specific user instructions",
++      source: "model_system_prompt",
++      content: "# Model-specific user instructions\n\nKeep answers short.",
++      preview: "# Model-specific user instructions",
++    });
++    const result = builder.build();
++
++    expect(result.systemMessageSources).toEqual([
++      "cli_prefix",
++      "identity",
++      "dynamic_behavior",
++      "model_system_prompt",
++    ]);
++    expect(String(result.systemMessages[1]?.content)).toContain(
++      "You are an interactive ZCode agent",
++    );
++    expect(String(result.systemMessages[3]?.content)).toContain("Keep answers short.");
++    const entries = buildContextHistoryEntries(result);
++    expect(entries.at(-1)?.metadata?.source).toBe("model_system_prompt");
++  });
++
++  it("keeps the no-prompt default at three system messages without custom metadata", () => {
++    const result = createContextBuilder({
++      workingDirectory: "/workspace",
++      envInfo,
++      guidanceToolNames: ["Read", "Edit", "Bash"],
++    }).build();
++
++    expect(result.systemMessages).toHaveLength(3);
++    expect(result.systemMessageSources).toEqual(["cli_prefix", "identity", "dynamic_behavior"]);
++    expect(String(result.systemMessages[0]?.content)).toBe(
++      "You are ZCode, an interactive coding agent",
++    );
++    expect(String(result.systemMessages[1]?.content)).toContain(
++      "You are an interactive ZCode agent",
++    );
++    expect(
++      buildContextHistoryEntries(result).every((entry) => entry.metadata === undefined),
++    ).toBe(true);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/contract.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7c55e7ea57ae56fc8010b9d5bd12af76ca4e74a6
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/contract.test.ts
+@@ -0,0 +1,48 @@
++import { describe, expect, it } from "vitest";
++import { MODEL_SYSTEM_PROMPT_MAX_CHARS } from "@zcode/shared";
++import {
++  buildModelSystemPromptSection,
++  omitModelSystemPromptEntries,
++} from "../../src/context/sections/model-system-prompt/contract.js";
++
++const target = { providerId: "deepseek", modelId: "deepseek-chat" };
++const prompt = {
++  providerId: "deepseek",
++  modelId: "deepseek-chat",
++  text: "  Keep explanations short.\r\n\r\nCite paths.  ",
++};
++
++describe("model system prompt section", () => {
++  it("adds one bounded section only for the exact admitted model", () => {
++    const section = buildModelSystemPromptSection(target, prompt);
++    expect(section?.source).toBe("model_system_prompt");
++    expect(section?.content).toContain("Keep explanations short.\n\nCite paths.");
++    expect(section?.content).toContain("must not override");
++  });
++
++  it("does not attach when the actual model differs", () => {
++    expect(
++      buildModelSystemPromptSection({ providerId: "deepseek", modelId: "deepseek-reasoner" }, prompt),
++    ).toBeNull();
++    expect(buildModelSystemPromptSection(undefined, prompt)).toBeNull();
++  });
++
++  it("filters only the sourced custom entry for auxiliary requests", () => {
++    const entries = [
++      { message: "custom", metadata: { source: "model_system_prompt" } },
++      { message: "prefix", metadata: { source: "context_prefix" } },
++      { message: "plain" },
++    ];
++    expect(omitModelSystemPromptEntries(entries)).toEqual(entries.slice(1));
++  });
++
++  it("rejects empty and overlong frozen text defensively", () => {
++    expect(buildModelSystemPromptSection(target, { ...prompt, text: "   " })).toBeNull();
++    expect(
++      buildModelSystemPromptSection(target, {
++        ...prompt,
++        text: "x".repeat(MODEL_SYSTEM_PROMPT_MAX_CHARS + 1),
++      }),
++    ).toBeNull();
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/fallback.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/fallback.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..df5fd49e50219fa0fdee704e87f114ff6c6473bf
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/fallback.test.ts
+@@ -0,0 +1,128 @@
++import { describe, expect, it } from "vitest";
++import { createSessionId } from "@zcode/contracts";
++import { createTestAgentRuntime } from "../test-agent-runtime.js";
++import { createTestSessionEventStore } from "../test-event-store.js";
++import { createTestModelFactory } from "../test-runtime-model.js";
++import { createTestModelSelection } from "../test-model-selection.js";
++
++const cardExpiryFallbackRules = [
++  { reason: "highspeed_card_expired" as const, providerErrorCode: "3402" },
++  { reason: "highspeed_request_failed" as const },
++];
++
++describe("request-time fallback model system prompt", () => {
++  it("rebuilds context prefix and does not send the previous model prompt", async () => {
++    const runFallback = async (params: {
++      selected: { providerId: string; modelId: string };
++      target: { providerId: string; modelId: string };
++      promptText: string;
++      promptTarget?: { providerId: string; modelId: string };
++    }) => {
++      const requests: Array<{
++        providerId: string;
++        modelId: string;
++        systemText: string;
++      }> = [];
++      const runtime = createTestAgentRuntime(
++        createSessionId(`runtime-prompt-fallback-${params.selected.providerId}`),
++        {
++          modelSelection: createTestModelSelection(
++            `${params.selected.providerId}/${params.selected.modelId}`,
++          ),
++          titleGeneration: { enabled: false },
++          workingDirectory: "/workspace/project",
++        },
++        {
++          eventStore: createTestSessionEventStore(),
++          modelFactory: createTestModelFactory({
++            async generateText(request, observation) {
++              requests.push({
++                providerId: String(observation.model.providerId),
++                modelId: String(observation.model.modelId),
++                systemText: request.messages
++                  .filter((message) => message.role === "system")
++                  .map((message) => String(message.content))
++                  .join("\n\n"),
++              });
++              if (String(observation.model.providerId) === params.selected.providerId) {
++                throw Object.assign(new Error("execution model failed"), {
++                  code: "invalid_model_request",
++                  context: {
++                    providerCode: "3402",
++                    providerId: params.selected.providerId,
++                    modelId: params.selected.modelId,
++                    source: "provider",
++                    statusCode: 400,
++                  },
++                  name: "AiSdkModelAdapterError",
++                });
++              }
++              return {
++                finishReason: "stop",
++                model: observation.model,
++                text: "fallback completed",
++                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++              };
++            },
++          }),
++        },
++      );
++
++      await runtime.executeTurn("run fallback", undefined, {
++        inputId: `command-${params.selected.providerId}`,
++        intent: {
++          sourceCommandId: `command-${params.selected.providerId}`,
++          kind: "sendText",
++          requestedDelivery: "startNow",
++          modelSelection: {
++            providerId: params.selected.providerId,
++            modelId: params.selected.modelId,
++          },
++          modelSystemPromptEnabled: true,
++          modelSystemPrompt: {
++            providerId: params.promptTarget?.providerId ?? params.selected.providerId,
++            modelId: params.promptTarget?.modelId ?? params.selected.modelId,
++            text: params.promptText,
++          },
++        },
++        modelExecution: {
++          selectionScope: "execution",
++          selectionFallback: {
++            providerId: params.selected.providerId,
++            rules: cardExpiryFallbackRules,
++            target: params.target,
++          },
++        },
++      });
++      return requests;
++    };
++
++    const aToB = await runFallback({
++      selected: { providerId: "provider-a", modelId: "model-a" },
++      target: { providerId: "provider-b", modelId: "model-b" },
++      promptText: "CUSTOM_PROMPT_A",
++    });
++    expect(aToB).toHaveLength(2);
++    expect(aToB[0]?.systemText).toContain("CUSTOM_PROMPT_A");
++    expect(aToB[1]?.systemText).not.toContain("CUSTOM_PROMPT_A");
++
++    const bToA = await runFallback({
++      selected: { providerId: "provider-b", modelId: "model-b" },
++      target: { providerId: "provider-a", modelId: "model-a" },
++      promptText: "CUSTOM_PROMPT_B",
++    });
++    expect(bToA).toHaveLength(2);
++    expect(bToA[0]?.systemText).toContain("CUSTOM_PROMPT_B");
++    expect(bToA[1]?.systemText).not.toContain("CUSTOM_PROMPT_B");
++
++    const targetPrompt = await runFallback({
++      selected: { providerId: "provider-a", modelId: "model-a" },
++      target: { providerId: "provider-b", modelId: "model-b" },
++      promptTarget: { providerId: "provider-b", modelId: "model-b" },
++      promptText: "CUSTOM_PROMPT_TARGET_B",
++    });
++    expect(targetPrompt).toHaveLength(2);
++    expect(targetPrompt[0]?.systemText).not.toContain("CUSTOM_PROMPT_TARGET_B");
++    expect(targetPrompt[1]?.systemText.split("CUSTOM_PROMPT_TARGET_B")).toHaveLength(2);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/guide.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/guide.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d161dae22ff24c5dc39d4d7cd7ab37b591cf51df
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/guide.test.ts
+@@ -0,0 +1,135 @@
++import { describe, expect, it } from "vitest";
++import { createSessionId } from "@zcode/contracts";
++import type { AgentRuntime } from "../../src/runtime.js";
++import { createTestAgentRuntime } from "../test-agent-runtime.js";
++import { createTestSessionEventStore } from "../test-event-store.js";
++import { createTestModelFactory } from "../test-runtime-model.js";
++import { createTestModelSelection } from "../test-model-selection.js";
++
++const MODEL = createTestModelSelection("test/model-a");
++const PROMPT_A = "PROMPT_A";
++const PROMPT_B = "PROMPT_B";
++
++function contentText(content: unknown): string {
++  if (typeof content === "string") return content;
++  if (!Array.isArray(content)) return "";
++  return content
++    .map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
++    .join("");
++}
++
++function systemText(messages: readonly { role: string; content: unknown }[]): string {
++  return messages
++    .filter((message) => message.role === "system")
++    .map((message) => contentText(message.content))
++    .join("\n");
++}
++
++function createGuideScenario(queueOnFirstRequest: (runtime: AgentRuntime) => Promise<void>) {
++  const requests: string[] = [];
++  let runtime: AgentRuntime;
++  runtime = createTestAgentRuntime(
++    createSessionId(`runtime-guide-prompt-${requests.length}`),
++    {
++      modelSelection: MODEL,
++      titleGeneration: { enabled: false },
++      workingDirectory: "/workspace/project",
++    },
++    {
++      eventStore: createTestSessionEventStore(),
++      modelFactory: createTestModelFactory({
++        async generateText(request) {
++          requests.push(systemText(request.messages));
++          if (requests.length === 1) await queueOnFirstRequest(runtime);
++          return {
++            finishReason: "stop",
++            model: request.model,
++            text: "text-only completion",
++            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++          };
++        },
++      }),
++    },
++  );
++  return { runtime, requests };
++}
++
++function initialIntent() {
++  return {
++    sourceCommandId: "initial-input",
++    kind: "sendText" as const,
++    requestedDelivery: "startNow" as const,
++    modelSelection: MODEL,
++    modelSystemPromptEnabled: true,
++    modelSystemPrompt: { providerId: "test", modelId: "model-a", text: PROMPT_A },
++  };
++}
++
++async function guide(
++  runtime: AgentRuntime,
++  sourceCommandId: string,
++  intent: Record<string, unknown>,
++) {
++  await runtime.steerTurn({
++    delivery: "guide",
++    input: sourceCommandId,
++    expectedTurnId: runtime.getActiveTurnInfo()?.turnId,
++    intent: {
++      sourceCommandId,
++      kind: "sendText",
++      requestedDelivery: "guide",
++      admittedDelivery: "guide",
++      modelSelection: MODEL,
++      ...intent,
++    },
++  });
++}
++
++describe("inline guide model system prompt replacement", () => {
++  it("keeps the in-flight request, then replaces with the guide and removes on false", async () => {
++    const { runtime, requests } = createGuideScenario(async (activeRuntime) => {
++      await guide(activeRuntime, "guide-replacement", {
++        modelSystemPromptEnabled: true,
++        modelSystemPrompt: { providerId: "test", modelId: "model-a", text: PROMPT_B },
++      });
++      await guide(activeRuntime, "guide-disable", { modelSystemPromptEnabled: false });
++    });
++
++    await runtime.executeTurn("initial text", undefined, {
++      inputId: "initial-input",
++      intent: initialIntent(),
++    });
++
++    expect(requests[0]).toContain(PROMPT_A);
++    expect(requests[0]).not.toContain(PROMPT_B);
++    expect(requests[1]).toContain(PROMPT_B);
++    expect(requests[1]).not.toContain(PROMPT_A);
++    expect(requests[2]).not.toContain(PROMPT_A);
++    expect(requests[2]).not.toContain(PROMPT_B);
++  });
++
++  it("preserves intent for a guide without the field and clears on the next turn", async () => {
++    const { runtime, requests } = createGuideScenario(async (activeRuntime) => {
++      await guide(activeRuntime, "guide-missing-field", {});
++    });
++
++    await runtime.executeTurn("initial text", undefined, {
++      inputId: "initial-input",
++      intent: initialIntent(),
++    });
++
++    expect(requests[0]).toContain(PROMPT_A);
++    expect(requests[1]).toContain(PROMPT_A);
++
++    await runtime.executeTurn("new turn without prompt", undefined, {
++      inputId: "new-turn",
++      intent: {
++        sourceCommandId: "new-turn",
++        kind: "sendText",
++        requestedDelivery: "startNow",
++        modelSelection: MODEL,
++      },
++    });
++    expect(requests[2]).not.toContain(PROMPT_A);
++  });
++});
+diff --git a/apps/zcode-cli/packages/core/tests/model-system-prompt/verifier.test.ts b/apps/zcode-cli/packages/core/tests/model-system-prompt/verifier.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7072829f061ad798087101ca81f4776d7ada0e4e
+--- /dev/null
++++ b/apps/zcode-cli/packages/core/tests/model-system-prompt/verifier.test.ts
+@@ -0,0 +1,142 @@
++import { describe, expect, it } from "vitest";
++import {
++  SessionEventType,
++  createSessionId,
++  type GoalStatus,
++  type SessionGoal,
++  type SessionId,
++  type SessionStorePort,
++} from "@zcode/contracts";
++import { createTestAgentRuntime } from "../test-agent-runtime.js";
++import { createTestSessionEventStore } from "../test-event-store.js";
++import { createTestModelFactory } from "../test-runtime-model.js";
++import { createRecordingSubagentSessionStore } from "../subagent-test-store.js";
++
++function providerContentToText(content: unknown): string {
++  if (typeof content === "string") return content;
++  if (!Array.isArray(content)) return String(content ?? "");
++  return content
++    .map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
++    .join("\n");
++}
++
++function providerMessagesToText(messages: readonly { content?: unknown }[]): string {
++  return messages.map((message) => providerContentToText(message.content)).join("\n");
++}
++
++function createTarget(
++  sessionID: SessionId,
++  objective: string,
++  status: GoalStatus,
++  tokenBudget: number | null = null,
++): SessionGoal {
++  return {
++    sessionID,
++    targetID: "target-model-prompt-test",
++    objective,
++    summaryTitle: null,
++    status,
++    tokenBudget,
++    tokensUsed: 0,
++    timeUsedSeconds: 0,
++    time: { created: 1, updated: 1 },
++  };
++}
++
++function createVerifierStore(): SessionStorePort {
++  const base = createRecordingSubagentSessionStore();
++  const targets = new Map<SessionId, SessionGoal>();
++  return Object.assign(base, {
++    async readTarget(input: { sessionID: SessionId }) {
++      return targets.get(input.sessionID) ?? null;
++    },
++    async setTarget(input: {
++      objective: string;
++      sessionID: SessionId;
++      status?: GoalStatus;
++      tokenBudget?: number | null;
++    }) {
++      const target = createTarget(
++        input.sessionID,
++        input.objective,
++        input.status ?? "active",
++        input.tokenBudget ?? null,
++      );
++      targets.set(input.sessionID, target);
++      return target;
++    },
++    async createTarget(input: {
++      objective: string;
++      sessionID: SessionId;
++      tokenBudget?: number | null;
++    }) {
++      if (targets.has(input.sessionID)) return null;
++      const target = createTarget(input.sessionID, input.objective, "active", input.tokenBudget ?? null);
++      targets.set(input.sessionID, target);
++      return target;
++    },
++    async updateTargetStatus(input: { sessionID: SessionId; status: GoalStatus }) {
++      const target = targets.get(input.sessionID);
++      if (!target) return null;
++      const updated = { ...target, status: input.status, time: { ...target.time, updated: 2 } };
++      targets.set(input.sessionID, updated);
++      return updated;
++    },
++  }) as SessionStorePort;
++}
++
++describe("target completion verifier model system prompt", () => {
++  it("excludes the custom prompt from provider request and ModelRequest event", async () => {
++    const sessionId = createSessionId("runtime-target-verify-model-prompt");
++    const eventStore = createTestSessionEventStore();
++    const sessionStore = createVerifierStore();
++    const requests: any[] = [];
++    const customPrompt = "CUSTOM_VERIFIER_EXCLUDED";
++    const runtime = createTestAgentRuntime(
++      sessionId,
++      { mode: "build", workingDirectory: "/tmp/zcode-runtime-target" },
++      {
++        eventStore,
++        modelFactory: createTestModelFactory({
++          async generateText(request) {
++            requests.push(request);
++            return {
++              finishReason: "stop",
++              providerMetadata: undefined,
++              text:
++                requests.length === 1
++                  ? "turn done"
++                  : JSON.stringify({ passed: true, reason: "Target is complete." }),
++              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
++            };
++          },
++        }),
++        sessionStore,
++      },
++    );
++
++    await runtime.ensureSessionPersistedForExternalActivity("/goal Verify prompt filter");
++    await sessionStore.setTarget({
++      objective: "Verify a target without the custom model prompt",
++      sessionID: sessionId,
++    });
++    await runtime.executeTurn("finish target before verification");
++    runtime["messageHistory"].addEntries([
++      {
++        message: { role: "system", content: customPrompt },
++        metadata: { source: "model_system_prompt" },
++      },
++    ] as never);
++
++    await runtime.continueActiveTargetIfIdle({ verifyBeforeContinue: true });
++
++    expect(requests.length).toBeGreaterThanOrEqual(2);
++    expect(providerMessagesToText(requests[1]!.messages)).not.toContain(customPrompt);
++    const events = await eventStore.getEvents(sessionId);
++    const modelRequestEvents = events.filter(
++      (event) => event.type === SessionEventType.ModelRequest,
++    );
++    expect(modelRequestEvents.length).toBeGreaterThanOrEqual(2);
++    expect(JSON.stringify(modelRequestEvents.at(-1)?.payload)).not.toContain(customPrompt);
 +  });
 +});
 diff --git a/apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts b/apps/zcode-cli/packages/core/tests/read-range-guidance.test.ts

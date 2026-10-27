@@ -2131,6 +2131,243 @@ index 99e38d30789607dab5ba02d8f685c33edcea4e9e..eada318486c5238d836b677b86e60226
 +
    return normalizedPatch;
  }
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md b/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7accb2c85c436069ddc213a3d15d80b2d05c74b
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/CONTRACT.md
+@@ -0,0 +1,7 @@
++# ZCode agent model system prompt support
++
++Public entry: `index.ts` / `contract.ts`. Layer: app. Owner: agent.
++
++Host hello capability is not proof that the workspace's actual CLI understands the additive submission fields. Before forwarding `sendText`, `sendGoalCommand` or `createSession.firstInput` that carries `modelSystemPromptEnabled`/`modelSystemPrompt`, the Host queries the CLI's `runtime/capabilities` and requires `modelSystemPrompt === true`.
++
++Old CLIs reject explicitly with `proto.modelSystemPromptUnsupported` instead of silently stripping the fields. The check is cached per client and deleted after failures so a rebuilt CLI can be re-negotiated. This module does not relax command schemas, permissions, sandboxing or approvals.
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.example.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.example.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7abf20381e734ebb3866be63876e44f2aff25d63
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/contract.example.ts
+@@ -0,0 +1,11 @@
++import { commandPayloadUsesModelSystemPrompt, resolveModelSystemPromptSupport } from "./contract.js";
++
++export async function exampleModelSystemPromptSupport(client: {
++  request: (...args: never[]) => Promise<unknown>;
++}): Promise<boolean> {
++  const payload = { modelSystemPromptEnabled: true };
++  if (commandPayloadUsesModelSystemPrompt(payload)) {
++    await resolveModelSystemPromptSupport(client as never);
++  }
++  return true;
++}
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b35cc6c370bede16f61b58eaf48c54aef4cde56
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/contract.test.ts
+@@ -0,0 +1,87 @@
++import { describe, expect, it, vi } from "vitest";
++import {
++  commandPayloadEnablesModelSystemPrompt,
++  commandPayloadUsesModelSystemPrompt,
++  resolveModelSystemPromptSupport,
++  stripModelSystemPromptFields,
++} from "./contract.js";
++
++describe("model system prompt CLI capability", () => {
++  it("distinguishes supported, explicitly unsupported and unavailable", async () => {
++    await expect(
++      resolveModelSystemPromptSupport({
++        request: vi.fn().mockResolvedValue({ modelSystemPrompt: true }),
++      } as never),
++    ).resolves.toBe("supported");
++    await expect(
++      resolveModelSystemPromptSupport({
++        request: vi.fn().mockResolvedValue({ independentPlanState: true }),
++      } as never),
++    ).resolves.toBe("unsupported");
++    await expect(
++      resolveModelSystemPromptSupport({
++        request: vi.fn().mockRejectedValue(Object.assign(new Error("not found"), { code: -32601 })),
++      } as never),
++    ).resolves.toBe("unsupported");
++    await expect(
++      resolveModelSystemPromptSupport({
++        request: vi.fn().mockRejectedValue(new Error("temporary disconnect")),
++      } as never),
++    ).resolves.toBe("unavailable");
++  });
++
++  it("caches stable results and retries an unavailable check", async () => {
++    const first = {
++      request: vi
++        .fn()
++        .mockRejectedValueOnce(new Error("temporary disconnect"))
++        .mockResolvedValue({ modelSystemPrompt: true }),
++    };
++    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("unavailable");
++    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("supported");
++    await expect(resolveModelSystemPromptSupport(first as never)).resolves.toBe("supported");
++    expect(first.request).toHaveBeenCalledTimes(2);
++    const second = { request: vi.fn().mockResolvedValue({ modelSystemPrompt: true }) };
++    await resolveModelSystemPromptSupport(second as never);
++    await resolveModelSystemPromptSupport(second as never);
++    expect(second.request).toHaveBeenCalledTimes(1);
++  });
++
++  it("detects and strips top-level and nested firstInput fields", () => {
++    expect(commandPayloadUsesModelSystemPrompt({ modelSystemPromptEnabled: false })).toBe(true);
++    expect(commandPayloadUsesModelSystemPrompt({ modelSystemPrompt: { text: "x" } })).toBe(true);
++    expect(
++      commandPayloadUsesModelSystemPrompt({
++        firstInput: { modelSystemPromptEnabled: true },
++      }),
++    ).toBe(true);
++    expect(commandPayloadUsesModelSystemPrompt({ text: "plain" })).toBe(false);
++
++    expect(commandPayloadEnablesModelSystemPrompt({ modelSystemPromptEnabled: false })).toBe(
++      false,
++    );
++    expect(commandPayloadEnablesModelSystemPrompt({ modelSystemPromptEnabled: true })).toBe(true);
++    expect(commandPayloadEnablesModelSystemPrompt({ modelSystemPrompt: { text: "x" } })).toBe(
++      true,
++    );
++    expect(
++      commandPayloadEnablesModelSystemPrompt({
++        modelSystemPromptEnabled: false,
++        modelSystemPrompt: { text: "residual" },
++      }),
++    ).toBe(false);
++
++    expect(
++      stripModelSystemPromptFields({
++        text: "send",
++        modelSystemPromptEnabled: false,
++        modelSystemPrompt: { text: "residual" },
++        firstInput: {
++          text: "nested",
++          modelSystemPromptEnabled: false,
++          modelSystemPrompt: { text: "nested residual" },
++        },
++      }),
++    ).toEqual({ text: "send", firstInput: { text: "nested" } });
++  });
++});
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts b/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4f5c2a06e2bd6ed730d197791b06f4f6b059a5a1
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/contract.ts
+@@ -0,0 +1,84 @@
++import { zcodeProtocolMethods, zcodeRuntimeCapabilitiesSchema } from "@zcode/shared";
++import type { ZCodeProtocolClient } from "../zcodeProtocolClient.js";
++
++export type ModelSystemPromptSupport = "supported" | "unsupported" | "unavailable";
++
++const checks = new WeakMap<object, Promise<ModelSystemPromptSupport>>();
++
++/** sendText/sendGoalCommand 顶层字段，或 createSession.firstInput 内字段。 */
++export function commandPayloadUsesModelSystemPrompt(
++  payload: Record<string, unknown>,
++): boolean {
++  if ("modelSystemPromptEnabled" in payload || "modelSystemPrompt" in payload) return true;
++  const firstInput = payload.firstInput;
++  return (
++    firstInput !== null &&
++    typeof firstInput === "object" &&
++    ("modelSystemPromptEnabled" in firstInput || "modelSystemPrompt" in firstInput)
++  );
++}
++
++/** 只有 true 或残留 prompt 对象才算启用；显式 false 是安全的关闭态。 */
++export function commandPayloadEnablesModelSystemPrompt(
++  payload: Record<string, unknown>,
++): boolean {
++  const topEnabled = payload.modelSystemPromptEnabled;
++  const firstInput = payload.firstInput;
++  const nested =
++    firstInput !== null && typeof firstInput === "object"
++      ? (firstInput as Record<string, unknown>)
++      : undefined;
++  const nestedEnabled = nested?.modelSystemPromptEnabled;
++  if (topEnabled === true || nestedEnabled === true) return true;
++  if (topEnabled === false || nestedEnabled === false) return false;
++  return payload.modelSystemPrompt !== undefined || nested?.modelSystemPrompt !== undefined;
++}
++
++/** unsupported/unavailable 时关闭态也不能把残留字段转给旧 CLI strict schema。 */
++export function stripModelSystemPromptFields<T extends Record<string, unknown>>(
++  payload: T,
++): T {
++  const next: Record<string, unknown> = { ...payload };
++  delete next.modelSystemPromptEnabled;
++  delete next.modelSystemPrompt;
++  const firstInput = next.firstInput;
++  if (firstInput !== null && typeof firstInput === "object") {
++    const nested = { ...(firstInput as Record<string, unknown>) };
++    delete nested.modelSystemPromptEnabled;
++    delete nested.modelSystemPrompt;
++    next.firstInput = nested;
++  }
++  return next as T;
++}
++
++function isMethodNotFound(error: unknown): boolean {
++  return (
++    typeof error === "object" &&
++    error !== null &&
++    "code" in error &&
++    (error as { code?: unknown }).code === -32601
++  );
++}
++
++/**
++ * Host 已更新不代表 workspace 内实际 CLI 已更新；旧 CLI 会剥掉 unknown submission 字段后
++ * 正常处理。返回三态：supported / 明确 unsupported / 查询不可用，不能把暂时失败伪装成不支持。
++ */
++export function resolveModelSystemPromptSupport(
++  client: Pick<ZCodeProtocolClient, "request">,
++): Promise<ModelSystemPromptSupport> {
++  const cached = checks.get(client);
++  if (cached) return cached;
++  const check = client
++    .request(zcodeProtocolMethods.runtimeCapabilities, {}, zcodeRuntimeCapabilitiesSchema)
++    .then((result): ModelSystemPromptSupport => {
++      return result.modelSystemPrompt === true ? "supported" : "unsupported";
++    })
++    .catch((cause: unknown): ModelSystemPromptSupport => {
++      if (isMethodNotFound(cause)) return "unsupported";
++      checks.delete(client);
++      return "unavailable";
++    });
++  checks.set(client, check);
++  return check;
++}
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/index.ts b/packages/services/src/zcode-agent/model-system-prompt-support/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1439b703e11594f1e9a012da7d3b2ffabddf7dc9
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/index.ts
+@@ -0,0 +1,2 @@
++export * from "./contract.js";
++export { modelSystemPromptSupportModule } from "./module.js";
+diff --git a/packages/services/src/zcode-agent/model-system-prompt-support/module.ts b/packages/services/src/zcode-agent/model-system-prompt-support/module.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..235d1ca003aa6b9a07d1d4c8b20387b8ba5efd0f
+--- /dev/null
++++ b/packages/services/src/zcode-agent/model-system-prompt-support/module.ts
+@@ -0,0 +1,10 @@
++/**
++ * zcode-agent-model-system-prompt-support 模块清单（architecture-governance managed 模块）。
++ * 层：app。Host 在转发 submission 前向实际 CLI 查询能力，不修改命令 schema。
++ */
++export const modelSystemPromptSupportModule = {
++  id: "zcode-agent-model-system-prompt-support",
++  requires: ["services", "shared"],
++  provides: ["model-system-prompt-support"],
++  publicEntrypoints: ["contract.ts", "module.ts"],
++} as const;
 diff --git a/packages/services/src/zcode-agent/zcodeAgent.ts b/packages/services/src/zcode-agent/zcodeAgent.ts
 index ea141344ff174c265a41925eaea7b90de18cf6e5..06d7175a691ef52fb312c297b7cf540dbae394d0 100644
 --- a/packages/services/src/zcode-agent/zcodeAgent.ts
@@ -2197,10 +2434,18 @@ index ea141344ff174c265a41925eaea7b90de18cf6e5..06d7175a691ef52fb312c297b7cf540d
    conversationWorkflowRunEventsV4(
      params: ZCodeAgentConversationWorkflowRunEventsParams,
 diff --git a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
-index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..10abb090d87f57dbd7a168c119dce784e7879b75 100644
+index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..ac85282c2c844d3ca91fd30135d71c1437d05503 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
-@@ -746,6 +746,19 @@ export function createZCodeAgentConnectionScope(
+@@ -225,6 +225,7 @@ function createHello(context: ZCodeAgentV4ConnectionContext): HelloMessage {
+       // （那个 capabilities 是 .strict() 的，反过来会让老 Host 握不上手）。
+       workflowRunDeltas: true,
+       historyFirst: true,
++      modelSystemPrompt: true,
+     },
+     auth: {},
+   };
+@@ -746,6 +747,19 @@ export function createZCodeAgentConnectionScope(
          withTrustedConnection(params, forwardedConnection(params)),
        );
      },
@@ -2221,10 +2466,23 @@ index 2fc3e4d4f151954ac500b809fc794bd6e6d88ddc..10abb090d87f57dbd7a168c119dce784
        assertReady();
        return base.conversationRowsRangeV4(
 diff --git a/packages/services/src/zcode-agent/zcodeAgentService.ts b/packages/services/src/zcode-agent/zcodeAgentService.ts
-index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b71c7fa22 100644
+index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..2106bbba09d8f5a47342dddefc9e0722d68cf590 100644
 --- a/packages/services/src/zcode-agent/zcodeAgentService.ts
 +++ b/packages/services/src/zcode-agent/zcodeAgentService.ts
-@@ -154,6 +154,9 @@ import {
+@@ -31,6 +31,12 @@ import {
+ } from "@zcode/shared";
+ /* oxlint-disable eslint(max-lines) -- ZCode Protocol transport、通知 wiring 和 app-facing session 方法必须共享同一个 client/emitter 上下文。 */
+ import { ensureIndependentPlanSupport } from "./independentPlanSupport.js";
++import {
++  commandPayloadEnablesModelSystemPrompt,
++  commandPayloadUsesModelSystemPrompt,
++  resolveModelSystemPromptSupport,
++  stripModelSystemPromptFields,
++} from "./model-system-prompt-support/contract.js";
+ import { createHash, randomUUID } from "node:crypto";
+ import { createTopicResourceBridge } from "./topicResourceBridge.js";
+ import { uploadTopicResourceToClient } from "./topicResourceUpload.js";
+@@ -154,6 +160,9 @@ import {
    type ZCodeAutomationRun,
    zcodeWorkspaceUpdateOffPeakToolPolicyResultSchema,
    zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema,
@@ -2234,7 +2492,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    type DynamicWorkflowClientConfig,
    type DynamicWorkflowMode,
    applyDynamicWorkflowUserMode,
-@@ -197,6 +200,7 @@ import type {
+@@ -197,6 +206,7 @@ import type {
    IZCodeAgentService,
    ZCodeAgentBackgroundBashOutputParams,
    ZCodeAgentAppRuntimePreferences,
@@ -2242,7 +2500,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    ZCodeAgentRuntimeLifecycleEvent,
    ZCodeAgentAddPluginMarketplaceParams,
    ZCodeAgentAppUsageParams,
-@@ -281,6 +285,7 @@ import type {
+@@ -281,6 +291,7 @@ import type {
    ZCodeAgentConversationFileRewindPreviewParams,
    ZCodeAgentConversationRowsRangeParams,
    ZCodeAgentConversationPlansParams,
@@ -2250,7 +2508,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    ZCodeAgentConversationWorkflowRunEventsParams,
    ZCodeAgentConversationWorkflowRunArtifactDataParams,
    ZCodeAgentConversationWorkflowRunArtifactReadParams,
-@@ -332,6 +337,8 @@ import {
+@@ -332,6 +343,8 @@ import {
    v4ConversationFileRewindPreviewResultSchema,
    v4ConversationRowsRangeResultSchema,
    v4ConversationPlansResultSchema,
@@ -2259,7 +2517,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    v4ConversationWorkflowRunEventsResultSchema,
    v4ConversationWorkflowRunArtifactDataResultSchema,
    v4ConversationWorkflowRunArtifactReadResultSchema,
-@@ -932,6 +939,10 @@ function createProviderReadinessSnapshotFromSelectionView(
+@@ -932,6 +945,10 @@ function createProviderReadinessSnapshotFromSelectionView(
    };
  }
  
@@ -2270,7 +2528,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
  interface WaitingWorkspaceStartup {
    cancelled: boolean;
    lastLoggedRevision?: string;
-@@ -953,6 +964,14 @@ interface ActiveWorkspaceClient {
+@@ -953,6 +970,14 @@ interface ActiveWorkspaceClient {
     * 只在 workspace/updateDynamicWorkflowPolicy 成功后更新；重同步据此跳过没有变化的请求。
     */
    dynamicWorkflowPolicyMode: DynamicWorkflowMode;
@@ -2285,7 +2543,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
  }
  
  function requiresProviderRegistryRefresh(commandType: string): boolean {
-@@ -996,6 +1015,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -996,6 +1021,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    mcpStatusIdleTimeoutMs?: number;
    accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
    accountRequestAuthService?: IAccountRequestAuthService;
@@ -2293,7 +2551,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
    authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
    modelSelectionReadinessSource?: ModelSelectionReadinessSource;
-@@ -1042,6 +1062,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
+@@ -1042,6 +1068,14 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    resolveDynamicWorkflowUserMode?: () => Promise<DynamicWorkflowMode | undefined>;
    /** 用户选择同步后交给装配层转发（Desktop Host 推给本窗口的远程 Host）；值取自本机设置。 */
    forwardDynamicWorkflowUserMode?: (mode: DynamicWorkflowMode | undefined) => void;
@@ -2308,7 +2566,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    resolveOffPeakTaskService?: () =>
      | Pick<IOffPeakTaskService, "createTask" | "list" | "getCodingPlanSupport">
      | undefined;
-@@ -1361,6 +1389,10 @@ export function createZCodeAgentService(
+@@ -1361,6 +1395,10 @@ export function createZCodeAgentService(
    let pushedDynamicWorkflowUserMode: DynamicWorkflowMode | undefined;
    /** 每个 workspace 的策略同步链：后入队的步骤在前一步落地后才读取生效模式并发送。 */
    const dynamicWorkflowPolicySyncByWorkspaceKey = new Map<string, Promise<void>>();
@@ -2319,7 +2577,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    const waitingWorkspaceStartups = new Map<string, WaitingWorkspaceStartup>();
    function cancelWaitingWorkspaceStartup(workspaceKey: string): void {
      const waiting = waitingWorkspaceStartups.get(workspaceKey);
-@@ -1440,6 +1472,11 @@ export function createZCodeAgentService(
+@@ -1440,6 +1478,11 @@ export function createZCodeAgentService(
    async function resolveAccountRequestAuth(
      request: ZCodeProviderRuntimeHeadersRequestParams,
    ): Promise<AccountRequestAuthMaterial | undefined> {
@@ -2331,7 +2589,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
      if (!request.accountAccess || !accountRequestAuthService) {
        return undefined;
      }
-@@ -2648,9 +2685,10 @@ export function createZCodeAgentService(
+@@ -2648,9 +2691,10 @@ export function createZCodeAgentService(
            });
            const accountAccess = parsed.data.accountAccess;
            if (
@@ -2345,7 +2603,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
            ) {
              // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
              // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-@@ -3320,6 +3358,11 @@ export function createZCodeAgentService(
+@@ -3320,6 +3364,11 @@ export function createZCodeAgentService(
      if (active && isReusableActiveClientEntry(params, active)) {
        active.workspace = params;
        await active.interactionPreferencesReady;
@@ -2357,7 +2615,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
        return active;
      }
  
-@@ -3340,6 +3383,7 @@ export function createZCodeAgentService(
+@@ -3340,6 +3389,7 @@ export function createZCodeAgentService(
        modelExecutionEnabled: false,
        workspace: params,
        dynamicWorkflowPolicyMode: "disabled",
@@ -2365,7 +2623,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
      };
      activeClientsByWorkspaceKey.set(workspaceKey, entry);
      const interactionPreferencesReady = (async () => {
-@@ -3382,10 +3426,14 @@ export function createZCodeAgentService(
+@@ -3382,10 +3432,14 @@ export function createZCodeAgentService(
      // 生效模式为关闭时不发请求（CLI 缺省即关闭，对旧 CLI/测试假客户端零打扰）；之后用户改选择时
      // 经同一条 workspace 串行链重发（launch.md「The user's choice」）。
      const dynamicWorkflowPolicyReady = enqueueDynamicWorkflowPolicySync(entry);
@@ -2380,7 +2638,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
      ]).then(() => undefined);
      try {
        // 新建或重启 runtime 在允许任何 session 工作前追平缓存；同步期间的新开关
-@@ -3509,6 +3557,8 @@ export function createZCodeAgentService(
+@@ -3509,6 +3563,8 @@ export function createZCodeAgentService(
          workspace: params,
          // 只提升已有 client，不重放就绪阶段的策略同步；按 CLI 缺省记为关闭，用户改选择时再补发。
          dynamicWorkflowPolicyMode: "disabled",
@@ -2389,7 +2647,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
        });
        return existingClient;
      }
-@@ -3744,6 +3794,80 @@ export function createZCodeAgentService(
+@@ -3744,6 +3800,80 @@ export function createZCodeAgentService(
      return current;
    }
  
@@ -2470,7 +2728,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
    /** 三条创建路径共用：布尔 + mode 的下发对（关闭时两者都缺席）。 */
    async function resolveDynamicWorkflowSessionFlags(): Promise<{
      dynamicWorkflowEnabled: boolean;
-@@ -3925,6 +4049,19 @@ export function createZCodeAgentService(
+@@ -3925,6 +4055,19 @@ export function createZCodeAgentService(
        );
      },
  
@@ -2490,7 +2748,7 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
      async getWorkspaceRuntimeIdentity(params: ZCodeAgentWorkspaceTarget) {
        // 查询 runtime identity 只能观察现有进程，不能把 dormant workspace 变成活动进程。
        await getReadOnlyClient(params, "existing-only");
-@@ -5713,6 +5850,7 @@ export function createZCodeAgentService(
+@@ -5713,6 +5856,7 @@ export function createZCodeAgentService(
            ? {
                ...(accountRequestAuth?.apiKey ? { apiKey: accountRequestAuth.apiKey } : {}),
                ...(accountRequestAuth?.apiKeyId ? { apiKeyId: accountRequestAuth.apiKeyId } : {}),
@@ -2498,7 +2756,52 @@ index 8c39b99706de15fec5a0a665e1e6a9d55d34a8c8..e0a9a83ea0e02bb4e1f03293d614247b
                ...(accountRequestAuth?.accountScope
                  ? { accountScope: accountRequestAuth.accountScope }
                  : {}),
-@@ -6381,6 +6519,25 @@ export function createZCodeAgentService(
+@@ -5955,6 +6099,7 @@ export function createZCodeAgentService(
+           // 也能收到 `workflowRun.*` 增量（是否真收由它自己的 clientHello 决定）。
+           workflowRunDeltas: true,
+           historyFirst: true,
++          modelSystemPrompt: true,
+         },
+         auth: {},
+       };
+@@ -6130,6 +6275,8 @@ export function createZCodeAgentService(
+         planEnabled?: boolean;
+         config?: { planEnabled?: boolean };
+         firstInput?: { planEnabled?: boolean };
++        modelSystemPromptEnabled?: boolean;
++        modelSystemPrompt?: unknown;
+       };
+       if (
+         planPayload.planEnabled ||
+@@ -6138,6 +6285,27 @@ export function createZCodeAgentService(
+       ) {
+         await ensureIndependentPlanSupport(client);
+       }
++      // 查询失败不能证明旧 CLI 不支持，必须保留明确关闭语义。
++      if (commandPayloadUsesModelSystemPrompt(planPayload as Record<string, unknown>)) {
++        const support = await resolveModelSystemPromptSupport(client);
++        if (support === "unavailable") {
++          // 能力暂不可确认时不能把 false 剥掉继续：另一 client 可能已启用 active prompt，
++          // 省略 off 会让 core 保留旧 prompt，造成“关闭假成功”。
++          throw new Error("proto.modelSystemPromptCapabilityUnavailable");
++        }
++        if (support === "unsupported") {
++          if (commandPayloadEnablesModelSystemPrompt(planPayload as Record<string, unknown>)) {
++            throw new Error("proto.modelSystemPromptUnsupported");
++          }
++          const strippedPayload = stripModelSystemPromptFields(
++            params.envelope.payload as Record<string, unknown>,
++          );
++          params = {
++            ...params,
++            envelope: { ...params.envelope, payload: strippedPayload },
++          };
++        }
++      }
+       // RPC facade 会清掉调用方可伪造的顶层 clientMode，再用 trusted carrier 注入 host
+       // 真值；host 内部 adapter 直调仍兼容显式 clientMode。
+       const commandClientMode =
+@@ -6381,6 +6549,25 @@ export function createZCodeAgentService(
        );
      },
  
@@ -3273,6 +3576,257 @@ index d9ec8d6110704917de596efd79a7b05609e74d3a..2697efad4811d96b0793d4b984500c95
    it("SHARE02：重建 artifact 公开身份并保留本地读取引用在 sidecar", () => {
      const rows = rowsWithCompletedSubagent();
      rows.push({
+diff --git a/packages/services/test/model-system-prompt-support/facade.test.ts b/packages/services/test/model-system-prompt-support/facade.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..723c70c72d22171ccb1c7a0f74aab7081016c24e
+--- /dev/null
++++ b/packages/services/test/model-system-prompt-support/facade.test.ts
+@@ -0,0 +1,245 @@
++import { describe, expect, it, vi } from "vitest";
++import { zcodeProtocolMethods } from "@zcode/shared";
++import { V4_METHODS } from "@zcode/shared/zcode-protocol-v4";
++
++const WORKSPACE_PATH = "/workspace/app";
++
++async function setupFacade(params: {
++  capabilities?: unknown;
++  capabilityError?: Error;
++  capabilityResults?: Array<unknown | Error>;
++}) {
++  const commandEnvelopes: Array<Record<string, unknown>> = [];
++  const request = vi.fn(async (method: string, requestParams?: unknown) => {
++    if (method === zcodeProtocolMethods.runtimeCapabilities) {
++      if (params.capabilityResults?.length) {
++        const next = params.capabilityResults.shift();
++        if (next instanceof Error) throw next;
++        return next;
++      }
++      if (params.capabilityError) throw params.capabilityError;
++      return params.capabilities ?? {};
++    }
++    if (method === V4_METHODS.command) {
++      const envelope = requestParams as Record<string, unknown>;
++      commandEnvelopes.push(envelope);
++      return {
++        status: "accepted",
++        commandId: envelope.commandId,
++        result: { type: "inputAccepted", delivery: "startNow", inputId: envelope.commandId },
++      };
++    }
++    return {};
++  });
++  const getClient = vi.fn(async () => ({
++    request,
++    transportKind: "stdio" as const,
++    onNotification: () => ({ dispose() {} }),
++    onRequest: () => ({ dispose() {} }),
++    onClose: () => ({ dispose() {} }),
++  }));
++  vi.resetModules();
++  vi.doMock("../../src/zcode-agent/zcodeAgentProcessManager.js", () => ({
++    ZCodeAgentProcessManager: class {
++      getClient = getClient;
++      disposeAll() {}
++      onRuntimeLifecycle() {
++        return { dispose() {} };
++      }
++      onRuntimeRestarted() {
++        return { dispose() {} };
++      }
++      markReady() {}
++    },
++  }));
++  const { createZCodeAgentService } = await import("../../src/zcode-agent/zcodeAgentService.js");
++  const service = createZCodeAgentService({
++    modelSelectionReadinessSource: {
++      getView: async () =>
++        ({
++          revision: 1,
++          providers: [
++            {
++              providerId: "test-provider",
++              config: {},
++              models: [
++                {
++                  modelId: "test-model",
++                  config: {
++                    enabled: true,
++                    properties: {
++                      contextWindow: 200_000,
++                      inputFormat: {
++                        supportsText: true,
++                        supportsImage: false,
++                        supportsVideo: false,
++                        supportsAudio: false,
++                        supportsPdf: false,
++                      },
++                      outputFormat: { supportsText: true },
++                      supportsToolCall: true,
++                      supportsJsonSchemaOutput: false,
++                      supportsNativeWebSearch: false,
++                      supportsMidConversationSystem: false,
++                    },
++                    optionSpecs: {
++                      reasoningLevel: { values: ["disabled"], map: "{}" },
++                      maxOutputTokens: { max: 32_000, map: "{}" },
++                    },
++                  },
++                },
++              ],
++            },
++          ],
++        }) as never,
++    },
++  });
++  return { service, request, commandEnvelopes };
++}
++
++function commandFor(type: "sendText" | "sendGoalCommand" | "createSession", commandId: string) {
++  const promptFields = {
++    modelSystemPromptEnabled: false,
++    modelSystemPrompt: { providerId: "deepseek", modelId: "chat", text: "residual" },
++  };
++  if (type === "createSession") {
++    return {
++      commandId,
++      clientId: "client-prompt",
++      sessionId: null,
++      type,
++      payload: {
++        workspaceId: WORKSPACE_PATH,
++        firstInput: { text: "nested prompt", ...promptFields },
++      },
++      issuedAt: 1700000000000,
++    };
++  }
++  return {
++    commandId,
++    clientId: "client-prompt",
++    sessionId: "session-prompt",
++    type,
++    payload: { text: `prompt ${type}`, ...promptFields },
++    issuedAt: 1700000000000,
++  };
++}
++
++describe("sendConversationCommandV4 model prompt capability boundary", () => {
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "supported keeps explicit false for %s",
++    async (type) => {
++      const { service, commandEnvelopes } = await setupFacade({
++        capabilities: { modelSystemPrompt: true },
++      });
++      try {
++        await service.sendConversationCommandV4({
++          workspacePath: WORKSPACE_PATH,
++          envelope: commandFor(type, `cmd-supported-${type}`),
++        });
++        const payload = commandEnvelopes[0]?.payload as Record<string, unknown>;
++        if (type === "createSession") {
++          expect((payload.firstInput as Record<string, unknown>).modelSystemPromptEnabled).toBe(
++            false,
++          );
++        } else {
++          expect(payload.modelSystemPromptEnabled).toBe(false);
++        }
++      } finally {
++        service.disposeAll();
++      }
++    },
++  );
++
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "unsupported strips false and residual text for %s",
++    async (type) => {
++      const { service, commandEnvelopes } = await setupFacade({
++        capabilities: { independentPlanState: true },
++      });
++      try {
++        await service.sendConversationCommandV4({
++          workspacePath: WORKSPACE_PATH,
++          envelope: commandFor(type, `cmd-strip-${type}`),
++        });
++        const payload = commandEnvelopes[0]?.payload as Record<string, unknown>;
++        expect(payload).not.toHaveProperty("modelSystemPromptEnabled");
++        expect(payload).not.toHaveProperty("modelSystemPrompt");
++        if (type === "createSession") {
++          expect(payload.firstInput).not.toHaveProperty("modelSystemPromptEnabled");
++          expect(payload.firstInput).not.toHaveProperty("modelSystemPrompt");
++        }
++      } finally {
++        service.disposeAll();
++      }
++    },
++  );
++
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "unsupported rejects enabled fields for %s",
++    async (type) => {
++      const { service, commandEnvelopes } = await setupFacade({
++        capabilities: { independentPlanState: true },
++      });
++      try {
++        const envelope = commandFor(type, `cmd-reject-${type}`);
++        const payload = envelope.payload as Record<string, unknown>;
++        payload.modelSystemPromptEnabled = true;
++        if (type === "createSession") {
++          (payload.firstInput as Record<string, unknown>).modelSystemPromptEnabled = true;
++        }
++        await expect(
++          service.sendConversationCommandV4({
++            workspacePath: WORKSPACE_PATH,
++            envelope,
++          }),
++        ).rejects.toThrow("proto.modelSystemPromptUnsupported");
++        expect(commandEnvelopes).toHaveLength(0);
++      } finally {
++        service.disposeAll();
++      }
++    },
++  );
++
++  it.each(["sendText", "sendGoalCommand", "createSession"] as const)(
++    "query failure rejects disabled fields without forwarding for %s",
++    async (type) => {
++      const failed = await setupFacade({ capabilityError: new Error("temporary disconnect") });
++      try {
++        await expect(
++          failed.service.sendConversationCommandV4({
++            workspacePath: WORKSPACE_PATH,
++            envelope: commandFor(type, `cmd-unavailable-${type}`),
++          }),
++        ).rejects.toThrow("proto.modelSystemPromptCapabilityUnavailable");
++        expect(failed.commandEnvelopes).toHaveLength(0);
++      } finally {
++        failed.service.disposeAll();
++      }
++    },
++  );
++
++  it("recovers after an unavailable query and keeps explicit false", async () => {
++    const recovered = await setupFacade({
++      capabilityResults: [new Error("temporary disconnect"), { modelSystemPrompt: true }],
++    });
++    try {
++      await expect(
++        recovered.service.sendConversationCommandV4({
++          workspacePath: WORKSPACE_PATH,
++          envelope: commandFor("sendText", "cmd-recover-first"),
++        }),
++      ).rejects.toThrow("proto.modelSystemPromptCapabilityUnavailable");
++      expect(recovered.commandEnvelopes).toHaveLength(0);
++
++      await recovered.service.sendConversationCommandV4({
++        workspacePath: WORKSPACE_PATH,
++        envelope: commandFor("sendText", "cmd-recover-second"),
++      });
++      const payload = recovered.commandEnvelopes[0]?.payload as Record<string, unknown>;
++      expect(payload.modelSystemPromptEnabled).toBe(false);
++    } finally {
++      recovered.service.disposeAll();
++    }
++  });
++});
 diff --git a/packages/services/test/providerFacadeServices.test.ts b/packages/services/test/providerFacadeServices.test.ts
 index 7746a6384f1e0e21b899b0d01c8215b4671d0845..9b5a615201255e29f11fe01b97aae046bbced90e 100644
 --- a/packages/services/test/providerFacadeServices.test.ts

@@ -425,6 +425,98 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +## 回归证据
 +
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
+diff --git a/docs/model-system-prompts.md b/docs/model-system-prompts.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f5172be85d03f3813e8657d4bdd6f985842fc2e
+--- /dev/null
++++ b/docs/model-system-prompts.md
+@@ -0,0 +1,86 @@
++# 模型自定义补充提示词
++
++## 范围
++
++高级设置按 `providerId + modelId` 维护一份用户补充提示词。它只作为主 Agent 当前请求的附加 system 段，不替换内置 system prompt、工具、Skills、MCP、AGENTS.md、权限、沙箱或审批规则。
++
++- 配置是 Host 级设置；无全局默认，无 provider/wildcard 匹配。
++- 会话级开关默认关闭，是 renderer 的 per-session 状态：真实会话使用独立的 renderer flag + localStorage scope，新任务草稿由草稿内存 owner 持有；它不是 AppSettings，不随 Host 设置持久化，不同会话互不影响。
++- 开关、模型与提示词在提交时冻结；只影响下一次用户 submission，不中止当前 turn，不改已发送请求。
++- 主 Agent 专用。默认/Explore/用户自定义子 Agent 与 workflow profile 保持各自 prompt。
++
++## 设置
++
++`AppSettings.modelSystemPromptAppends?: ModelSystemPromptEntry[]`
++
++```ts
++interface ModelSystemPromptEntry {
++  providerId: string;
++  modelId: string;
++  text: string;
++}
++```
++
++- 精确大小写匹配 `providerId + modelId`。
++- 单条正常化后最多 `MODEL_SYSTEM_PROMPT_MAX_CHARS = 8000` 字符；最多 `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20` 条。
++- 正常化：`\r\n`/`\r` → `\n`；裁剪首尾空白；保留内部换行与缩进；正常化后为空表示删除该条。
++- patch schema 严格拒绝越界、空 ID 和重复 pair；完整 schema 对脏磁盘值安全降级。
++- 留空保存即删除，不做全局 append。
++
++## Submission 与协议
++
++Composer submission 冻结：
++
++```ts
++modelSystemPromptEnabled?: boolean;
++modelSystemPrompt?: ModelSystemPromptEntry;
++```
++
++- `modelSystemPromptEnabled` 是本次发送是否启用；显式 `false` 表示下一次请求必须移除旧段。
++- 只有开关开启且当前所选模型有精确配置时才携带 `modelSystemPrompt`。
++- 字段随现有 `sendText`、`sendGoalCommand`、`createSession.firstInput` payload 和 canonical intent / QueueItem 透传，不新增 RPC。
++- 旧客户端缺省字段：新 turn 按未启用处理；inline guide 缺省时保留当前 active turn 的原意图。
++- CLI Host hello 声明 `capabilities.modelSystemPrompt = true`。新 Host 的关闭态发送显式 `modelSystemPromptEnabled:false`，不省略；只有旧 Host/明确 unsupported 才应省略或由 Host 剥离两个字段，避免 strict command schema 拒绝。
++- Host 在转发 sendText/sendGoalCommand/createSession.firstInput 前，若 payload 携带任一字段，调用 `resolveModelSystemPromptSupport` 查询实际 workspace CLI 的 `runtime/capabilities`，三态处理：
++  - supported：保留显式 false；
++  - unsupported：true/残留 prompt 拒绝 `proto.modelSystemPromptUnsupported`；false 剥离顶层与 `firstInput` 两字段后转发；
++  - unavailable：所有携带字段的请求拒绝 `proto.modelSystemPromptCapabilityUnavailable`，不转发 command。查询失败不能伪装 unsupported，也不能剥 false 继续造成“关闭假成功”。
++  - 完全无字段：不查询能力。不能只相信 Host hello 或全局放宽 strict schema。
++
++## 请求组装
++
++- 实际执行模型以 `admittedModel`（含 fallback 后）为准，不使用草稿选择或 session 初始配置。
++- 仅当 `admittedModel.providerId/modelId` 与 `modelSystemPrompt` 完全一致时，通过现有 `ContextBuilder.addSection()` 追加一个 `model_system_prompt` 动态 system 段。
++- 段内容明确为“补充说明，不得覆盖上面的系统规则”，位于所有内置 system 段之后。
++- Builder 把它单独组装成一个 system message；`systemMessageSources` 与 context history 的 `metadata.source` 保留 `model_system_prompt`，供压缩摘要按 source 过滤；内置 dynamic block 的其他内容保持不变。
++- 每次 turn 重建 ContextBuilder；`rebuildContextPrefix` 用新的 context prefix 替换 `messageHistory` 前缀，因此同一请求最多一个 custom 段，旧模型/旧开关的段不会累加或残留。
++- 关闭开关后的下一次发送不带段；已发送请求保持不变。
++- 主 Agent 的 `ensureContextInitialized` 与 `rebuildContextPrefix` 都接收本次 submission 的意图；active turn 保存该意图供 turn 中途 rebuild 复用。
++- 请求期 fallback 可能在 model step 后改写 `state.model`。turn loop 在每次容量估算与 provider 请求准备前比较 `contextPrefixModelKey`，按当前实际 model 与 active turn 冻结意图重建 context prefix；不读取最新设置。
++- inline guide 若有显式 `modelSystemPromptEnabled`，在下一个请求边界更新 active turn 意图并重建；不修改在途请求。
++
++## 辅助请求
++
++- 标题生成使用独立 `buildTitleMessages`，不经过主 ContextBuilder，不套用自定义段。
++- 压缩使用独立 `buildCompactPrompt`。压缩请求按 `metadata.source === "model_system_prompt"` 过滤该段，避免摘要把 custom 文本永久写入历史；不删除整个 dynamic block、不改 canonical history、不做用户文本字符串替换。post-compact 续跑前缀用 active turn 冻结意图与续跑实际 model 重建，auto/reactive 返回的 entries 也带该段。
++- Target completion verifier 是辅助请求：复用同一 source 过滤后再投影 provider 请求和 ModelRequest 事件；不改 canonical，也不把 custom 注入 verifier。
++- 只有 summary 请求不含该段；post-compact 续跑主请求仍按 active turn 冻结意图与实际续跑 model 恰好保留一次（匹配时）。上下文裁剪不改变“摘要不含、续跑一份”的规则。
++
++## Retry / Edit
++
++- `retryTurn` 与 `editUserQuery` 复用原 turn 的 canonical intent，保留 `modelSystemPromptEnabled` 与 `modelSystemPrompt`，不无声丢失本次提示词。
++- 关闭开关只作用于下一次新 submission；retry/edit 是原 turn 的重放/改写，沿用原请求选择。
++
++## 日志与隐私
++
++- 自定义文本不写入常规日志、诊断或遥测。
++- 文本随 intent/queue metadata 持久化，属于会话数据；上限 8000 字符用于限制体积。
++- 自定义段不是安全边界；权限、沙箱和审批仍在执行层强制。
++
++## 回归证据
++
++- shared：schema 默认/正常化/长度/条目数/重复 pair/精确匹配。
++- core：真实 `admittedModel` 精确匹配、fallback 不匹配、内置段保留、关闭后移除、重复 turn 不累加、子 Agent/workflow 排除。
++- bootstrap/protocol：sendText/goal/firstInput 透传，queue admission/promotion 保真，旧 payload 兼容。
++- compaction：summary-safe prefix 不含 `model_system_prompt`，post-compact 可重建。
++- UI 由 UI 代理按 `docs/ui/model-system-prompts.md` 维护本地 DOM/mock 证据；本功能不引入真实外部 E2E，未运行真实网络或真实会话数据库。
 diff --git a/docs/permission-mode-live-switch.md b/docs/permission-mode-live-switch.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..995a038e1f63c7ea2aa53200d8efcb336499cbfa
@@ -1655,6 +1747,226 @@ index 0000000000000000000000000000000000000000..5e7771d04a6fde935d23baace751a4d7
 +仅可编辑且未被 Highspeed 锁定时注册；CLI 同名命令优先。仅作用于发起命令的 SessionPane，不查找其他分屏或侧聊的控件。复用稳定模型触发器，触发器不可用时提示，不绕过 disabled。不提供参数解析，按现有 AppSlashCommand 约定从 `/` 面板选中即打开。
 +
 +验收：中英文描述、两个入口打开同一菜单、当前 pane 隔离、禁用控件不点击、只读与 Highspeed 不注册、CLI 同名让位。原菜单的模型目录、权限、provider 连接和 reasoning 可用项保持不变。
+diff --git a/docs/ui/model-system-prompts.md b/docs/ui/model-system-prompts.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..cdb967edcd735132b0c319523d2e620cc47e7848
+--- /dev/null
++++ b/docs/ui/model-system-prompts.md
+@@ -0,0 +1,214 @@
++# 模型补充系统提示词（UI 范围）
++
++> 2026-10-27。本文只定义 `packages/ui/**` 的可观察行为、状态归属、接入点和回归边界。
++> 共享契约由 `@zcode/shared` 的 `model-system-prompts` 模块提供；Host/CLI 如何把条目追加到
++> 系统提示词、以及运行中 turn 的合并规则由运行时负责，不在本文重建设计。
++
++## 目标与边界
++
++用户可按 `providerId + modelId` **精确匹配**，为某个模型保存一份自定义补充提示词。补充内容
++追加在内置系统提示词之后，**不替换**内置工具、Skills、权限规则或安全策略。
++
++UI 只负责三件事：
++
++1. 高级设置中编辑/删除设置项，保存走现有 `useSettings.update` 持久化与广播链路。
++2. Composer 模型选择器左侧的会话级开关：仅对当前会话的下一次发送生效。
++3. 发送时把“当前模型的这一份补充提示词”冻结进 Submission，随现有 `sendText` /
++   `sendGoalCommand` / 队列 / pending replay 路径透传。
++
++不做：新增 Host/CLI 连接、模型请求、重启、第二份系统提示词权威、历史条目 append、真实
++凭据读取、全量提示词预览或测试。
++
++## 共享契约（依赖）
++
++来自 `@zcode/shared`（由 shared 模块提供，UI 不复制实现）：
++
++- `AppSettings.modelSystemPromptAppends?: ModelSystemPromptEntry[]`
++- `ModelSystemPromptEntry = { providerId: string; modelId: string; text: string }`
++- `MODEL_SYSTEM_PROMPT_MAX_CHARS = 8000`
++- `MODEL_SYSTEM_PROMPT_MAX_ENTRIES = 20`
++- `normalizeModelSystemPromptText(value)`：CRLF/CR → LF，只裁剪首尾空白，保留内部换行与缩进。
++- `resolveModelSystemPromptEntry(entries, selection)`：严格大小写精确匹配 `providerId` 与
++  `modelId`，找不到返回 `undefined`。
++
++UI 发送字段（由运行时消费）：
++
++- `modelSystemPromptEnabled: boolean`
++- `modelSystemPrompt?: ModelSystemPromptEntry`
++
++Host hello 的 `capabilities.modelSystemPrompt` 是唯一门控来源，UI 使用共享
++`hostSupportsModelSystemPrompt(capabilities)` 判断；未知/握手失败按不支持处理。
++
++- **支持 capability 的 Host**：每次发送都显式写 `modelSystemPromptEnabled`。关闭、无匹配、
++  空正文或模型无配置时写 `false` 且不带 `modelSystemPrompt`；只有启用且精确命中非空条目时
++  写 `true` 并携带该条目。
++- **旧 Host（缺少 capability）**：完全省略 `modelSystemPromptEnabled` 与
++  `modelSystemPrompt` 两个字段，不能发送显式 `false` 让旧严格 schema 拒绝；Composer 图标
++  隐藏，不显示假启用入口。
++- `createSubmissionFromComposer`、推荐模型替换、`sendGoalCommand` 与队列/pending replay
++  共用同一冻结 Submission；已排队或失败重试继续复用原 payload，不重新读取当前 toggle。
++- 不把历史条目拼进正文，也不在 UI 侧 append。
++
++## 模块与权威
++
++### `ui-model-system-prompts-settings`
++
++- 路径：`packages/ui/src/settings/model-system-prompts/`
++- 公开入口：`index.ts`
++- `requires: [shared, ui]`，`owner: desktop-settings`
++- 职责：设置分组、模型目录选取、条目草稿/校验/删除、异步保存的 scope guard。
++- 不直接访问持久化、不广播、不读凭据；只调用注入的 `onUpdateSettings(patch)`。
++
++### `composer-model-system-prompt`
++
++- 路径：`packages/ui/src/v4/composer/model-system-prompt/`
++- 公开入口：`index.ts`
++- `requires: [shared, ui]`，`owner: conversation`
++- 职责：会话级 enabled 状态存储、Composer 开关展示、提交冻结 helper、首发送 promotion。
++- 不发 RPC、不触发模型切换/生成/重启；只写 renderer 内存 + localStorage。
++
++### i18n
++
++- 文案：`packages/ui/src/i18n/model-system-prompts/index.ts`（中英两套、键集合一致）。
++- 接入：`locales/zh-CN.ts`、`locales/en-US.ts` 各增加一次 import 与一次 spread。
++- 不写入 `edition-messages`，避免其 fingerprint 契约被新增键破坏。
++
++## 高级设置
++
++插入点：`SettingsPage` 的 `advanced` 分支，紧跟 `CompactionSettingsSection`，共用外层
++`ServiceProvider`，只增加一次组件调用。设置投影与保存命令继续由页面现有
++`useSettings({ services: localHostServices })` 注入。
++
++### 条目规则
++
++- 每个 `providerId + modelId` 最多一条；精确大小写匹配，不按显示名或前缀归并。
++- 最多 `20` 条；单条 normalized 文本最多 `8000` 字符。
++- 新条目从现有模型目录选择（`modelSelectionService.getView()`），不读取任何凭据。
++- 已保存但不在当前目录中的“孤儿条目”仍出现在选择器中，可查看、编辑、删除。
++- 清空编辑器并保存即删除该条；显式“删除此条”等价。
++- 文本换行统一为 LF，保留内部缩进；首尾空白在保存时裁剪。
++- 说明文案明确：仅追加，不替换内置系统提示词、工具、Skills 与权限规则。
++
++### 保存与并发
++
++- 保存走注入的 `onUpdateSettings({ modelSystemPromptAppends: nextEntries })`；不新增 RPC。
++- 保存 pending 时禁用重复提交；Enter 在 textarea 中只换行，`Ctrl/Cmd+Enter` 或“保存”提交。
++  blur 不自动保存，避免与“删除此条”点击竞争。
++- 保存失败：保留当前草稿与错误提示，可直接重试；不乐观删除本地条目。
++- 成功回调先对比当前 confirmed pair：权威已等于保存值时不再建 overlay 并立即 clean；
++  权威仍是提交前值时保留 overlay，等 props 离开基线后再 clean/采用；权威已变成第三个值
++  时视为更晚外部更新，丢弃 overlay 并采用外部值（若用户期间又有新编辑则保持 dirty）。
++- 保存成功且当前编辑未再改时 dirty 立即清理，后续外部刷新可以更新编辑器；保存期间/之后
++  有新编辑则保持 dirty，完成回调不得覆盖。
++- 外部设置刷新到达时，若当前条目没有未保存编辑（dirty）且没有未完成 committed，采用新值；
++  否则保留用户当前编辑，绝不用旧磁盘值覆盖刚输入的内容。
++- 快速换选：当前选择 token 变化后，旧条目的迟到成功/失败回调不得改写新条目的编辑区、
++  pending 或错误。保存本身仍写入它发起时冻结的 pair。
++- 写入串行化并按执行时的最新 confirmed entries + 有效 overlay 构造完整数组；overlay 带
++  `baseText`，只有权威仍停留在该基线时才应用，避免成功结果覆盖更晚外部值。
++- 卸载后所有迟到回调先检查 mounted 与 selection token，再写 React state；localStorage/服务
++  副作用不依赖已卸载实例的闭包。
++
++## Composer 开关
++
++位置：`V4ComposerModelControlsImpl` 中 `ModelConfigSelect` 左侧，紧邻模型选择器；只在该
++模型有非空精确配置时渲染。使用原生 `<button>`：
++
++- `aria-pressed` 表达 on/off；`title`/`aria-label` 明确“仅当前会话、下次发送生效”；
++- 原生键盘焦点与 Enter/Space 激活；active 视觉沿用工具栏现有 `bg-card` / `text-foreground`
++  选中态；
++- 不引入菜单、popover 或第二份模型选择状态。
++
++### 状态归属
++
++| 状态         | 作用域                                                   | 存储                                        | 默认 |
++| ------------ | -------------------------------------------------------- | ------------------------------------------- | ---- |
++| 会话 enabled | `workspaceKey + sessionId`                               | 模块内存 + localStorage（失败仅降级持久性） | 关闭 |
++| 草稿 enabled | `workspaceKey + owner(project/generation/rendererEpoch)` | 仅模块内存                                  | 关闭 |
++
++- 新会话/新草稿 owner 默认关闭；点击点亮，再点关闭。
++- 切窗口/重挂同一会话：从该会话记录恢复自己的 toggle。
++- 不同会话/草稿 owner 互不继承；真实 session 的 localStorage 键不包含模型，切换模型沿用
++  同一 enabled。
++- Toggle/read/write/capture 都使用 SessionPane 的
++  `newTaskComposerScope + composerDraftGeneration` 生成的同一 owner key；不使用 prewarm
++  transport generation。renderer epoch 也进入 owner key，跨 epoch 迟到 ACK 不会清当前 root。
++- 模型切换：目标模型有非空配置 → 继续显示并沿用会话 enabled；目标模型无配置 → 隐藏，
++  本次发送 `modelSystemPromptEnabled=false` 且不带 entry。切回有配置的模型时恢复显示。
++- 草稿态不写 localStorage，避免放弃草稿后污染下一个新任务。
++- 首发送 promotion 不再依赖导航 commit：提交时把 owner/enabled/revision 作为可序列化
++  receipt 写入 pending `clientContext`；真实 accepted 边界
++  （`pendingCommandRegistry.acceptComposer`，覆盖 ACK/query/snapshot）调用模块 helper。
++  它用冻结 workspace + remap 后 session 写目标，并只在 source revision 未变时 CAS 清除
++  原 owner；`applied` 标记保证同一 pending 记录重复 ACK/query/snapshot 幂等。
++  目标侧再做显式状态 CAS：只有从未写过（unset 默认 false）时才初始化；已有显式 true 或
++  显式 `"0"` 一律保留。这样 pending JSON 的 applied 写盘失败、用户随后成功 off、新 renderer
++  重载旧 pending 时，query/snapshot 也不会把目标翻回 true；内存降级状态同样按显式值保留。
++  无 receipt/无 target/failed/noop/unknown 均 no-op；storage 异常保留内存，不影响 accepted。
++  失败恢复重发沿用原 receipt；已 applied 的 receipt 在新 accepted 中仍是幂等 no-op。
++- 开关只更新上述存储与本地 state；不发 RPC、不触发生成、不 restart、不改变运行中的 turn。
++
++## 提交冻结
++
++`SessionPane.createSubmissionFromComposer` 仍调用现有
++`createComposerSubmissionConfig(draftConfigRef.current, modelSelectionView)`；成功后：
++
++1. 读取当前 scope 的 **原始 enabled intent**（草稿 owner 或真实 session）。
++2. 复制当前 `AppSettings.modelSystemPromptAppends` 为冻结配置快照。
++3. 用提交时 `submission.modelSelection` 精确解析快照；规范化文本。空/无匹配/关闭 →
++   `{ modelSystemPromptEnabled: false }`，否则
++   `{ modelSystemPromptEnabled: true, modelSystemPrompt: { providerId, modelId, text } }`。
++4. 与既有 `modelSelection` / `mode` / `planEnabled` 一起冻结成新对象；原始 intent + 配置
++   快照 + （草稿）promotion receipt 保存在 renderer sidecar/WeakMap，不进 wire payload。
++5. 推荐换模只在冻结快照上重新解析最终模型；不再读取当前 toggle/entries。旧字段先显式剥离，
++   所以 `true/A → false/B` 或无 capability 时 payload 不含 `modelSystemPrompt` 自有属性。
++
++冻结后用户再改开关、模型或设置条目只影响下一次发送。队列、`sendText` 失败恢复、pending
++command replay 都复用已冻结 payload；不在 UI 恢复时重新读取当前开关。`createSession.firstInput`
++与 prewarm sendText/goal 在真实 accepted 边界共用同一 receipt 迁移。
++
++Sentinel 例外：正文为空本身不丢 enabled；开关是独立会话状态，不作为待发送正文草稿写入
++root recent，也不因为空正文被删除。
++
++## 接入点（最小 diff）
++
++- `SettingsPage.tsx`：新增 import + advanced 分支一次组件调用。
++- `V4ComposerToolbar.tsx`：解构已有 `sessionId`；在 `ModelConfigSelect` 前渲染开关（一个
++  fragment + 一个 key）；使用已存在的 `useSettings({ services: baseServices })` 投影。
++- `SessionPane.tsx`：新增一次本地设置投影 hook；包装 `createSubmissionFromComposer` 冻结
++  intent/config snapshot/sidecar；把可序列化 receipt 放进 pending `clientContext`。
++- `ConversationComposer.tsx` / `V4ComposerToolbar.tsx`：透传同一草稿 owner key。
++- `pendingCommandRegistry.ts`：`acceptComposer` 顶部一次 helper 调用；真实 accepted 边界
++  覆盖 ACK/query/snapshot，先于 composer/Recent 早退。
++- `pendingCommandWorkspace.ts`：`PendingCommandClientContext` 增加可序列化 receipt 字段。
++- `locales/zh-CN.ts`、`locales/en-US.ts`：各一次 import + spread。
++- 其余实现集中在两个新模块内，不向旧文件搬运逻辑。
++
++## 非目标与安全
++
++- 不读取/记录 API Key、OAuth token 或任何凭据；目录只来自既有 `ModelSelectionView`。
++- 不新增提示词预览、注入检测、系统提示词替换或权限绕过能力。
++- 不做真实桌面点击 E2E、不读真实 setting/DB；本范围用 jsdom 定向测试。
++
++## 回归矩阵
++
++| ID      | 场景                       | 断言                                             |
++| ------- | -------------------------- | ------------------------------------------------ |
++| MSP-S01 | 高级设置新增条目           | 精确 pair、文本规范化、只发送完整数组 patch      |
++| MSP-S02 | 编辑/清空/删除/孤儿        | 清空删除；孤儿仍可见可删                         |
++| MSP-S03 | 20 条与 8000 字符边界      | 本地拒绝，不提交非法 patch                       |
++| MSP-S04 | 保存失败                   | 草稿与错误保留，可重试；pending 结束             |
++| MSP-S05 | 外部刷新/快速换选/迟到保存 | 不覆盖 dirty 草稿，不串到新选择                  |
++| MSP-C01 | 新会话与多会话             | 默认关闭；互不继承；重挂恢复                     |
++| MSP-C02 | 模型切换                   | 有配置沿用 enabled；无配置隐藏且发送 false       |
++| MSP-C03 | 草稿 promotion             | 值迁移到真实 session 并清草稿；新任务仍关闭      |
++| MSP-C04 | 冻结与排队/失败恢复        | payload 保持当次快照；重试不重新读取开关         |
++| MSP-C05 | 存储失败                   | 内存选项不丢，只降级持久性                       |
++| MSP-C06 | 旧 Host capability         | 两个字段完全省略；图标隐藏，不假启用             |
++| MSP-C07 | A pending 时外部加 C       | B 的 patch 保留 C；failed A 不成为 B 底稿        |
++| MSP-C08 | 推荐换模 + barrier 改开关  | 只从冻结 intent/snapshot 解析最终模型            |
++| MSP-C09 | 导航 abort / 迟到 ACK      | accepted 仍迁移；新 owner 不被清                 |
++| MSP-C10 | 重复 accepted + 手动 off   | applied 保证不覆盖目标后来的 toggle              |
++| MSP-C11 | 保存先匹配后外部再变       | 不建/清 overlay；clean 后跟随外部；B 不用旧值    |
++| MSP-C12 | pending applied 写盘失败   | 新 renderer 重载后 query/snapshot 不覆盖显式 off |
++| MSP-I01 | 中英文案                   | 键集合一致；新模块接入现有 i18n                  |
 diff --git a/docs/ui/navigation-entry-removals.md b/docs/ui/navigation-entry-removals.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a3ce8f9bcc2bebaf637b39c3969c080f9de2638
