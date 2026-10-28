@@ -25407,20 +25407,19 @@ index 0000000000000000000000000000000000000000..a42ade7121eefb15a6fc9fad9183cf23
 +}
 diff --git a/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts b/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..fdde6347c96dbaf88a8ab02f4e0e2338bb0585d2
+index 0000000000000000000000000000000000000000..0d8fa524d7b6a320d1a775941e67e650f193b798
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,147 @@
 +import { createHmac, randomUUID } from "node:crypto";
 +import { z } from "zod";
-+import { SendMessageInputSchema, SendMessageOutputJsonSchema } from "@zcode/contracts";
++import { SendMessageInputSchema, SendMessageOutputJsonSchema, type SendMessageInput } from "@zcode/contracts";
 +import type { ToolEntry } from "../tool/types.js";
 +import { sendMessageToolEntry } from "../tool/handlers/send-message.js";
 +import type { AgentCommunicationContext } from "./project-agents.js";
 +
-+type MessageInput = z.infer<typeof SendMessageInputSchema>;
 +type AgentRoute = NonNullable<ReturnType<AgentCommunicationContext["directory"]["resolve"]>>;
-+type PreparedMessage = MessageInput & {
++type PreparedMessage = SendMessageInput & {
 +  sender: AgentCommunicationContext["identity"];
 +  recipient: AgentRoute["identity"];
 +  instanceId: string;

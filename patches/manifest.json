@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "91ebcb2d54c6eb391bfecb2c89a494cf2dad8c8b",
-  "tree": "d3b336629021ea4cb26dff7e8c31c1365129d0bd",
+  "sourceHead": "e05294e1aff5cc567c460cd8806e3d49720dd597",
+  "tree": "37d8462f7c18d050368be157cb915229cd228b27",
   "excludedChangedPaths": [
     "packages/zcode-cua/test/computer-op.windows.mjs"
   ],
@@ -26,7 +26,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "f1bb7c125604616aae6fb51203e7e281a6db58ce7a4cd5509aebef6d00a5d1b3",
+      "sha256": "8250de0e2333f27da2ba29a738f5f1a21f4c00cfc70f41a1513bf9dbc4003e9e",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
