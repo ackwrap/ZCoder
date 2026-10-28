@@ -25407,7 +25407,7 @@ index 0000000000000000000000000000000000000000..a42ade7121eefb15a6fc9fad9183cf23
 +}
 diff --git a/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts b/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..95d0d74aa0d36f0d20dc9057ea6ecfd3f2f69da4
+index 0000000000000000000000000000000000000000..fdde6347c96dbaf88a8ab02f4e0e2338bb0585d2
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/subagent/communication-tools.ts
 @@ -0,0 +1,148 @@
@@ -25420,7 +25420,7 @@ index 0000000000000000000000000000000000000000..95d0d74aa0d36f0d20dc9057ea6ecfd3
 +
 +type MessageInput = z.infer<typeof SendMessageInputSchema>;
 +type AgentRoute = NonNullable<ReturnType<AgentCommunicationContext["directory"]["resolve"]>>;
-+interface PreparedMessage extends MessageInput {
++type PreparedMessage = MessageInput & {
 +  sender: AgentCommunicationContext["identity"];
 +  recipient: AgentRoute["identity"];
 +  instanceId: string;
@@ -25429,7 +25429,7 @@ index 0000000000000000000000000000000000000000..95d0d74aa0d36f0d20dc9057ea6ecfd3
 +  crossConversation: boolean;
 +  reason?: string;
 +  deliveryProof: string;
-+}
++};
 +
 +export function createAgentCommunicationTools(caller: AgentCommunicationContext): ToolEntry[] {
 +  const listInput = z
