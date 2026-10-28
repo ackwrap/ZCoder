@@ -605,6 +605,142 @@ index 0000000000000000000000000000000000000000..7739d5edae54dbdc1a64ea4f3b0e7234
 +## 回归证据
 +
 +新增契约测试覆盖 patch 字段、默认值、pending 去重、失败重试及外部投影；扩展文案测试覆盖双语键一致、ICU 参数一致及与整理前内容等价。继续运行 `compactionProfileSettings`、`useSettingServiceCompactionPolicy` 和 `settingsPageConfig` 原回归。整理不改变可观察交互；不以源码匹配取代真实组件交互测试。
+diff --git a/docs/god-mode.md b/docs/god-mode.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c608fe77dd0e1d694d3f0d7a2c5b12b5f5875af7
+--- /dev/null
++++ b/docs/god-mode.md
+@@ -0,0 +1,130 @@
++# 三省六部
++
++「高级设置 → 三省六部」独立管理太子、三省、六部和早朝官共 11 个部门，不写入全局子智能体列表。皇帝对应真实用户，不是额外的 Agent 或权限级别。
++
++## 使用
++
++- `/god` 或 `/god on`：开启当前对话的部门模式。桌面/Web 会在成功回执后自动打开当前对话的三省六部右侧面板。开启期间标签固定，关闭按钮、中键、快捷键和批量关闭不会移除它；仍可收起整个侧栏。`/god off` 成功、父会话删除或归档时清理对应标签。
++- `/god off`：关闭，恢复普通子智能体名录；成功后只关闭该对话的三省六部标签，不关闭其他面板。
++- `/god status`：查看当前状态，不发起模型调用，也不自动打开面板。失败回执同样不打开面板。
++- 模式随对话持久化。切换时必须没有正在执行的回合、子代理或工作流；不会自动中止现有工作。
++- 开启后仅允许部门 Agent，不允许借通用工作流、普通 Agent 的续接或对外消息绕过部门名录。工具审批和权限模式保持不变。
++
++设置页保留可平移、缩放的部门关系图，用于查看部门职责与配置。当前对话右侧面板采用深色分区和部门彩色卡片，卡片包含图标、职责及任务状态，每个部门仅一个节点。太子居上，宽面板中三省横排，较窄侧栏分行；六部固定展示并随宽度按 6/3/2/1 列排布，未参与任务的部门标记「未派发」，早朝官仅在获派时显示。回报与最终交付沿回线返回原尚书和太子节点，不重复画部门；卡片和间距使用紧凑尺寸，不整体缩小成难读的小图。
++
++各部门使用固定识别色，已完成节点恢复普通亮度，只有当前真实执行节点与对应路径增强高亮。实线为交办，蓝色虚线为回报/退回，金色圆点沿活动路径运动；图内独立动画开关默认启用，可暂停以减少动态效果，不读取或修改 Windows 动画偏好、不写入账号设置。圆点依据当前版本任务和宿主实际活动实例启停，不是逐 token 或网络包监控；阻塞、取消、完成、冷恢复无活动实例时不播放。
++
++单击部门展开各阶段任务与原始正式回报；双击或按 Enter 打开该部门的只读 Agent 会话，也可使用详情中的「打开 Agent 会话」按钮。打开时查询真实直属子会话，优先当前运行项，否则查找最近结束项；旧重复历史按最近活动选择，不推算 childSessionId。未派发且无会话的部门不跳转，读取失败显示提示，切换会话或断连后丢弃旧查询结果。无流程时显示未开始，快照读取失败显示错误和重试，不伪装成全部等待。
++
++状态来自当前会话持久化的 `runtime/god_flow` 快照；仅在面板与窗口可见时刷新，每次请求完成后间隔 3 秒，断连、读取失败和切换会话时清除旧显示。持久化的进行中状态本身不能证明进程仍在运行；只读查询不会调用模型、推进流程或替代门下审议。
++
++侧栏标签按工作区与对话隔离；开启命令的异步回执不会抢走其他对话的活动标签。新草稿中成功开启会先持久化会话和 God 状态，再提升为正式会话；查询、关闭或明确失败不提升。模式状态会持久化，但侧栏标签沿用现有内存存储，不跨应用重启恢复；重新发送 `/god on` 可再次打开。远程工作区从对应远端读取流程，只读展示，不通过该面板编辑本机配置。
++
++在「高级设置 → 三省六部」点击部门节点打开配置弹窗，可独立保存模型、职责提示词与模型系统提示词开关。模型缺省时继承会话模型；提示词缺省时采用内置部门职责。保存后节点概要同步更新，取消不写设置；配置变更用于之后的部门调用，不改写已运行回合。
++
++### 恢复初始化
++
++- 配置弹窗中的「恢复默认提示词」仅修改当前提示词草稿，点击保存才生效。
++- 「重置此部门」二次确认后立即保存：移除该部门的自定义配置，恢复继承会话模型、内置职责，关闭模型自定义系统提示词开关，并丢弃该弹窗尚未保存的编辑。其他部门保留。
++- 「重置全部部门」二次确认后立即清空部门配置映射，让全部 11 个部门恢复上述默认值。
++- 重置不删除模型自定义提示词原文，不清理会话、Agent 历史或全局 Agent，不改变 `/god` 状态。保存期间禁止重复提交和关闭确认框；失败保留确认框并显示错误。
++
++### 系统提示词
++
++每部门另有「使用模型自定义系统提示词」开关，默认关闭。开启时，按实际选定的 provider/model 查找高级设置已有的模型自定义系统提示词，并在系统提示词中按以下顺序组合：
++
++1. 模型自定义系统提示词（存在时）。
++2. 该部门职责提示词（内置或用户保存的内容）。
++
++部门职责不会被模型提示词替换，工具权限与项目规则不变。没有匹配模型提示词时仍保留部门职责；继承模型的部门在执行时按实际会话模型匹配。
++
++## God 专属强约束流程
++
++仅 `godModeEnabled=true` 时注册 `GodFlow` 并启用流程执行门。普通会话不注册该工具，继续使用原来的 Agent/Task、owner 续接、同伴通信和回报路径。此前尝试让普通子 Agent 续接同级的改动已撤回。普通会话之间的通信不变；普通会话也不能向隔离的 God 会话注入业务消息。
++
++开启 `/god` 不创建部门。主协调者调用 `GodFlow { action: "start", task: "…" }` 才开始一个任务；同一对话只能有一个活动或阻塞流程。之后由代码根据合法提交自动创建下一阶段，不再依赖主模型逐个调用 Agent。
++
++| 阶段 | 允许的提交者 | 结构化动作与后继 |
++| --- | --- | --- |
++| 需求梳理 | 当前太子实例 | `submit`，进入中书规划 |
++| 方案规划 | 当前中书实例 | `submit` 必须带方案和 `tasks[{id,role,task}]`，交门下审议 |
++| 方案审议 | 当前门下实例 | `review approve` 冻结当前版本；`reject` 回中书并递增版本 |
++| 任务派发 | 当前尚书实例 | `dispatch` 原样派发冻结清单，不接受另传任务 |
++| 部门执行 | 清单中各执行实例 | `report success` 给尚书；全部清单任务均回报后才进入汇总 |
++| 成果汇总 | 当前尚书汇总实例 | `finish` 将部门结果汇总给太子 |
++| 最终交付 | 当前太子终结实例 | `finish` 才标记整个流程完成，并通知主协调者 |
++
++六部按方案选用，不强制全员。早朝官如被选用，也必须在门下批准清单内，由尚书派发并回报尚书，不是旁路。当前每版本每执行部门至多一个任务，批准清单中的任务并行执行；存在前后依赖的工作应放在同一部门任务内，不把未完成依赖伪装成独立任务。
++
++### 部门会话复用
++
++同一主会话中，同一部门复用一份持久化子会话历史：太子梳理与最终交付、尚书派发与汇总、后续新流程及重试都续写该部门会话，而不是每阶段新建对话。每次派发仍创建新的执行实例和 assignment，重新绑定当前 flow/revision/角色；历史批准和旧实例权限不能继续使用。
++
++部门映射单独保存在父会话的 `runtime/god_department_conversation` entry。首次迁移会从真实直属历史中选取最近的同部门有效会话；旧的其他重复会话不合并、不删除，目录默认折叠到该部门的「较早对话」，仍可逐条查看。无有效消息的失败空会话不作为恢复来源。同部门执行和收尾串行，等待与启动有界，无法安全续接时阻塞而非并发写同一会话。
++
++### 身份、审批与执行门
++
++- 每个业务调用必须带 `flowId/revision/assignmentId`；调用者角色和 `agentId` 由宿主闭包绑定，不接受模型自报身份。
++- 创建时先将分派意图落盘，再绑定实际 Agent ID 并持久化，之后才运行子会话。每阶段分配受控实例；提交后旧实例立即失权，不能重复汇报或继续变更。
++- 门下的明确 `approve` 只批准当前版本的方案与任务清单。自然语言“通过”、最终文本、任务终止或其他角色的意见均不能放行。
++- 尚书不能审批后另加任务；变更方案必须阻塞并以新版本重新规划和审议，旧批准失效。
++- 主协调者与太子、中书、门下、尚书阶段仅能使用明确只读工具和受控流程交互；只有处于当前已批准执行阶段的任务实例可调用变更工具。检查发生在延迟工具展开后及真正 handler 执行前，审批等待期间失效也不能继续执行。
++- God 模式禁止直接 Agent/Task、自由 SendMessage、RespondToCoordinator、TaskOutput/TaskStop 以及通用工作流等旁路。内部消息端口同样拒绝自由投递和续接。技术 owner 仍是主协调者，部门不递归创建子 Agent。
++- God 执行部门禁止显式后台 Bash，也禁用超时自动转后台；仍有运行中后台任务时拒绝 `report/finish`。原用户审批、权限服务、沙箱及限流继续生效，门下审核不是用户授权。
++
++### 业务回报与技术状态
++
++业务内容由 `GodFlow` 存储并只作为合法下一阶段的任务输入：执行部门给尚书，尚书给太子，太子最终给协调者。状态查询只展示阶段及任务状态，不把中间业务正文当成协调者的最终成果。
++
++runner 的自动完成产物和后台通知只保留技术状态，不用子 Agent 最终文本推进业务流程。正常结束但没有提交该阶段要求的结构化动作，会将流程标记为 `blocked`，不能乐观通过。
++
++子智能体目录以对应部门名称展示 God 任务，阶段作为辅助说明。真实用户可从运行中或已结束的目录项打开部门会话历史；这与模型读取子代理产物是两个入口，不会因此开放被 God 流程禁止的 `TaskOutput`、`ReadSessionContext` 等工具。侧栏展开的任务与回报同样只用于用户查看，不回灌主模型上下文。
++
++### 阻塞、重试与取消
++
++- 任一有效部门可 `report outcome=blocked`；相关任务立即撤权，流程不再自动推进。
++- 主协调者使用 `status` 查询状态，再携带 `flowId/revision/reason` 调用 `retry` 或 `cancel`。部门不能自行重试、取消或新开流程。
++- `retry` 先撤销旧任务授权，等待已发出的创建与旧 Agent 停止，再以新版本回到中书规划；尚未完成需求梳理则先重做太子梳理。必须重新审议，不恢复旧批准。
++- `cancel` 先撤权并停止旧 Agent，成功后流程进入 cancelled；停止未确认则保留阻塞，不继续派发。活动或阻塞流程必须先取消才能 `/god off`。
++- 取消正在执行的 GodFlow 工具会立即撤权，已提交但未完成的操作保留为 blocked，不在取消后继续派发后续部门。
++- 状态保存在当前会话的 `runtime/god_flow` entry。冷恢复、分支回退时未终结流程一律阻塞，旧实例失权；不从历史自然语言猜测通过或自动重跑。存储失败或损坏时拒绝继续执行。
++
++代码入口为 `apps/zcode-cli/packages/core/src/god-flow/{schema,controller,runtime}.ts`，集成在子运行时创建、runner 结果及工具 executor。以上约束是调度和工具调用层面的边界，不是额外操作系统隔离；已发出的外部操作不会因撤权自动回滚，工具返回成功也不证明实际业务质量合格。
++
++本轮部门会话复用、动态流向看板、固定标签及目录状态修复已完成源码修改。使用既有 `.zcode-dev-data` 隔离数据目录执行 `pnpm dev:desktop:test`，启动自带的必要编译成功；新 CLI 产物包含部门复用和活动实例查询实现，新的后端进程及 Electron 主窗口已启动。按要求未运行额外功能测试、独立类型检查、Lint、界面预览或真实模型闭环；启动成功不等同于端到端行为已验证。
++
++## 提示词来源与适配
++
++默认职责参考 [cft0808/edict](https://github.com/cft0808/edict)，固定来源提交 [`14a207557719c046af0f993a7bff1cc5a5015b33`](https://github.com/cft0808/edict/commit/14a207557719c046af0f993a7bff1cc5a5015b33) 的 `agents/GLOBAL.md`、`agents.json` 和 11 个角色的 `agents/<id>/SOUL.md`。
++
++实现位于 `packages/shared/src/god-mode.ts`。提示词按 ZCode 的实际工具语义重新组织，没有引入 OpenClaw 脚本、任务看板、定时器或外部执行依赖。部门路由由 ZCode 内部 GodFlow 状态机约束，技术 owner 保持扁平，不引入递归子代理调度引擎。
++
++上游尚书省派发表与兵部、工部自身说明存在冲突，本实现遵循部门自身说明：兵部负责开发与架构，工部负责基础设施和部署运维。未沿用上游“第三轮强制通过”规则，存在实质阻塞时必须如实报告。
++
++## 上游 MIT 许可
++
++Source: https://github.com/cft0808/edict/blob/14a207557719c046af0f993a7bff1cc5a5015b33/LICENSE
++
++```text
++MIT License
++
++Copyright (c) 2026 openclaw-sansheng-liubu contributors
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
++```
 diff --git a/docs/image-preview-pointer-interaction.md b/docs/image-preview-pointer-interaction.md
 index 13a27a97160d53cbb74a3dbe078d6bc5379da9c0..e2b5c1201573d8f982167aa039246dad0ae0f25b 100644
 --- a/docs/image-preview-pointer-interaction.md
