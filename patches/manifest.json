@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "8f06989450d6afc1ec64e996bbed093b36d53c67",
-  "tree": "e268333cef02b3ea4ff1ee74847e8f72b734c709",
+  "sourceHead": "98d505f19a514d0e409929820229564f59d88dd2",
+  "tree": "d038ad95af671c78c58dccd3cbc71ca8c520266e",
   "excludedChangedPaths": [
     "packages/zcode-cua/test/computer-op.windows.mjs"
   ],
@@ -26,7 +26,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "ff55a7be650f6de220fe081bb2414f183978c63031de797f4eb9232406fe6d39",
+      "sha256": "a2d183e2207ff16e711a8fb57a09383ad70f7ac6815fdb22389c6dfcc923dde6",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -286,6 +286,7 @@
         "apps/zcode-cli/packages/core/src/runtime/methods/prompt-admission.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/resume.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/rewind-message.ts",
+        "apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/runtime-reminder-persistence.ts",
         "apps/zcode-cli/packages/core/src/runtime/methods/session-fork.ts",
@@ -404,7 +405,7 @@
     {
       "file": "0003-docs.patch",
       "directory": "docs",
-      "sha256": "e253948a03ba5540896d2a23b72f23297787749033d3919d39a4b8d0e8b5a5bf",
+      "sha256": "cdfff89626e543e18dc01322c14f56508c551b6c81db6b6442e9f1859059e498",
       "paths": [
         "docs/architecture/architecture-governance.md",
         "docs/assistant-message-markdown-type-scale.md",
@@ -603,7 +604,7 @@
     {
       "file": "0009-packages-shared.patch",
       "directory": "packages/shared",
-      "sha256": "d452041cdfbc553e1ec031db59877dff22eff9de2d10dffdc81c0cc9366ae884",
+      "sha256": "6d2563e5d1c89d1c622ca2f0bb2a1bd772043ad4d2d03a308d7f2030f3153115",
       "paths": [
         "packages/shared/src/app-runtime-preferences.ts",
         "packages/shared/src/channels.ts",
@@ -652,7 +653,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "c58580e75da081cfc739442e2dd8d90623080660d1111ee6537ebfbab2c73ce9",
+      "sha256": "bb5bde5d9a17ff18f80e07cb3b5e9ffcf46a61d54d153629d14a7dc808e91c67",
       "paths": [
         "packages/ui/src/App.tsx",
         "packages/ui/src/McpStatusDialog.tsx",

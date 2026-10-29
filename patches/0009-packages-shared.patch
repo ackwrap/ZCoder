@@ -1293,7 +1293,7 @@ index 6856a363b7bb089be59dbcdeaf4c3e641cac798e..bbffcdeb0043bbc99715002b90505a1f
    control: sessionControlSchema.optional(),
 diff --git a/packages/shared/src/zcode-protocol-v4/god-flow.ts b/packages/shared/src/zcode-protocol-v4/god-flow.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..20678c630af289cb116d887d800f286a9076941a
+index 0000000000000000000000000000000000000000..5da4a19eaedfe11d482c2296d79cf9d7a0ac0388
 --- /dev/null
 +++ b/packages/shared/src/zcode-protocol-v4/god-flow.ts
 @@ -0,0 +1,25 @@
@@ -1320,7 +1320,7 @@ index 0000000000000000000000000000000000000000..20678c630af289cb116d887d800f286a
 +export const v4ConversationGodFlowParamsSchema = z.object({
 +  sessionId: z.string().min(1), workspacePath: z.string().min(1), workspaceIdentity: z.string().min(1).optional(),
 +}).strict();
-+export const v4ConversationGodFlowResultSchema = z.object({ flow: godFlowViewSchema.nullable(), resident: z.boolean() }).strict();
++export const v4ConversationGodFlowResultSchema = z.object({ flow: godFlowViewSchema.nullable(), resident: z.boolean(), godModeEnabled: z.boolean().optional() }).strict();
 +export type V4ConversationGodFlowResult = z.infer<typeof v4ConversationGodFlowResultSchema>;
 diff --git a/packages/shared/src/zcode-protocol-v4/index.ts b/packages/shared/src/zcode-protocol-v4/index.ts
 index c35d6eb4de75ecb720c4dda2850c0d29eba83f29..c0f41b06646c6bc7756b812c7429f7af22deb4e9 100644

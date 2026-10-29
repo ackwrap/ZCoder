@@ -9925,7 +9925,7 @@ index 9279edb4de5161405d6d8043a4cb6498fb3a90d6..adcb7a822176909ff6b26af28359212d
    registry: ProviderRegistryModelSource,
    requested: string,
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/script-workflow-child-runtime.ts b/apps/zcode-cli/packages/bootstrap/src/app/script-workflow-child-runtime.ts
-index c1555cf42cdc6c23db8d2a37df0756b3e61d83fd..c62af3ba9f175daa5717cdab93d638c693f5dc83 100644
+index c1555cf42cdc6c23db8d2a37df0756b3e61d83fd..64abbcabe6bda9fb3023f419988d8b8ea23f5aa5 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/script-workflow-child-runtime.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/app/script-workflow-child-runtime.ts
 @@ -8,6 +8,7 @@ import { createNodeSkillAdapter } from "@zcode/adapters/skills";
@@ -9936,8 +9936,11 @@ index c1555cf42cdc6c23db8d2a37df0756b3e61d83fd..c62af3ba9f175daa5717cdab93d638c6
    type AgentRuntimeConfig,
    type AgentRuntimeDeps,
    type ChildClientPortsContext,
-@@ -156,23 +157,29 @@ export function createScriptWorkflowAgentRuntime(input: {
+@@ -154,25 +155,32 @@ export function createScriptWorkflowAgentRuntime(input: {
+       toolAllowlist: input.request.opts?.tools,
+       workingDirectory: input.deps.workingDirectory,
        ...input.configOverrides,
++      godModeEnabled: false,
      },
      {
 -      ...createRuntimeDeps(input.deps, input.traceContext, input.childSessionId, {
@@ -9983,7 +9986,7 @@ index c1555cf42cdc6c23db8d2a37df0756b3e61d83fd..c62af3ba9f175daa5717cdab93d638c6
        ...(input.browserControlPort === undefined
          ? {}
          : {
-@@ -199,8 +206,18 @@ function createRuntimeDeps(
+@@ -199,8 +207,18 @@ function createRuntimeDeps(
    traceContext: TraceContext,
    childSessionId: SessionId,
    clientPortsContext: ChildClientPortsContext,
@@ -10257,7 +10260,7 @@ index e3bda0e37ceac56103f9f5f430cfefd20962e807..fc9059385fcf1d9033262284f929d99d
      modelId: string | ModelSelection,
      options?: {
 diff --git a/apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts b/apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts
-index 8ba1be90f53e392ad7c540d04c6f571fa6e755e4..73aff5f7989fdc1e16eadd80baacb27fbc6751c3 100644
+index 8ba1be90f53e392ad7c540d04c6f571fa6e755e4..52d0acd3965a0e6c2de61ff38b8946ca042c148f 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts
 @@ -15,6 +15,7 @@ import {
@@ -10298,7 +10301,15 @@ index 8ba1be90f53e392ad7c540d04c6f571fa6e755e4..73aff5f7989fdc1e16eadd80baacb27f
      builtInExpertWorkflowDefinition,
      createStartInput,
      listWorkflowRuns,
-@@ -296,6 +305,11 @@ function createWorkflowChildRuntime(
+@@ -285,6 +294,7 @@ function createWorkflowChildRuntime(
+     options.childSessionId,
+     {
+       ...deps.runtimeConfig,
++      godModeEnabled: false,
+       agentName: options.workflowKind === "expert" ? "zcode-expert" : "zcode-workflow",
+       // workflow child 不在 Guarded 合同内；只隔离父任务模式，不继承审批。
+       mode: "yolo",
+@@ -296,6 +306,11 @@ function createWorkflowChildRuntime(
        workingDirectory: deps.workingDirectory,
      },
      {
@@ -10310,7 +10321,7 @@ index 8ba1be90f53e392ad7c540d04c6f571fa6e755e4..73aff5f7989fdc1e16eadd80baacb27f
        agentTelemetry: deps.agentTelemetry,
        agentTelemetryCausation: deps.agentTelemetry.captureCausation(),
        // Workflow 在父工具返回后独立调度，不能伪装成父 Span 的同步 Child。
-@@ -342,7 +356,24 @@ function createWorkflowChildRuntime(
+@@ -342,7 +357,24 @@ function createWorkflowChildRuntime(
              }))
            : undefined,
        mcpPort: deps.mcpPort,
@@ -12170,11 +12181,11 @@ index 0000000000000000000000000000000000000000..734752a1a9e886e0ca24e0417b53e990
 +}
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/god-flow-view.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/god-flow-view.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..cb8e614ad0758a525f4f7871165c648667cb264f
+index 0000000000000000000000000000000000000000..44fc518d33f8c787c851b4a7486b20d1aa6d4991
 --- /dev/null
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/god-flow-view.ts
-@@ -0,0 +1,38 @@
-+import type { SessionId } from "@zcode/contracts";
+@@ -0,0 +1,41 @@
++import { SESSION_ENTRY_GOD_MODE, type SessionId } from "@zcode/contracts";
 +import { z } from "zod";
 +import { godFlowAssignmentViewSchema, godFlowViewSchema, v4ConversationGodFlowParamsSchema, v4ConversationGodFlowResultSchema } from "@zcode/shared/zcode-protocol-v4";
 +import type { ZCodeProtocolAgentServerContext } from "./server-types.js";
@@ -12187,14 +12198,17 @@ index 0000000000000000000000000000000000000000..cb8e614ad0758a525f4f7871165c6486
 +  const sessionId = params.sessionId as SessionId;
 +  const session = await store.getSession(sessionId);
 +  const resident = context.sessions.has(sessionId);
-+  if (!session) return { flow: null, resident };
++  if (!session) return { flow: null, resident, godModeEnabled: false };
 +  if (session.time.deleted !== undefined || session.directory !== params.workspacePath ||
 +      (params.workspaceIdentity ? session.workspaceID !== params.workspaceIdentity : Boolean(session.workspaceID && session.workspaceID !== params.workspacePath))) {
 +    throw new Error("God flow session is outside the requested workspace");
 +  }
++  const modeEntries = await store.sessionEntries({ sessionID: sessionId, type: SESSION_ENTRY_GOD_MODE });
++  const mode = z.object({ enabled: z.boolean() }).safeParse(modeEntries.at(-1)?.data);
++  const godModeEnabled = mode.success && mode.data.enabled;
 +  const entries = await store.sessionEntries({ sessionID: sessionId, type: "runtime/god_flow" });
 +  const entry = entries.find((item) => item.id === `god-flow:${sessionId}`);
-+  if (!entry) return { flow: null, resident };
++  if (!entry) return { flow: null, resident, godModeEnabled };
 +  // Retain the current revision plus the last intake/review for truthful retry history.
 +  const state = godFlowViewSchema.extend({ assignments: godFlowAssignmentViewSchema.omit({ canAnimate: true }).extend({ agentId: z.string().optional() }).array().max(500) }).parse(entry.data);
 +  const current = state.assignments.filter((item) => item.revision === state.revision);
@@ -12210,7 +12224,7 @@ index 0000000000000000000000000000000000000000..cb8e614ad0758a525f4f7871165c6486
 +    canAnimate: item.revision === state.revision && item.status === "running" &&
 +      Boolean(agentId && activeAgents.has(agentId)),
 +  }));
-+  return v4ConversationGodFlowResultSchema.parse({ flow: { ...state, assignments }, resident });
++  return v4ConversationGodFlowResultSchema.parse({ flow: { ...state, assignments }, resident, godModeEnabled });
 +}
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/interaction-broker.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/interaction-broker.ts
 index 7148a2cc6fd6ecfdc614dc72e9fc65419c0ab253..10160ba30cf3a36a310ce0ad071ddf704195e8b5 100644
@@ -16587,10 +16601,19 @@ index fca9d474293a4d09121d7c86510be64d560b9932..b19512d33471e9100abd54426e41fd60
    admittedAt: number;
    requestedDelivery: "auto" | "startNow" | "queue" | "guide";
 diff --git a/apps/zcode-cli/packages/contracts/src/interfaces/subagent.port.ts b/apps/zcode-cli/packages/contracts/src/interfaces/subagent.port.ts
-index dd01f0be645fc11c1cbb7b5627658204a33c4a2c..138c36661ddadcc7378ff5f2c1e84b426e35a669 100644
+index dd01f0be645fc11c1cbb7b5627658204a33c4a2c..bfc7923630f70f77f35c36bc1f31ad5101ce5c42 100644
 --- a/apps/zcode-cli/packages/contracts/src/interfaces/subagent.port.ts
 +++ b/apps/zcode-cli/packages/contracts/src/interfaces/subagent.port.ts
-@@ -23,6 +23,8 @@ export interface SubagentRunRequest {
+@@ -15,6 +15,8 @@ export interface SubagentRunRequest {
+   agentType: string;
+   description: string;
+   prompt: string;
++  /** God flow 内部传递的主会话提示词，不属于 agent profile 或任务消息。 */
++  godInheritedSystemPrompt?: string;
+   callerCanReadOutputFile?: boolean;
+   workingDirectory: string;
+   workspaceRoot: string;
+@@ -23,6 +25,8 @@ export interface SubagentRunRequest {
  
  export interface SubagentRunOptions {
    signal?: AbortSignal;
@@ -18852,10 +18875,10 @@ index c5238ff50991cbfe8b63bdb4535be0110613ed92..28cee76c1aaa2a66ced234b64c03762d
     * 基座段（CLI prefix、安全行、Harness、memory）+ 工作流子代理契约 + persona 叠加，
 diff --git a/apps/zcode-cli/packages/core/src/god-flow/controller.ts b/apps/zcode-cli/packages/core/src/god-flow/controller.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5262eacf9b25552a8f13e03a2bc8d55f37d507b4
+index 0000000000000000000000000000000000000000..9571169b14f6305f4e4d95553d8837d6f79a60a5
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/god-flow/controller.ts
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,510 @@
 +import { randomUUID } from "node:crypto";
 +import {
 +  GodFlowInputSchema, godFlowStateSchema,
@@ -18895,11 +18918,11 @@ index 0000000000000000000000000000000000000000..5262eacf9b25552a8f13e03a2bc8d55f
 +    this.failed = false;
 +  }
 +
-+  private async exclusive<T>(work: () => Promise<T>): Promise<T> {
++  private async exclusive<T>(work: () => Promise<T>, hostCancellation = false): Promise<T> {
 +    const epoch = this.epoch;
 +    const run = this.queue.then(async () => {
 +      if (epoch !== this.epoch) throw new Error("God flow branch changed; read status again.");
-+      if (!this.options.isEnabled()) throw new Error("GodFlow is only available in God mode.");
++      if (!hostCancellation && !this.options.isEnabled()) throw new Error("GodFlow is only available in God mode.");
 +      await this.load();
 +      if (epoch !== this.epoch || this.failed) throw new Error("God flow persistence is unavailable; restore the session before continuing.");
 +      return work();
@@ -19208,6 +19231,56 @@ index 0000000000000000000000000000000000000000..5262eacf9b25552a8f13e03a2bc8d55f
 +    }
 +  }
 +
++  async cancelForModeDisable(): Promise<void> {
++    if (this.options.isEnabled()) throw new Error("God mode must be switching off before host cancellation.");
++    const epoch = this.epoch;
++    // 宿主关闭已封住模型入口；清理仍须在同一状态队列中撤权和落盘。
++    const stopping = await this.exclusive(async () => {
++      if (!this.state) return null;
++      const state = this.current();
++      this.interruptedFlows.add(state.flowId);
++      if (!terminal(state)) {
++        state.stage = "blocked";
++        state.reason = "The user disabled God mode with /god off.";
++        delete state.approvedRevision;
++        this.revokeActive(state);
++        await this.persist(state);
++      }
++      return {
++        flowId: state.flowId,
++        agents: [...new Set(state.assignments.flatMap((item) => item.agentId ? [item.agentId] : []))],
++        launches: [...this.launching.values()],
++      };
++    }, true);
++    if (!stopping) return;
++    if (stopping.agents.length && !this.options.stop) throw new Error("Cannot disable God mode until its agents are stopped.");
++    let timer: ReturnType<typeof setTimeout> | undefined;
++    try {
++      const results = await Promise.race([
++        Promise.allSettled([
++          ...stopping.agents.map((agentId) => this.options.stop!(agentId)),
++          ...stopping.launches,
++        ]),
++        new Promise<never>((_, reject) => {
++          timer = setTimeout(() => reject(new Error("God department shutdown has not settled; the flow remains blocked.")), 30_000);
++        }),
++      ]);
++      for (const result of results) {
++        if (result.status === "rejected") throw result.reason;
++      }
++    } finally {
++      if (timer) clearTimeout(timer);
++    }
++    await this.exclusive(async () => {
++      const state = this.current();
++      if (epoch !== this.epoch || state.flowId !== stopping.flowId) throw new Error("God flow changed while disabling God mode.");
++      if (!terminal(state)) {
++        state.stage = "cancelled";
++        await this.persist(state);
++      }
++    }, true);
++  }
++
 +  private async control(input: Extract<GodFlowInput, { action: "retry" | "cancel" }>, caller: GodFlowCaller, signal?: AbortSignal): Promise<unknown> {
 +    this.assertRoot(caller);
 +    const epoch = this.epoch;
@@ -19318,10 +19391,11 @@ index 0000000000000000000000000000000000000000..5262eacf9b25552a8f13e03a2bc8d55f
 +}
 diff --git a/apps/zcode-cli/packages/core/src/god-flow/runtime.ts b/apps/zcode-cli/packages/core/src/god-flow/runtime.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..31eea823c9c66b226f1c6ba5674f664865c44df3
+index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc145011d874bc
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/god-flow/runtime.ts
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,310 @@
++import { AsyncLocalStorage } from "node:async_hooks";
 +import { randomUUID } from "node:crypto";
 +import { createSessionId, type SessionId } from "@zcode/contracts";
 +import { GOD_DEPARTMENTS } from "@zcode/shared";
@@ -19338,6 +19412,10 @@ index 0000000000000000000000000000000000000000..31eea823c9c66b226f1c6ba5674f6648
 +const ENTRY_TYPE = "runtime/god_flow";
 +const CONVERSATION_ENTRY_TYPE = "runtime/god_department_conversation";
 +const roleQueues = new WeakMap<AgentRuntimeInternal, Map<GodFlowRole, Promise<void>>>();
++// 主会话 start/retry 的提示词仅在本流程内存中保存，后台部门后续派发也使用同一快照。
++const inheritedSystemPrompts = new WeakMap<AgentRuntimeInternal, { flowId: string; text: string | undefined }>();
++// start 的 flowId 在 controller 内创建；异步上下文将启动快照关联到首次实际派发。
++const rootLaunchPrompt = new AsyncLocalStorage<{ runtime: AgentRuntimeInternal; flowId?: string; text: string | undefined; claimed: boolean }>();
 +
 +async function boundedWait<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 +  signal?.throwIfAborted();
@@ -19501,6 +19579,12 @@ index 0000000000000000000000000000000000000000..31eea823c9c66b226f1c6ba5674f6648
 +      signal?.removeEventListener("abort", abortResolve);
 +    }
 +    signal?.throwIfAborted();
++    const rootPrompt = rootLaunchPrompt.getStore();
++    if (rootPrompt?.runtime === runtime && !rootPrompt.claimed && (rootPrompt.flowId === undefined || rootPrompt.flowId === assignment.flowId)) {
++      rootPrompt.claimed = true;
++      inheritedSystemPrompts.set(runtime, { flowId: assignment.flowId, text: rootPrompt.text });
++    }
++    const inheritedPrompt = inheritedSystemPrompts.get(runtime);
 +    const prompt = [
 +      "You are assigned one controlled God flow step. Use GodFlow, not SendMessage or Agent, to submit the structured result.",
 +      "Previous turns are context only, not authorization. The current assignment, flow, revision and permissions supersede all previous instructions and approvals; do not continue an earlier approval or task unless explicitly included in this assignment.",
@@ -19520,6 +19604,7 @@ index 0000000000000000000000000000000000000000..31eea823c9c66b226f1c6ba5674f6648
 +        agentType: `god-${assignment.role}`,
 +        description: `${GOD_DEPARTMENTS.find((department) => department.id === assignment.role)?.name ?? assignment.role} · ${assignment.kind}`,
 +        prompt,
++        godInheritedSystemPrompt: inheritedPrompt?.flowId === assignment.flowId ? inheritedPrompt.text : undefined,
 +        workingDirectory: runtime.workingDirectory,
 +        workspaceRoot: runtime.workspaceRoot,
 +        runInBackground: true,
@@ -19606,6 +19691,14 @@ index 0000000000000000000000000000000000000000..31eea823c9c66b226f1c6ba5674f6648
 +      }
 +      if (!caller.agentId && parsed.action === "start") {
 +        await runtime.ensureSessionPersistedForExternalActivity(parsed.task, { traceContext: context.traceContext ?? runtime.rootTraceContext });
++      }
++      if (!caller.agentId && (parsed.action === "start" || parsed.action === "retry")) {
++        return rootLaunchPrompt.run({
++          runtime,
++          ...(parsed.action === "retry" ? { flowId: parsed.flowId } : {}),
++          text: runtime.activeTurn?.modelSystemPrompt?.text,
++          claimed: false,
++        }, () => controller.handle(parsed, caller, context.abortSignal));
 +      }
 +      return controller.handle(parsed, caller, context.abortSignal);
 +    },
@@ -22902,10 +22995,10 @@ index 4c1999e225a91e0af8caa8242514b2a7c6d77dd9..a39fb5ba24e576340a564df3956ae70a
        ...traceContextToLogContext(traceContext),
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/god-mode.ts b/apps/zcode-cli/packages/core/src/runtime/methods/god-mode.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ad91c53ccdbd96e344177fa5736abdead01f5c8f
+index 0000000000000000000000000000000000000000..998261b6c6e3a91c8c2f57aca901e1cb5e8d68d7
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/god-mode.ts
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,93 @@
 +import { SESSION_ENTRY_GOD_MODE, type SessionEntryInfo } from "@zcode/contracts";
 +import { isTerminalRuntimeTask } from "../../runtime-task/registry.js";
 +import type { AgentRuntimeInternal } from "../internal.js";
@@ -22924,29 +23017,33 @@ index 0000000000000000000000000000000000000000..ad91c53ccdbd96e344177fa5736abdea
 +  if (!this.sessionStore?.saveSessionEntry || !this.sessionStore.sessionEntries) {
 +    throw new Error("God mode persistence is unavailable.");
 +  }
-+  if (!enabled && this.godFlowController) {
-+    const flow = await this.godFlowController.getState();
-+    if (this.godModeSwitching) throw new Error("God mode switch is already in progress.");
-+    if (flow && flow.stage !== "completed" && flow.stage !== "cancelled") {
-+      throw new Error("Cancel the active God flow before disabling God mode.");
-+    }
-+  }
 +  if (enabled && this.externalToolExecutor) {
 +    throw new Error("God mode requires the built-in tool executor.");
 +  }
 +  if (enabled && (!this.subagentPort || this.externalSubagentPort)) {
 +    throw new Error("God mode requires the built-in subagent runtime.");
 +  }
-+  if (this.hasActiveOrQueuedTurnWork() || this.residencyBlockingWorkCount > 0 ||
++  if (enabled && (this.hasActiveOrQueuedTurnWork() || this.residencyBlockingWorkCount > 0 ||
 +    Object.values(this.runtimeTaskRegistry.all()).some((task) =>
 +      (task.type === "local_agent" || task.type === "local_workflow" || task.type === "local_dynamic_workflow") &&
-+      !isTerminalRuntimeTask(task))) {
-+    throw new Error("Cannot switch god mode while a turn, agent or workflow is active.");
++      !isTerminalRuntimeTask(task)))) {
++    throw new Error("Cannot enable god mode while a turn, agent or workflow is active.");
 +  }
 +  const previous = this.config.godModeEnabled;
 +  this.godModeSwitching = true;
-+  this.config.godModeEnabled = enabled;
 +  try {
++    if (!enabled) {
++      this.stopActiveForegroundExecution({ reason: "God mode disabled by the user." });
++      await this.setQueueAutoDrain({ autoDrain: false, traceContext: this.rootTraceContext });
++      await this.godFlowController?.cancelForModeDisable();
++      const deadline = Date.now() + 30_000;
++      while (this.hasActiveOrQueuedTurnWork() || this.residencyBlockingWorkCount > 0) {
++        this.stopActiveForegroundExecution({ reason: "God mode disabled by the user." });
++        if (Date.now() >= deadline) throw new Error("The current God mode turn has not stopped yet. Try /god off again.");
++        await new Promise<void>((resolve) => setTimeout(resolve, 25));
++      }
++    }
++    this.config.godModeEnabled = enabled;
 +    refreshBranchAwareBuiltInTools(this);
 +    if (this.sessionPersisted) await writeGodModeEntry(this);
 +    return { enabled };
@@ -23554,6 +23651,30 @@ index db4900bd604a7cf50f89299d92f0229bc6027c27..ae3c999f0f5c776cd9680bf78937220e
    this.injectTargetStateIntoMessageHistory(
      await this.readSessionTargetForContext(options.traceContext),
    );
+diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts
+index 334aea93755c5359bed33507f0e25022d93e75c5..a97148bbbb683e713a51ad5d58cb651cb0b8a115 100644
+--- a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts
++++ b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts
+@@ -214,6 +214,11 @@ async function runRuntimeCommand(
+   if (isStaleBranchRuntimeCommand(this, command)) return;
+   const foregroundExecution = beginForegroundExecution.call(this, command);
+   try {
++    if (this.godModeSwitching) {
++      if (command.mode === "prompt" && command.startReservation) this.releaseTurnStart(command.startReservation.turnId);
++      this.runtimeCommandQueue.clearCancelPending(command.id);
++      throw createTurnCancelledError(new Error("God mode switch is in progress."));
++    }
+     if (command.mode === "prompt") {
+       if (this.runtimeCommandQueue.consumeCancelPending(command.id)) {
+         if (command.startReservation) this.releaseTurnStart(command.startReservation.turnId);
+@@ -362,6 +367,7 @@ async function runTaskNotificationBatch(
+       messageId: persisted.messageId,
+       module: "core.runtime",
+     });
++    if (this.godModeSwitching) return;
+     await this.executeTurnCommand(persisted.text, undefined, {
+       offPeakExecutionId: firstCommand.offPeakExecutionId,
+       // wake 缺 inputId，telemetry 借用了持久化 msg_*，与普通 main turn 分叉。
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts b/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts
 index a0433610a5be08f81f17a22e447a12a6a56125f6..92b3469fe81980069870c10be82a0e967da5b78d 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/runtime-model.ts
@@ -26001,7 +26122,7 @@ index 693213bea13763098bd473d4d7cf174470062c13..56efbc1948ae23b9c490d0f8885cdf83
    this.activeTurnStartReservation = undefined;
    this.activeTurn = activeTurn;
 diff --git a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts b/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
-index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6ed6b90b5d 100644
+index 372999d848356c01116f8041e1df4f31b558232e..2fb72dde994f3d503f7666a5bba22611afd174d4 100644
 --- a/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
 +++ b/apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
 @@ -5,6 +5,7 @@ import {
@@ -26082,20 +26203,28 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
          const builtInExplore = isBuiltInExploreAgentProfile(request.profile);
          const agentsMdInstructions =
            request.profile.injectAgentsMd !== false
-@@ -163,7 +192,11 @@ export function createDefaultSubagentPort(
+@@ -163,7 +192,19 @@ export function createDefaultSubagentPort(
          });
          // 空 agent prompt 不是一个语义段；先硬拼 `\n\n` 会把缺失段的边界
          // 泄漏到 persistent Memory 开头。这里只组合非空正文，block 左边界由 builder 统一添加。
 -        const agentPrompt = [baseAgentPrompt, persistentMemory?.prompt]
 +        const department = godDepartment ? GOD_DEPARTMENTS.find((entry) => entry.agentType === request.agentType) : undefined;
-+        const modelSystemPrompt = department && this.config.godDepartments?.[department.id]?.useModelSystemPrompt
++        const inheritedSystemPrompt = godDepartment ? request.godInheritedSystemPrompt : undefined;
++        const useModelSystemPrompt = Boolean(inheritedSystemPrompt?.trim()) ||
++          (department !== undefined && this.config.godDepartments?.[department.id]?.useModelSystemPrompt === true);
++        const modelSystemPrompt = department && useModelSystemPrompt
 +          ? resolveModelSystemPromptEntry(this.config.godModelSystemPrompts, childSelection)?.text
 +          : undefined;
-+        const agentPrompt = [modelSystemPrompt, baseAgentPrompt, persistentMemory?.prompt]
++        const agentPrompt = [
++          inheritedSystemPrompt,
++          modelSystemPrompt === inheritedSystemPrompt ? undefined : modelSystemPrompt,
++          baseAgentPrompt,
++          persistentMemory?.prompt,
++        ]
            .filter((part): part is string => typeof part === "string" && part.length > 0)
            .join("\n\n");
          const childRuntimeEnvInfo = {
-@@ -270,6 +303,12 @@ export function createDefaultSubagentPort(
+@@ -270,6 +311,12 @@ export function createDefaultSubagentPort(
            childSessionId: request.sessionId,
            agentType: request.agentType,
          });
@@ -26108,7 +26237,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
          const childRuntime = new AgentRuntime(
            request.sessionId,
            {
-@@ -294,10 +333,15 @@ export function createDefaultSubagentPort(
+@@ -294,16 +341,22 @@ export function createDefaultSubagentPort(
              midConversationSystem: this.config.midConversationSystem,
              toolSearch: this.config.toolSearch,
              bashShellSelection,
@@ -26125,15 +26254,14 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
                ...(agentsMdInstructions ? { userInstructions: agentsMdInstructions } : {}),
              },
              agentName: `zcode-${request.agentType}`,
-@@ -308,6 +352,7 @@ export function createDefaultSubagentPort(
+             maxTurns: request.maxTurns ?? this.config.subagents?.maxTurns ?? 4,
+             parentSessionId: this.sessionId,
+             taskType: "subagent_child",
++            godModeEnabled: godDepartment,
+             // 动态工作流灰度门必须结构性继承：
              // 父会话关着而子代理开着，等于 Agent 工具变成绕过灰度的后门。默认路径（child 继承
              // 父 registry 可见的工具名）本来就够，但**自定义 agent profile 显式写
-             // `allowedTools: ["CreateWorkflow"]` 时会跳过那次交集**，只剩这一道能挡住。
-+            godModeEnabled: this.config.godModeEnabled,
-             dynamicWorkflowEnabled: this.config.dynamicWorkflowEnabled,
-             // launch.md「On demand: activation」Children 段：子代理继承父会话**此刻**的工具面——
-             // 父未激活则子也按需（子会话里没有 `/workflow` 入口，实际等于没有工作流工具）；
-@@ -319,7 +364,10 @@ export function createDefaultSubagentPort(
+@@ -319,7 +372,10 @@ export function createDefaultSubagentPort(
              // toolset 不能再依赖 DEFAULT_SUBAGENT_TYPE，否则默认通用 agent 会被误降级为只读搜索工具面。
              toolset: builtInExplore ? "explore" : "main",
              toolAllowlist: childToolAllowlist,
@@ -26145,7 +26273,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
              embeddedSearchBackend: this.config.embeddedSearchBackend,
              nativeSearchEnhancementsEnabled: this.config.nativeSearchEnhancementsEnabled,
              subagents: {
-@@ -349,6 +397,8 @@ export function createDefaultSubagentPort(
+@@ -349,6 +405,8 @@ export function createDefaultSubagentPort(
              ...(childBrowserControlPort === undefined
                ? {}
                : { browserControlPort: childBrowserControlPort }),
@@ -26154,7 +26282,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
              coordinatorResponsePort: createCoordinatorResponsePort({
                agentId: request.agentId,
                agentType: request.agentType,
-@@ -363,6 +413,7 @@ export function createDefaultSubagentPort(
+@@ -363,6 +421,7 @@ export function createDefaultSubagentPort(
              toolScheduler: deps.toolScheduler ?? defaultScheduler,
              executionPort: deps.executionPort,
              fileSystemPort: deps.fileSystemPort,
@@ -26162,7 +26290,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
              // Explore 子运行时会暴露 WebFetch，但之前没有继承主 runtime 的
              // HTTP client port，导致工具在真正发请求前抛出配置错误，而不是网络请求失败。
              httpClientPort: deps.httpClientPort,
-@@ -410,72 +461,93 @@ export function createDefaultSubagentPort(
+@@ -410,72 +469,93 @@ export function createDefaultSubagentPort(
              traceContext: request.traceContext,
            },
          );
@@ -26318,7 +26446,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
            return await childRuntime.executeTurn(request.prompt, undefined, {
              ...(childBinding
                ? {
-@@ -494,12 +566,13 @@ export function createDefaultSubagentPort(
+@@ -494,12 +574,13 @@ export function createDefaultSubagentPort(
              traceContext: request.traceContext,
            });
          } finally {
@@ -26333,7 +26461,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
              await childRuntime.cancelRunningRuntimeBackgroundTasks({
                reason: "subagent_cancelled",
                traceContext: request.traceContext,
-@@ -515,7 +588,13 @@ export function createDefaultSubagentPort(
+@@ -515,7 +596,13 @@ export function createDefaultSubagentPort(
              });
          }
        } finally {
@@ -26348,7 +26476,7 @@ index 372999d848356c01116f8041e1df4f31b558232e..0165b59892bf2cc86dabcc117301fd6e
        }
      },
    });
-@@ -618,18 +697,16 @@ function resolveSubagentToolAllowlist(
+@@ -618,18 +705,16 @@ function resolveSubagentToolAllowlist(
          .map((tool) => tool.name),
        ...parentAllowedMcpToolNames,
      ];
@@ -28221,10 +28349,19 @@ index 0000000000000000000000000000000000000000..feabd33d14c66c2a5f354b738e57559d
 +  };
 +}
 diff --git a/apps/zcode-cli/packages/core/src/subagent/runner.ts b/apps/zcode-cli/packages/core/src/subagent/runner.ts
-index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc86adf9eef 100644
+index d3c80c966ec10b99004621e87b98638389f3a496..789d50d2abeaf83531f697611521a98786a852ff 100644
 --- a/apps/zcode-cli/packages/core/src/subagent/runner.ts
 +++ b/apps/zcode-cli/packages/core/src/subagent/runner.ts
-@@ -119,6 +119,8 @@ export interface ExploreSubagentPortOptions {
+@@ -80,6 +80,8 @@ export interface ExploreSubagentRuntimeRequest {
+   onSessionReady?: () => Promise<void>;
+   permissionMode?: AgentProfile["permissionMode"];
+   prompt: string;
++  /** 仅供 God flow 部门继承主会话提示词。 */
++  godInheritedSystemPrompt?: string;
+   profile: AgentProfile;
+   registerMessageSink?: (sink: RuntimeTaskMessageSink) => void;
+   reportActivity?: () => void;
+@@ -119,6 +121,8 @@ export interface ExploreSubagentPortOptions {
    outputRootDir?: string;
    profiles?: readonly AgentProfile[];
    getAgentDefinitions?: GetAgentDefinitions;
@@ -28233,7 +28370,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
    builtInModelSelectionOverrides?: Partial<
      Record<"general-purpose" | "Explore", import("@zcode/shared").ModelSelection>
    >;
-@@ -137,7 +139,12 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -137,7 +141,12 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
    const initialProfiles = normalizeAgentProfiles(options.profiles ?? [], {
      builtInModelSelectionOverrides: options.builtInModelSelectionOverrides,
    });
@@ -28247,7 +28384,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
    const autoBackgroundMs = normalizeAutoBackgroundMs(options.autoBackgroundMs);
  
    const port: SubagentPort & { start: NonNullable<SubagentPort["start"]> } = {
-@@ -167,6 +174,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -167,6 +176,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
          }
          return port.start(executionRequest, {
            signal: launchOptions?.signal,
@@ -28255,7 +28392,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
            ...(launchOptions?.model ? { model: launchOptions.model } : {}),
            ...(launchOptions?.modelOverride ? { modelOverride: launchOptions.modelOverride } : {}),
          });
-@@ -445,7 +453,11 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -445,7 +455,11 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
        startOptions?: SubagentStartOptions,
      ): Promise<AgentBackgroundedOutput> {
        const { profile, request } = resolveAgentProfileForRequest(getProfiles(), rawRequest);
@@ -28268,7 +28405,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
        const startedAt = new Date(lifecycle.startedAt);
        const output = createAgentBackgroundedOutput(request, lifecycle);
  
-@@ -460,17 +472,24 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -460,17 +474,24 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
        );
        try {
          await writeAgentMetadataFile(lifecycle, request, "running");
@@ -28294,7 +28431,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
        void runBackgroundAgent(
          options,
          request,
-@@ -482,6 +501,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -482,6 +503,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
            ...(startOptions?.modelOverride ? { modelOverride: startOptions.modelOverride } : {}),
          },
          {
@@ -28302,7 +28439,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
            onSessionReady: async () => {
              await emitSubagentEvent(
                options,
-@@ -492,6 +512,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -492,6 +514,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
                  agentId: lifecycle.agentId,
                  agentType: request.agentType,
                  background: true,
@@ -28310,7 +28447,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
                  childSessionId: lifecycle.childSessionId,
                  description: request.description,
                  prompt: request.prompt,
-@@ -508,14 +529,21 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
+@@ -508,14 +531,21 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions):
            },
            onSessionStartFailed: readyGate.reject,
          },
@@ -28334,7 +28471,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
        }
  
        options.logger?.info("Explore subagent background task started", {
-@@ -806,9 +834,10 @@ function createSubagentLifecycle(
+@@ -806,9 +836,10 @@ function createSubagentLifecycle(
    options: ExploreSubagentPortOptions,
    request: SubagentRunRequest,
    profile: AgentProfile,
@@ -28346,7 +28483,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
    const startedAt = Date.now();
    const agentOutputDir = join(
      options.outputRootDir ?? join(tmpdir(), "zcode-agents"),
-@@ -913,6 +942,9 @@ async function sendMessageToLocalAgent(
+@@ -913,6 +944,9 @@ async function sendMessageToLocalAgent(
    if (sendOptions?.signal?.aborted) {
      return createSendMessageFailure(request, `SendMessage was aborted for ${request.to}.`);
    }
@@ -28356,7 +28493,7 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
  
    const task = registry.get(request.to);
    if (!task || task.type !== "local_agent") {
-@@ -922,6 +954,9 @@ async function sendMessageToLocalAgent(
+@@ -922,6 +956,9 @@ async function sendMessageToLocalAgent(
      );
    }
  
@@ -28366,7 +28503,15 @@ index d3c80c966ec10b99004621e87b98638389f3a496..5ccf7ecacdd85b497d06d200a2289dc8
    const message = createRuntimeTaskPendingMessage(request);
    if (!isTerminalRuntimeTask(task)) {
      return deliverMessageToRunningAgent(registry, task, message);
-@@ -1187,7 +1222,9 @@ async function runAgentToCompletion(
+@@ -1158,6 +1195,7 @@ async function runAgentToCompletion(
+       onSessionReady: notifySessionReady,
+       permissionMode: lifecycle.profile.permissionMode,
+       prompt: request.prompt,
++      godInheritedSystemPrompt: request.godInheritedSystemPrompt,
+       profile: lifecycle.profile,
+       registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
+       reportActivity: monitorOptions.reportActivity,
+@@ -1187,7 +1225,9 @@ async function runAgentToCompletion(
      content: [
        {
          type: "text",

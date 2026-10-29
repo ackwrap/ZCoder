@@ -6386,14 +6386,15 @@ index 0000000000000000000000000000000000000000..7fdc6263b78e7933dc7055db0ce85a74
 +} as const;
 diff --git a/packages/ui/src/i18n/god-departments/index.ts b/packages/ui/src/i18n/god-departments/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d5820f1e9f1d3d7e0a8cc073108477a93606ebea
+index 0000000000000000000000000000000000000000..7c18db5d493c712db5c28b08ef3c99c9e5381389
 --- /dev/null
 +++ b/packages/ui/src/i18n/god-departments/index.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,111 @@
 +export const godDepartmentsMessagesZhCN: Record<string, string> = {
 +  "chat.god.usage": "用法：/god [on|off|status]",
 +  "chat.god.on": "三省六部模式已开启。",
 +  "chat.god.off": "三省六部模式已关闭。",
++  "chat.god.restored": "当前会话已开启三省六部模式，可用 /god off 强制关闭。",
 +  "chat.god.error": "无法切换三省六部模式。",
 +  "settings.godDepartments.title": "三省六部",
 +  "settings.godDepartments.configure": "配置{department}",
@@ -6414,14 +6415,14 @@ index 0000000000000000000000000000000000000000..d5820f1e9f1d3d7e0a8cc073108477a9
 +  "settings.godDepartments.graph.forwardLegend": "需求、审议与任务分派",
 +  "settings.godDepartments.graph.returnLegend": "退回与汇报（虚线）",
 +  "settings.godDepartments.graph.runtimeNote": "God 模式按图中主线强制流转：门下批准当前方案后，尚书才能派发；六部及早朝回报尚书，尚书汇总给太子。实际实例由协调者的 GodFlow 创建；此图不是实时执行状态。",
-+  "settings.godDepartments.description": "使用 /god 开启，/god off 关闭。部门配置独立于全局子智能体；未指定模型时继承当前会话模型。",
++  "settings.godDepartments.description": "使用 /god 仅开启当前会话，/god off 强制停止流程并关闭。部门配置独立于全局子智能体；未指定模型时继承当前会话模型。",
 +  "settings.godDepartments.group.统筹": "统筹",
 +  "settings.godDepartments.group.三省": "三省",
 +  "settings.godDepartments.group.六部": "六部",
 +  "settings.godDepartments.group.辅助": "辅助",
 +  "settings.godDepartments.model": "模型",
 +  "settings.godDepartments.useModelPrompt": "使用模型自定义系统提示词",
-+  "settings.godDepartments.modelPromptOrder": "开启后，模型自定义系统提示词在前，部门职责提示词在后；不会替换部门职责。",
++  "settings.godDepartments.modelPromptOrder": "主会话开启自定义提示词后，当前流程所有部门自动启用，无需逐个打开。各部门同时读取自身模型已配置的提示词；此开关用于主会话未开启时单独启用。部门职责保留，相同提示词不重复。",
 +  "settings.godDepartments.modelPromptAvailable": "所选模型已配置自定义系统提示词。",
 +  "settings.godDepartments.modelPromptMissing": "所选模型尚未配置自定义系统提示词，开启后当前不会添加内容。",
 +  "settings.godDepartments.modelPromptInherited": "继承会话模型时，将在运行时查找该模型的自定义系统提示词。",
@@ -6449,6 +6450,7 @@ index 0000000000000000000000000000000000000000..d5820f1e9f1d3d7e0a8cc073108477a9
 +  "chat.god.usage": "Usage: /god [on|off|status]",
 +  "chat.god.on": "Three Departments and Six Ministries mode is on.",
 +  "chat.god.off": "Three Departments and Six Ministries mode is off.",
++  "chat.god.restored": "Three Departments and Six Ministries mode is enabled for this session. Use /god off to force it off.",
 +  "chat.god.error": "Unable to change Three Departments and Six Ministries mode.",
 +  "settings.godDepartments.title": "Three Departments and Six Ministries",
 +  "settings.godDepartments.configure": "Configure {department}",
@@ -6469,14 +6471,14 @@ index 0000000000000000000000000000000000000000..d5820f1e9f1d3d7e0a8cc073108477a9
 +  "settings.godDepartments.graph.forwardLegend": "Requests, review and assignment",
 +  "settings.godDepartments.graph.returnLegend": "Revisions and reporting (dashed)",
 +  "settings.godDepartments.graph.runtimeNote": "God mode enforces the main sequence: Menxia approves the current plan before Shangshu dispatches. Ministries and the briefing officer report to Shangshu, then Taizi finalizes. The coordinator's GodFlow creates instances; this is not live execution status.",
-+  "settings.godDepartments.description": "Use /god to enable and /god off to disable. Department settings are independent of global subagents; an unspecified model inherits the current session model.",
++  "settings.godDepartments.description": "Use /god to enable only for this session; /god off forcibly stops its flow and disables the mode. Department settings are independent of global subagents; an unspecified model inherits the current session model.",
 +  "settings.godDepartments.group.统筹": "Coordination",
 +  "settings.godDepartments.group.三省": "Three Departments",
 +  "settings.godDepartments.group.六部": "Six Ministries",
 +  "settings.godDepartments.group.辅助": "Support",
 +  "settings.godDepartments.model": "Model",
 +  "settings.godDepartments.useModelPrompt": "Use the model's custom system prompt",
-+  "settings.godDepartments.modelPromptOrder": "When enabled, the model's custom system prompt comes first, followed by the department's instructions; it does not replace them.",
++  "settings.godDepartments.modelPromptOrder": "When the main session enables custom prompts, all departments in the current flow automatically enable them and also load their own model's configured prompt. No per-department toggle is needed. This switch enables it independently when the main session has it off. Department instructions are retained and identical prompts are not repeated.",
 +  "settings.godDepartments.modelPromptAvailable": "The selected model has a custom system prompt.",
 +  "settings.godDepartments.modelPromptMissing": "The selected model has no custom system prompt configured; enabling this currently adds nothing.",
 +  "settings.godDepartments.modelPromptInherited": "When inheriting the session model, its custom system prompt is looked up at runtime.",
@@ -16408,7 +16410,7 @@ index 1aefe8150a0c41f4085f03e5e1de8552d512b0ab..e5fe2eeb83e50626426f12d7d37a4120
                    ? "opacity-100"
                    : "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 has-[[data-bot-group-delivery]]:opacity-100",
 diff --git a/packages/ui/src/v4/SessionPane.tsx b/packages/ui/src/v4/SessionPane.tsx
-index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce94d4cb2cc 100644
+index bcae9af6c03c6a1734285519a03d4e7509a52420..668022226e431287e966330cb4ca7fc758ae7f2c 100644
 --- a/packages/ui/src/v4/SessionPane.tsx
 +++ b/packages/ui/src/v4/SessionPane.tsx
 @@ -26,7 +26,6 @@ import {
@@ -16419,7 +16421,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    buildCustomSupplierKey,
    isHighspeedProviderId,
    isRemoteWorkspaceIdentity,
-@@ -63,7 +62,7 @@ import {
+@@ -63,14 +62,14 @@ import {
    resolveConversationSharePublishErrorMessageId,
    sanitizeConversationShareWarnings,
  } from "@/lib/conversationShareError.js";
@@ -16428,6 +16430,14 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
  import type {
    ConversationShareAllowedArtifact,
    ConversationShareTurnPreflightResult,
+   ImportedConversationShare,
+ } from "@zcode/services";
+ import { useCodingPlanBillingDiscountFromService } from "@/CodingPlanBillingDiscount.js";
+-import { toast } from "@/components/ui/toast.js";
++import { dismissToast, toast } from "@/components/ui/toast.js";
+ import { cn } from "@/components/lib/utils.js";
+ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+ import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
 @@ -136,10 +135,6 @@ import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
  import { buildGenUiModelContext } from "@zcode/shared/gen-ui";
  import { useWorkspaceHomePath } from "@/hooks/useWorkspaceHomePath.js";
@@ -16586,7 +16596,62 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      zcodeSessionService,
      zcodeTaskService,
    } = useServices();
-@@ -1144,6 +1192,55 @@ export function SessionPane({
+@@ -1061,6 +1109,54 @@ export function SessionPane({
+   const sessionLeaseReady = lease?.sessionId === sessionId;
+   const shouldMeasureExistingSessionOpen =
+     sessionLeaseReady && newlyCreatedSessionIdRef.current !== sessionId;
++  const godModeNoticeKey = JSON.stringify([workspacePath, workspaceIdentity, remoteSessionId, sessionId]);
++  const godModeNoticeRef = useRef<{ key: string | null; checked: boolean; toastId?: number }>({ key: null, checked: false });
++  useEffect(() => () => {
++    if (godModeNoticeRef.current.toastId !== undefined) dismissToast(godModeNoticeRef.current.toastId);
++  }, []);
++  useEffect(() => {
++    if (!sessionId || readOnly || !focused || !telemetryVisible) {
++      if (godModeNoticeRef.current.toastId !== undefined) dismissToast(godModeNoticeRef.current.toastId);
++      godModeNoticeRef.current = { key: null, checked: false };
++      return;
++    }
++    if (godModeNoticeRef.current.key !== godModeNoticeKey) {
++      if (godModeNoticeRef.current.toastId !== undefined) dismissToast(godModeNoticeRef.current.toastId);
++      godModeNoticeRef.current = { key: godModeNoticeKey, checked: false };
++    }
++    const activation = godModeNoticeRef.current;
++    if (activation.checked || !shouldMeasureExistingSessionOpen || !runtimeReady ||
++      !remoteAvailable || state.status !== "live") return;
++    let cancelled = false;
++    void zcodeAgentService.conversationGodFlowV4({
++      workspacePath,
++      ...(workspaceIdentity ? { workspaceIdentity } : {}),
++      ...(remoteSessionId ? { remoteSessionId } : {}),
++      sessionId,
++    }).then((result) => {
++      if (cancelled || godModeNoticeRef.current !== activation || activation.checked) return;
++      activation.checked = true;
++      if (result.godModeEnabled === true) {
++        onGodSidePane?.({
++          workspacePath,
++          ...(workspaceIdentity ? { workspaceIdentity } : {}),
++          ...(remoteSessionId ? { remoteSessionId } : {}),
++          parentSessionId: sessionId,
++          enabled: true,
++        });
++        activation.toastId = toast(intl.formatMessage({ id: "chat.god.restored" }), {
++          dedupeKey: `god-mode-restored:${godModeNoticeKey}`,
++          durationMs: 6000,
++          variant: "info",
++        });
++      }
++    }).catch(() => {
++      // 只读提示失败不阻断会话；连接恢复后再查，不把读取失败当成关闭。
++    });
++    return () => { cancelled = true; };
++  }, [focused, godModeNoticeKey, intl, onGodSidePane, readOnly, remoteAvailable, remoteSessionId, runtimeReady,
++    sessionId, shouldMeasureExistingSessionOpen, state.status, telemetryVisible, workspaceIdentity,
++    workspacePath, zcodeAgentService]);
+   useSessionOpenArmsTelemetry({
+     sessionId,
+     snapshot,
+@@ -1144,6 +1240,55 @@ export function SessionPane({
    const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
      useState<ChatViewSummaryPanelVariant | null>(null);
    const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -16642,7 +16707,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const [agentSectionOpen, setAgentSectionOpen] = useState(false);
    const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
    const [dropTargetController, setDropTargetController] =
-@@ -1892,15 +1989,71 @@ export function SessionPane({
+@@ -1892,15 +2037,71 @@ export function SessionPane({
      useZCodeSessionStore.getState().invalidateDraftRuntime(workspacePath, workspaceIdentity);
    }, [draftConfigRef, modelSelectionView?.revision, sessionId, workspaceIdentity, workspacePath]);
    const recommendStartPlan = useStartPlanRecommendation(modelSelectionView);
@@ -16719,7 +16784,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
    const billingDiscount = useCodingPlanBillingDiscountFromService(
      baseWorkspaceServices.codingPlanSubscriptionService,
-@@ -2020,6 +2173,17 @@ export function SessionPane({
+@@ -2020,6 +2221,17 @@ export function SessionPane({
      ],
    );
    const { settings: sharedSettings } = useSettings();
@@ -16737,7 +16802,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const readPlanIdentitySnapshot = usePlanIdentitySnapshot(
      sharedSettings?.providerFamilyDomain,
      sharedSettings?.providerFamilyDomain
-@@ -2071,6 +2235,7 @@ export function SessionPane({
+@@ -2071,6 +2283,7 @@ export function SessionPane({
        recentSubmissionOverride?: ComposerSubmissionConfig | null,
        creationTaskGroupId?: string | null,
        submittedDraftText?: string,
@@ -16745,7 +16810,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      ): Promise<CommandAck> => {
        // 离线点击/快捷键不得进入 accepted 命令恢复账本，更不能在重连后自动发送。
        if (!remoteAvailable) throw createRemoteWorkspaceDisconnectedError();
-@@ -2088,6 +2253,11 @@ export function SessionPane({
+@@ -2088,6 +2301,11 @@ export function SessionPane({
        const recentReceipt = recentSubmission
          ? prepareComposerRecentReceipt(recentScope, recentSubmission)
          : undefined;
@@ -16757,7 +16822,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        if (recentSubmission && sessionId && targetSessionId) {
          const projectService = baseWorkspaceServices.projectService;
          if (!projectService) throw new Error("project.service-unavailable");
-@@ -2161,6 +2331,7 @@ export function SessionPane({
+@@ -2161,6 +2379,7 @@ export function SessionPane({
                  sessionCreateSource ??
                  useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
                    .draftCreateSource,
@@ -16765,7 +16830,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
              }
            : recentReceipt
              ? {
-@@ -2187,6 +2358,7 @@ export function SessionPane({
+@@ -2187,6 +2406,7 @@ export function SessionPane({
                      ? { draftId: pendingDraft.draftId }
                      : {}),
                  },
@@ -16773,7 +16838,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                }
              : undefined,
        );
-@@ -2355,6 +2527,12 @@ export function SessionPane({
+@@ -2355,6 +2575,12 @@ export function SessionPane({
    );
    dispatchCommandRef.current = dispatchCommand;
  
@@ -16786,7 +16851,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const handleFetchFileChanges = useCallback(
      (target: ConversationRowTarget, options: ConversationFileChangesRequestOptions) => {
        const current = snapshotRef.current;
-@@ -2704,7 +2882,7 @@ export function SessionPane({
+@@ -2704,7 +2930,7 @@ export function SessionPane({
            return;
          }
  
@@ -16795,7 +16860,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
            const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
            if (
              (ack.status !== "accepted" && ack.status !== "duplicate") ||
-@@ -2719,9 +2897,11 @@ export function SessionPane({
+@@ -2719,9 +2945,11 @@ export function SessionPane({
            ...(workspaceIdentity ? { workspaceIdentity } : {}),
            ...(remoteSessionId ? { remoteSessionId } : {}),
            parentSessionId: sessionId,
@@ -16808,7 +16873,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          if (reference) {
            dispatchConversationSelectionAdd({
              targetSessionId: childSessionId,
-@@ -2766,7 +2946,7 @@ export function SessionPane({
+@@ -2766,7 +2994,7 @@ export function SessionPane({
        // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
        // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
        const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -16817,7 +16882,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          const ack = await dispatchCommand(
            "createSelectionSideSession",
            { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
-@@ -2788,8 +2968,10 @@ export function SessionPane({
+@@ -2788,8 +3016,10 @@ export function SessionPane({
          ...(workspaceIdentity ? { workspaceIdentity } : {}),
          ...(remoteSessionId ? { remoteSessionId } : {}),
          parentSessionId: sessionId,
@@ -16829,7 +16894,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        return true;
      },
      [
-@@ -2853,16 +3035,79 @@ export function SessionPane({
+@@ -2853,16 +3083,79 @@ export function SessionPane({
      [cliSlashCommandNames],
    );
  
@@ -16910,7 +16975,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      if (
        !sessionId ||
        !onOpenSelectionSideChat ||
-@@ -2873,7 +3118,7 @@ export function SessionPane({
+@@ -2873,7 +3166,7 @@ export function SessionPane({
          isMobileViewport: isMobileTextInputViewport,
        })
      ) {
@@ -16919,7 +16984,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      }
      const openNewSelectionSideChat = () => {
        void handleOpenSelectionSideConversation(undefined, true);
-@@ -2884,6 +3129,8 @@ export function SessionPane({
+@@ -2884,6 +3177,8 @@ export function SessionPane({
      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
      return [
        planAction,
@@ -16928,7 +16993,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        ...[
          { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
          { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-@@ -2893,10 +3140,12 @@ export function SessionPane({
+@@ -2893,10 +3188,12 @@ export function SessionPane({
      cliSlashCommandNames,
      handleDraftSwitchMode,
      handleOpenSelectionSideConversation,
@@ -16941,7 +17006,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      selectionSideChat,
      sessionId,
    ]);
-@@ -2982,6 +3231,8 @@ export function SessionPane({
+@@ -2982,6 +3279,8 @@ export function SessionPane({
        workspaceRemoteSessionId: remoteSessionId ?? undefined,
        modelSelectionView,
        logEpoch: snapshot?.logEpoch,
@@ -16950,7 +17015,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        theme,
        codePreviewSettings,
        sessionId,
-@@ -2997,7 +3248,8 @@ export function SessionPane({
+@@ -2997,7 +3296,8 @@ export function SessionPane({
        onNavigateToRow: handleNavigateToRow,
        onOpenBrowserUrl,
        onOpenAutomationsMain,
@@ -16960,7 +17025,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        onAutoOpenAssistantPptx: runtimeReady ? handleAutoOpenAssistantPptx : undefined,
        assistantPreviewPptxAutoOpenTarget,
        onOpenFileLink,
-@@ -3060,6 +3312,8 @@ export function SessionPane({
+@@ -3060,6 +3360,8 @@ export function SessionPane({
        remoteSessionId,
        modelSelectionView,
        snapshot?.logEpoch,
@@ -16969,7 +17034,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        theme,
        codePreviewSettings,
        sessionId,
-@@ -3075,7 +3329,8 @@ export function SessionPane({
+@@ -3075,7 +3377,8 @@ export function SessionPane({
        handleNavigateToRow,
        onOpenBrowserUrl,
        onOpenAutomationsMain,
@@ -16979,16 +17044,21 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        handleAutoOpenAssistantPptx,
        assistantPreviewPptxAutoOpenTarget,
        onOpenFileLink,
-@@ -3331,7 +3586,7 @@ export function SessionPane({
+@@ -3331,7 +3634,12 @@ export function SessionPane({
        expectedHeldQueueItemIds?: readonly string[],
        submission?: ComposerSubmissionConfig,
        onAccepted?: (messageId: string) => void,
 -    ): Promise<boolean | "confirmationRequired"> => {
 +    ): Promise<boolean | "confirmationRequired" | "blocked" | "uncertain"> => {
++      if (command.kind === "god" && command.action !== "invalid" &&
++        godModeNoticeRef.current.key === JSON.stringify([workspacePath, workspaceIdentity, remoteSessionId, targetSessionId])) {
++        godModeNoticeRef.current.checked = true;
++        if (godModeNoticeRef.current.toastId !== undefined) dismissToast(godModeNoticeRef.current.toastId);
++      }
        let type: CommandType | null = null;
        let payload: Record<string, unknown> = {};
        // compact 是可排队 input command，不走 CAS；resumeGoal 仍是 CAS。
-@@ -3342,6 +3597,14 @@ export function SessionPane({
+@@ -3342,6 +3650,14 @@ export function SessionPane({
          currentRoutingMode !== undefined &&
          currentRoutingMode !== "startNow";
        switch (command.kind) {
@@ -17003,7 +17073,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          case "compact":
            type = "compact";
            break;
-@@ -3380,6 +3643,14 @@ export function SessionPane({
+@@ -3380,6 +3696,14 @@ export function SessionPane({
          payload,
          targetSessionId,
          withBaseRevision ? baseRevision : undefined,
@@ -17018,7 +17088,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        );
        if (ack.status === "accepted") onAccepted?.(ack.commandId);
        if (ack.reasonCode === "guard.heldQueueConfirmationStale") {
-@@ -3389,12 +3660,33 @@ export function SessionPane({
+@@ -3389,12 +3713,33 @@ export function SessionPane({
          logger.warn(
            `[v4-pane] slash ${command.kind} 被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`,
          );
@@ -17053,7 +17123,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        } else if (command.kind === "compact" && compactExpectedToQueue) {
          toast(intl.formatMessage({ id: "chat.compact.queued" }));
        } else if (heldQueueDisposition === "clearQueueAndSend") {
-@@ -3402,7 +3694,7 @@ export function SessionPane({
+@@ -3402,7 +3747,7 @@ export function SessionPane({
        }
        return true;
      },
@@ -17062,7 +17132,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    );
  
    const readGroupedDraftId = useCallback(
-@@ -3600,6 +3892,11 @@ export function SessionPane({
+@@ -3600,6 +3945,11 @@ export function SessionPane({
          contextAttachmentCount,
        });
  
@@ -17074,7 +17144,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        if (!(await ensureDraftModelReadyForSend())) {
          return "blocked" as const;
        }
-@@ -3653,7 +3950,31 @@ export function SessionPane({
+@@ -3653,7 +4003,31 @@ export function SessionPane({
          if (!chosen) return "blocked" as const;
          if (chosen !== original) {
            onAcceptedSelection = captureAcceptedModelSelection(chosen, original);
@@ -17107,7 +17177,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          }
        }
        const prewarmTargetBeforeSend =
-@@ -3675,13 +3996,15 @@ export function SessionPane({
+@@ -3675,13 +4049,15 @@ export function SessionPane({
            expectedHeldQueueItemIds,
            submission,
          );
@@ -17124,7 +17194,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          slashCommand?.kind === "sendGoalCommand" ||
          slashCommand?.kind === "resumeGoal" ||
          slashCommand?.kind === "emptyGoal" ||
-@@ -3709,7 +4032,10 @@ export function SessionPane({
+@@ -3709,7 +4085,10 @@ export function SessionPane({
        const draftBinding = sessionId === null ? await waitForDraftSession() : null;
        if (draftBinding) {
          await ensureDraftPrewarmConfigBeforeSendRef.current(draftBinding.sessionId);
@@ -17136,7 +17206,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        }
        const targetSessionId = sessionId ?? draftBinding!.sessionId;
        if (draftBinding && draftSlashCommand) {
-@@ -3722,7 +4048,19 @@ export function SessionPane({
+@@ -3722,7 +4101,19 @@ export function SessionPane({
            submission,
            (messageId) => reportDraftCreated(targetSessionId, createSourceAtSend, messageId),
          );
@@ -17157,7 +17227,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          if (consumed) {
            draftBinding.promote();
            await handleDraftSessionCreated(
-@@ -3817,6 +4155,7 @@ export function SessionPane({
+@@ -3817,6 +4208,7 @@ export function SessionPane({
        dispatchCommand,
        recommendStartPlan,
        baseWorkspaceServices,
@@ -17165,7 +17235,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        captureAcceptedModelSelection,
        dispatchSlashCommand,
        ensureDraftModelReadyForSend,
-@@ -3833,6 +4172,10 @@ export function SessionPane({
+@@ -3833,6 +4225,10 @@ export function SessionPane({
        sessionId,
        settleCurrentQueueInputs,
        waitForDraftSession,
@@ -17176,7 +17246,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      ],
    );
  
-@@ -3891,6 +4234,27 @@ export function SessionPane({
+@@ -3891,6 +4287,27 @@ export function SessionPane({
      timelineScrollToBottomRef.current?.();
    }, []);
  
@@ -17204,7 +17274,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const handleSendText = useCallback(
      async (
        text: string,
-@@ -3898,6 +4262,30 @@ export function SessionPane({
+@@ -3898,6 +4315,30 @@ export function SessionPane({
      ): Promise<ConversationComposerSendResult> => {
        // 发送前冻结本次 admission 预期：command ACK 回来时 projection 可能已经切到 running，
        // 不能用更新后的 enqueue mode 反推刚提交的 prompt 是否原本立即发送。
@@ -17235,7 +17305,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        const shouldFocusLatest = shouldFocusTimelineAfterComposerSend({
          draftMode: sessionId === null,
          inputRoutingMode: snapshotRef.current?.inputRouting.mode ?? null,
-@@ -3933,7 +4321,16 @@ export function SessionPane({
+@@ -3933,7 +4374,16 @@ export function SessionPane({
          throw error;
        }
      },
@@ -17253,7 +17323,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    );
    // 上面那个 ref 的唯一赋值点（见 handleSendWorkflowSaveRequest 的说明）。
    sendTextRef.current = handleSendText;
-@@ -4438,7 +4835,11 @@ export function SessionPane({
+@@ -4438,7 +4888,11 @@ export function SessionPane({
    );
  
    const handleRecoverCustomModelSelection = useCallback(
@@ -17266,7 +17336,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        const decoded = decodeCustomModelValue(value);
        if (!decoded?.providerId) {
          return;
-@@ -4476,6 +4877,54 @@ export function SessionPane({
+@@ -4476,6 +4930,54 @@ export function SessionPane({
          },
          workspaceIdentity,
        );
@@ -17321,7 +17391,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        store.setConfigOptionsStatus(workspacePath, "loading", workspaceIdentity);
        logger.info("[v4-pane] configOptions error custom provider recovery start", {
          modelId: modelSelection.modelId,
-@@ -4498,7 +4947,6 @@ export function SessionPane({
+@@ -4498,7 +5000,6 @@ export function SessionPane({
            provider: displayProvider,
            zcodeSessionService,
          });
@@ -17329,7 +17399,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
          store.setConfigOptions(workspacePath, prepareResult.configOptions ?? [], workspaceIdentity);
          store.setConfigOptionsStatus(workspacePath, "ready", workspaceIdentity);
          store.setSlashCommands(workspacePath, prepareResult.slashCommands ?? [], workspaceIdentity);
-@@ -4531,12 +4979,64 @@ export function SessionPane({
+@@ -4531,12 +5032,64 @@ export function SessionPane({
      ],
    );
  
@@ -17397,7 +17467,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    );
  
    // context usage 面板的压缩入口（命令文本 = "/compact"，复用 slash 解析路径）。
-@@ -4661,6 +5161,7 @@ export function SessionPane({
+@@ -4661,6 +5214,7 @@ export function SessionPane({
  
    useEffect(() => {
      if (
@@ -17405,7 +17475,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        !sessionId ||
        !lease?.store ||
        !shouldAutoLoadIncompleteLeadingTurn(snapshot, state.loadingOlder)
-@@ -4683,7 +5184,14 @@ export function SessionPane({
+@@ -4683,7 +5237,14 @@ export function SessionPane({
        turnId: snapshot?.rows.window[0]?.turnId,
      });
      void lease.store.loadOlder();
@@ -17421,7 +17491,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
  
    // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
    // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
-@@ -4704,6 +5212,27 @@ export function SessionPane({
+@@ -4704,6 +5265,27 @@ export function SessionPane({
    const retryActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
    // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
    const forkActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
@@ -17449,7 +17519,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    // editUserQuery 已由 command 层防御 latest real user query，并在 running
    // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
    const editActionsEnabled = runtimeReady && !readOnly && !selectionSideChat && Boolean(sessionId);
-@@ -4943,7 +5472,8 @@ export function SessionPane({
+@@ -4943,7 +5525,8 @@ export function SessionPane({
    const shouldUseStatusPanelInlineLayout =
      !isDraft &&
      shouldUseConversationStatusPanelInlineLayout({
@@ -17459,7 +17529,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        variant: statusPanelVariant,
      });
    const statusPanelLayout = !shouldUseStatusPanelInlineLayout
-@@ -5014,42 +5544,6 @@ export function SessionPane({
+@@ -5014,42 +5597,6 @@ export function SessionPane({
      setPendingSettingsSectionIntent("modelProvider");
      openSettingsTab();
    }, [openSettingsTab]);
@@ -17502,7 +17572,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
    const handleConfirmShareDisclosure = useCallback(async () => {
      if (!sessionId || !shareDraft || sharePublishing) return;
      const productTurnIds = getConversationShareSelectedProductTurnIds(
-@@ -5369,6 +5863,8 @@ export function SessionPane({
+@@ -5369,6 +5916,8 @@ export function SessionPane({
        replay.clientContext?.sessionCreateSource,
        undefined,
        replay.clientContext?.taskGroupId,
@@ -17511,7 +17581,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
      )
        .then((ack) => {
          if (
-@@ -5414,6 +5910,7 @@ export function SessionPane({
+@@ -5414,6 +5963,7 @@ export function SessionPane({
        skillCatalogSessionId={effectiveSessionId}
        draftMode={isDraft}
        draftConfig={draftConfig}
@@ -17519,7 +17589,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        composerDraft={composerDraft}
        rootDraftScopeKey={composerScopeKey(newTaskComposerScope)}
        replaceComposerDraft={replaceComposerDraft}
-@@ -5482,11 +5979,15 @@ export function SessionPane({
+@@ -5482,11 +6032,15 @@ export function SessionPane({
        onDismissError={handleDismissComposerError}
        onRetryInitialization={handleRetrySubscribe}
        onOpenModelSettings={handleOpenModelSettings}
@@ -17537,7 +17607,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        onDropTargetControllerChange={handleDropTargetControllerChange}
      />
    );
-@@ -5570,12 +6071,6 @@ export function SessionPane({
+@@ -5570,12 +6124,6 @@ export function SessionPane({
            onShown={quotaBanner.markShown}
            billingDiscountActive={billingDiscount.active}
            billingDiscountConfig={billingDiscount.config}
@@ -17550,7 +17620,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
            onDismiss={quotaBanner.dismiss}
          />
        ) : null}
-@@ -5628,6 +6123,14 @@ export function SessionPane({
+@@ -5628,6 +6176,14 @@ export function SessionPane({
          />
        ) : null}
        {composerNode}
@@ -17565,7 +17635,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
        {/* 办公模式显示主动任务推荐；编程模式保留原有小型场景入口。 */}
        {/* 完整视图浮窗只露出输入框，草稿推荐提示不进入浮窗。 */}
        {isDraft &&
-@@ -5759,6 +6262,39 @@ export function SessionPane({
+@@ -5759,6 +6315,39 @@ export function SessionPane({
            />
            {!isDraft ? (
              <ConversationStatusPanel
@@ -17605,7 +17675,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                workspacePath={workspacePath}
                workspaceIdentity={workspaceIdentity}
                gitSummary={gitSummary}
-@@ -5778,6 +6314,7 @@ export function SessionPane({
+@@ -5778,6 +6367,7 @@ export function SessionPane({
                isWebRemoteControl={compactForRemoteControl}
                isMobileViewport={isMobileTextInputViewport}
                layoutMode={statusPanelLayout}
@@ -17613,7 +17683,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                summaryPanelVariantOverride={effectiveSummaryPanelVariantOverride}
                onVariantChange={handleSummaryPanelVariantChange}
                terminalSectionOpen={terminalSectionOpen}
-@@ -5800,9 +6337,9 @@ export function SessionPane({
+@@ -5800,9 +6390,9 @@ export function SessionPane({
                }
                onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
                onOpenBackgroundBash={
@@ -17625,7 +17695,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                          workspacePath,
                          workspaceIdentity: workspaceIdentity ?? undefined,
                          remoteSessionId: remoteSessionId ?? undefined,
-@@ -5862,7 +6399,7 @@ export function SessionPane({
+@@ -5862,7 +6452,7 @@ export function SessionPane({
                  workspacePath={workspacePath}
                  workspaceIdentity={workspaceIdentity}
                >
@@ -17634,7 +17704,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                    compactForRemoteControl={compactForRemoteControl}
                    scrollToBottomActionRef={timelineScrollToBottomRef}
                    scrollToQueryActionRef={timelineScrollToQueryRef}
-@@ -5909,7 +6446,7 @@ export function SessionPane({
+@@ -5909,7 +6499,7 @@ export function SessionPane({
                          codePreviewSettings={codePreviewSettings}
                          onOpenShareUrl={onOpenBrowserUrl ? handleOpenImportedShareUrl : undefined}
                          onOpenFileLink={onOpenFileLink}
@@ -17643,7 +17713,7 @@ index bcae9af6c03c6a1734285519a03d4e7509a52420..6b84b29ecae1af1b7d9e75b6f1eb1ce9
                        />
                      ) : null
                    }
-@@ -5976,6 +6513,24 @@ export function SessionPane({
+@@ -5976,6 +6566,24 @@ export function SessionPane({
              </SessionPluginReferenceIconBoundary>
            )}
          </div>
