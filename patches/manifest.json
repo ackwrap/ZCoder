@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "98d505f19a514d0e409929820229564f59d88dd2",
-  "tree": "d038ad95af671c78c58dccd3cbc71ca8c520266e",
+  "sourceHead": "6d18529a0a1ac29fd855f6ecfd7d7d2db70d81ae",
+  "tree": "74e714e4a17feeb610f3c835c387f81f8868db6d",
   "excludedChangedPaths": [
     "packages/zcode-cua/test/computer-op.windows.mjs"
   ],
@@ -653,7 +653,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "bb5bde5d9a17ff18f80e07cb3b5e9ffcf46a61d54d153629d14a7dc808e91c67",
+      "sha256": "bb9e9437d4c16a5b29ed205d85834867a9a1c35b21af4f941f9e0ed2c56272e6",
       "paths": [
         "packages/ui/src/App.tsx",
         "packages/ui/src/McpStatusDialog.tsx",

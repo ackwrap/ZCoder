@@ -2940,9 +2940,18 @@ index a5b40d3fd1d98a45ad535d1acd0d4305ade4a24c..c71d46141b76069b165192e73ae3bfd0
    );
  }
 diff --git a/packages/ui/src/app-shell/AnimatedSidePanePanel.tsx b/packages/ui/src/app-shell/AnimatedSidePanePanel.tsx
-index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6632c0fb9 100644
+index 1ee15e538930b0e969753d43d7def1fe86b63bcd..17d111df2e757e01c80fd471c93b30c904d7571f 100644
 --- a/packages/ui/src/app-shell/AnimatedSidePanePanel.tsx
 +++ b/packages/ui/src/app-shell/AnimatedSidePanePanel.tsx
+@@ -1,7 +1,7 @@
+ /* eslint-disable max-lines -- Side pane 当前集中承载 tabs、browser/git/code-viewer 内容；完整拆分需按 pane 功能边界继续推进。 */
+ import type { CreateTaskRequest } from "@/app-shell/types.js";
+ import { ServiceProvider, useComposerClientNamespace } from "@/hooks/useServices.js";
+-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
++import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+ import type { PanelImperativeHandle } from "react-resizable-panels";
+ import type { IServiceAccessor } from "@zcode/services";
+ import {
 @@ -18,6 +18,11 @@ import { horizontalListSortingStrategy, SortableContext } from "@dnd-kit/sortabl
  import type { BrowserViewScreenshotSurfacePreparePayload, GitChangeSourceId } from "@zcode/shared";
  import { FileManagerPane } from "@/WorkspaceFileTree.js";
@@ -2955,15 +2964,16 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
  import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
  import { composerScopeKey, resolveComposerScope } from "@/v4/composer/composerDraftStore.js";
  import { SidePaneTerminalPane } from "@/SidePaneTerminalPane.js";
-@@ -64,6 +69,7 @@ import {
- } from "@/plugin-ui/index.js";
- import { WorkflowRunSidePane } from "@/app-shell/WorkflowRunSidePane.js";
- import { WorkflowRunDirectorySidePane } from "@/app-shell/WorkflowRunDirectorySidePane.js";
-+import { GodSidePane } from "@/app-shell/GodSidePane.js";
- import { WorkflowActorSessionSidePane } from "@/app-shell/WorkflowActorSessionSidePane.js";
- import { WorkflowWorkspaceSidePane } from "@/app-shell/WorkflowWorkspaceSidePane.js";
- import { WorkflowArtifactSidePane } from "@/app-shell/WorkflowArtifactSidePane.js";
-@@ -460,6 +466,8 @@ export function AnimatedSidePanePanel({
+@@ -119,6 +124,8 @@ import {
+   type LucideIcon,
+ } from "lucide-react";
+ 
++const GodSidePane = lazy(() => import("@/app-shell/GodSidePane.js").then((module) => ({ default: module.GodSidePane })));
++
+ const SIDE_PANE_CONTENT_WIDTH_LOCK_DURATION_MS = 200;
+ const PREVIEW_PANE_RESIZE_SETTLE_DELAY_MS = 220;
+ type TabsScrollMaskEdges = {
+@@ -460,6 +467,8 @@ export function AnimatedSidePanePanel({
    const isOfficeMode = useIsOfficeMode();
    const developerToolsEnabled = useDeveloperToolsVisibility();
    const isMobileTextInputViewport = useIsMobileTextInputViewport();
@@ -2972,7 +2982,7 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
    const isDragCollapsible = !isVisible;
    const isResizeDisabled = !isVisible;
    const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
-@@ -960,6 +968,7 @@ export function AnimatedSidePanePanel({
+@@ -960,6 +969,7 @@ export function AnimatedSidePanePanel({
          planTitle: intl.formatMessage({ id: "planTool.panel.planTab" }),
          workflowRunTitle: intl.formatMessage({ id: "sidePane.workflowRun" }),
          workflowDirectoryTitle: intl.formatMessage({ id: "sidePane.workflowDirectory" }),
@@ -2980,7 +2990,7 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
          workflowActorTitle: intl.formatMessage({ id: "sidePane.workflowActor" }),
          workflowScriptTitle: intl.formatMessage({ id: "sidePane.workflowScript" }),
          workflowArtifactTitle: intl.formatMessage({ id: "sidePane.workflowArtifact" }),
-@@ -1109,7 +1118,7 @@ export function AnimatedSidePanePanel({
+@@ -1109,7 +1119,7 @@ export function AnimatedSidePanePanel({
                                    onCloseTab={onCloseTab}
                                    onCloseOtherTabs={onCloseOtherTabs}
                                    onCloseAllTabs={onCloseAllTabs}
@@ -2989,7 +2999,7 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
                                  />
                                );
                              })}
-@@ -1206,6 +1215,7 @@ export function AnimatedSidePanePanel({
+@@ -1206,6 +1216,7 @@ export function AnimatedSidePanePanel({
                            />
                          ) : tab.type === "subagent-session" ? (
                            <SubagentSessionSidePane
@@ -2997,7 +3007,7 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
                              tab={tab}
                              focused={isVisible && tab.id === contentActiveTabId}
                              compactForRemoteControl={mobileOverlay}
-@@ -1238,6 +1248,7 @@ export function AnimatedSidePanePanel({
+@@ -1238,6 +1249,7 @@ export function AnimatedSidePanePanel({
                            />
                          ) : tab.type === "plan-detail" ? (
                            <PlanDetailSidePane
@@ -3005,16 +3015,20 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
                              tab={tab}
                              onOpenBrowserUrl={onOpenBrowserUrl}
                              onOpenCodeViewer={onOpenCodeViewer}
-@@ -1257,6 +1268,8 @@ export function AnimatedSidePanePanel({
+@@ -1257,6 +1269,12 @@ export function AnimatedSidePanePanel({
                                ? {}
                                : { onOpenWorkflowWorkspace })}
                            />
 +                        ) : tab.type === "god" ? (
-+                          <GodSidePane tab={tab} visible={isVisible && tab.id === contentActiveTabId} onOpenSubagentSession={onOpenSubagentSession} />
++                          isVisible && tab.id === contentActiveTabId ? (
++                            <Suspense fallback={<p role="status" className="p-4 text-ui-sm text-foreground-subtle">{intl.formatMessage({ id: "sidePane.god.loading" })}</p>}>
++                              <GodSidePane tab={tab} visible onOpenSubagentSession={onOpenSubagentSession} />
++                            </Suspense>
++                          ) : null
                          ) : tab.type === "workflow-directory" ? (
                            // 类型分支必须先收窄，回调缺席在**分支内部**处理：把
                            // `&& onOpenWorkflowRun` 写进条件会让这个 tab 类型继续留在后面
-@@ -1315,6 +1328,9 @@ export function AnimatedSidePanePanel({
+@@ -1315,6 +1333,9 @@ export function AnimatedSidePanePanel({
                              mobileOverlay={mobileOverlay}
                              canOpenLocalFileManager={Boolean(isDesktop)}
                              onNavigate={(source) => onNavigateFileManager(tab.id, source)}
@@ -3024,7 +3038,7 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
                              onClose={() => onCloseTab(tab.id)}
                              workspacePath={workspaceAbsPath}
                              onOpenBrowserUrl={onOpenBrowserUrl}
-@@ -1332,6 +1348,8 @@ export function AnimatedSidePanePanel({
+@@ -1332,6 +1353,8 @@ export function AnimatedSidePanePanel({
                                isMobileOverlay: mobileOverlay,
                                isResizeSettling: isWindowResizeSettling,
                                isSidePaneVisible: isVisible,
@@ -3035,11 +3049,11 @@ index 1ee15e538930b0e969753d43d7def1fe86b63bcd..0ec3123a018d6318a56a338387f051e6
                            />
 diff --git a/packages/ui/src/app-shell/GodFlowDiagram.tsx b/packages/ui/src/app-shell/GodFlowDiagram.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..aceb9a9fc34d868605d3ed2704f331f6d7763764
+index 0000000000000000000000000000000000000000..5b77be7d347fc1160394e8e15e256bc6fc2fef9d
 --- /dev/null
 +++ b/packages/ui/src/app-shell/GodFlowDiagram.tsx
 @@ -0,0 +1,275 @@
-+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
++import { memo, useEffect, useId, useRef, useState, type ReactNode } from "react";
 +import { Bell, Building2, Coins, Crown, FileSearch, FileText, Landmark, Scale, Sparkles, Swords, Users, type LucideIcon } from "lucide-react";
 +import type { GodFlowAssignmentView, GodFlowView } from "@zcode/shared/zcode-protocol-v4";
 +import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -3089,7 +3103,7 @@ index 0000000000000000000000000000000000000000..aceb9a9fc34d868605d3ed2704f331f6
 +  return lines;
 +}
 +
-+export function GodFlowDiagram({ flow, resident, reducedMotion, onOpenRole }: {
++export const GodFlowDiagram = memo(function GodFlowDiagram({ flow, resident, reducedMotion, onOpenRole }: {
 +  flow: GodFlowView;
 +  resident: boolean;
 +  reducedMotion: boolean;
@@ -3313,14 +3327,14 @@ index 0000000000000000000000000000000000000000..aceb9a9fc34d868605d3ed2704f331f6
 +      </div>)}
 +    </section>}
 +  </div>;
-+}
++});
 diff --git a/packages/ui/src/app-shell/GodSidePane.tsx b/packages/ui/src/app-shell/GodSidePane.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4ba3cecfd
+index 0000000000000000000000000000000000000000..e7be8f5033820e2e7e602ee047a908ec95566592
 --- /dev/null
 +++ b/packages/ui/src/app-shell/GodSidePane.tsx
-@@ -0,0 +1,207 @@
-+import { useEffect, useMemo, useRef, useState } from "react";
+@@ -0,0 +1,249 @@
++import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 +import type { GodFlowAssignmentView, GodFlowView } from "@zcode/shared/zcode-protocol-v4";
 +import { GodFlowDiagram } from "@/app-shell/GodFlowDiagram.js";
 +import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
@@ -3342,7 +3356,24 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +    ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
 +    ...(tab.remoteSessionId ? { remoteSessionId: tab.remoteSessionId } : {}),
 +  }), [tab.workspacePath, tab.workspaceIdentity, tab.remoteSessionId]);
++  const contentKey = JSON.stringify([tab.workspaceKey, scope, tab.parentSessionId]);
++  const [readyKey, setReadyKey] = useState<string | null>(null);
++  useEffect(() => {
++    if (!visible) {
++      setReadyKey(null);
++      return;
++    }
++    let alive = true;
++    // 缓存命中时也先让主会话和侧栏外框绘制，再挂载看板订阅与图形。
++    let frame = requestAnimationFrame(() => {
++      frame = requestAnimationFrame(() => {
++        startTransition(() => setReadyKey((previous) => alive ? contentKey : previous));
++      });
++    });
++    return () => { alive = false; cancelAnimationFrame(frame); };
++  }, [contentKey, visible]);
 +  if (!visible) return null;
++  if (readyKey !== contentKey) return <p role="status" className="p-4 text-ui-sm text-foreground-subtle">{intl.formatMessage({ id: "sidePane.god.loading" })}</p>;
 +  return <V4PaneConversationProvider scope={scope} unavailableFallback={<p className="p-4 text-ui-sm text-foreground-subtle">{intl.formatMessage({ id: "sidePane.god.unavailable" })}</p>}>
 +    <GodSidePaneContents tab={tab} visible={visible} onOpenSubagentSession={onOpenSubagentSession} />
 +  </V4PaneConversationProvider>;
@@ -3350,6 +3381,19 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +
 +type Load = { key: string; status: "loading" | "ready" | "error"; flow: GodFlowView | null; resident?: boolean };
 +type OpenStatus = { key: string; status: "opening" | "failed" | "unavailable" } | null;
++
++function sameFlow(left: GodFlowView | null, right: GodFlowView | null): boolean {
++  if (left === right) return true;
++  if (!left || !right || left.flowId !== right.flowId || left.revision !== right.revision ||
++    left.stage !== right.stage || left.task !== right.task || left.reason !== right.reason ||
++    left.approvedRevision !== right.approvedRevision || left.assignments.length !== right.assignments.length) return false;
++  return left.assignments.every((item, index) => {
++    const other = right.assignments[index];
++    return other !== undefined && item.id === other.id && item.revision === other.revision &&
++      item.role === other.role && item.kind === other.kind && item.status === other.status &&
++      item.task === other.task && item.result === other.result && item.canAnimate === other.canAnimate;
++  });
++}
 +
 +function GodSidePaneContents({ tab, visible, onOpenSubagentSession }: {
 +  tab: GodSidePaneTab;
@@ -3382,9 +3426,9 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +  }, [layer, visible, tab.parentSessionId]);
 +  const { intl } = useZCodeIntl();
 +  const key = JSON.stringify([tab.workspaceKey, tab.workspacePath, tab.workspaceIdentity, tab.remoteSessionId, tab.parentSessionId]);
-+  const [load, setLoad] = useState<Load>({ key, status: "loading", flow: null });
-+  const text = (id: string) => intl.formatMessage({ id: `sidePane.god.${id}` });
 +  const openKey = JSON.stringify([key, generation, visible, rpcReady, runtimeAvailable]);
++  const [load, setLoad] = useState<Load>({ key: openKey, status: "loading", flow: null });
++  const text = (id: string) => intl.formatMessage({ id: `sidePane.god.${id}` });
 +  const openRequestRef = useRef({ key: openKey, version: 0, inFlight: false, mounted: false });
 +  if (openRequestRef.current.key !== openKey) {
 +    openRequestRef.current = { key: openKey, version: openRequestRef.current.version + 1, inFlight: false, mounted: openRequestRef.current.mounted };
@@ -3398,7 +3442,7 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +    };
 +  }, []);
 +
-+  const openRole = async (role: Role) => {
++  const openRole = useCallback(async (role: Role) => {
 +    const request = openRequestRef.current;
 +    if (!onOpenSubagentSession || !visible || !rpcReady || !runtimeAvailable || !tab.parentSessionId || request.inFlight) return;
 +    request.inFlight = true;
@@ -3441,7 +3485,7 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +        parentSessionId: tab.parentSessionId,
 +        childSessionId: item.childSessionId,
 +        subagentType: item.subagentType,
-+        title: text(role),
++        title: intl.formatMessage({ id: `sidePane.god.${role}` }),
 +      });
 +      setOpenStatus(null);
 +    } catch {
@@ -3449,15 +3493,19 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +    } finally {
 +      request.inFlight = false;
 +    }
-+  };
++  }, [intl, onOpenSubagentSession, openKey, rpcReady, runtimeAvailable, services, tab.parentSessionId,
++    tab.remoteSessionId, tab.workspaceIdentity, tab.workspacePath, visible]);
 +
 +  useEffect(() => {
 +    let alive = true;
++    let visibilityVersion = 0;
 +    let timer: ReturnType<typeof setTimeout> | undefined;
 +    let inFlight = false;
 +    const refresh = async () => {
 +      if (!alive || inFlight || document.visibilityState === "hidden") return;
 +      inFlight = true;
++      const version = visibilityVersion;
++      const valid = () => alive && version === visibilityVersion && document.visibilityState !== "hidden";
 +      try {
 +        const result = await services.zcodeAgentService.conversationGodFlowV4({
 +          workspacePath: tab.workspacePath,
@@ -3465,41 +3513,49 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +          ...(tab.remoteSessionId ? { remoteSessionId: tab.remoteSessionId } : {}),
 +          sessionId: tab.parentSessionId,
 +        });
-+        if (alive && document.visibilityState !== "hidden") setLoad({ key, status: "ready", flow: result.flow, resident: result.resident });
++        if (valid()) startTransition(() => {
++          setLoad((previous) => {
++            if (!valid()) return previous;
++            const unchanged = previous.key === openKey && sameFlow(previous.flow, result.flow);
++            if (unchanged && previous.status === "ready" && previous.resident === result.resident) return previous;
++            return { key: openKey, status: "ready", flow: unchanged ? previous.flow : result.flow, resident: result.resident };
++          });
++        });
 +      } catch {
-+        if (alive && document.visibilityState !== "hidden") setLoad({ key, status: "error", flow: null });
++        if (valid()) setLoad({ key: openKey, status: "error", flow: null });
 +      } finally {
 +        inFlight = false;
 +        if (alive) timer = setTimeout(refresh, 3000);
 +      }
 +    };
 +    const onVisibility = () => {
++      visibilityVersion += 1;
 +      if (document.visibilityState === "visible") {
 +        if (inFlight) return;
-+        setLoad({ key, status: "loading", flow: null });
++        setLoad({ key: openKey, status: "loading", flow: null });
 +        if (timer) clearTimeout(timer);
 +        void refresh();
 +      } else {
-+        setLoad({ key, status: "loading", flow: null });
++        setLoad({ key: openKey, status: "loading", flow: null });
 +      }
 +    };
 +    if (visible && rpcReady && runtimeAvailable && tab.parentSessionId) {
-+      setLoad({ key, status: "loading", flow: null });
++      setLoad({ key: openKey, status: "loading", flow: null });
 +      document.addEventListener("visibilitychange", onVisibility);
 +      void refresh();
 +    } else {
-+      setLoad({ key, status: rpcReady && runtimeAvailable ? "ready" : "error", flow: null });
++      setLoad({ key: openKey, status: rpcReady && runtimeAvailable ? "ready" : "error", flow: null });
 +    }
 +    return () => {
 +      alive = false;
 +      if (timer) clearTimeout(timer);
 +      document.removeEventListener("visibilitychange", onVisibility);
 +    };
-+  }, [key, generation, visible, rpcReady, runtimeAvailable, services, tab.workspacePath, tab.workspaceIdentity, tab.remoteSessionId, tab.parentSessionId]);
++  }, [openKey, visible, rpcReady, runtimeAvailable, services, tab.workspacePath, tab.workspaceIdentity, tab.remoteSessionId, tab.parentSessionId]);
 +
 +  const current: Load = !rpcReady || !runtimeAvailable
-+    ? { key, status: "error", flow: null }
-+    : load.key === key ? load : { key, status: "loading", flow: null };
++    ? { key: openKey, status: "error", flow: null }
++    : load.key === openKey ? load : { key: openKey, status: "loading", flow: null };
 +  const flow = current.flow;
 +  return <div className="h-full overflow-auto p-4">
 +    <div className="mb-3 flex items-center justify-between gap-2">
@@ -3523,7 +3579,7 @@ index 0000000000000000000000000000000000000000..c211e911049504270b0533a98cbd53a4
 +            {text(flowAnimationEnabled ? "pauseAnimation" : "resumeAnimation")}
 +          </button>
 +        </div>
-+        <GodFlowDiagram key={JSON.stringify([key, flow.flowId, flow.revision])} flow={flow} resident={Boolean(current.resident)} reducedMotion={!flowAnimationEnabled} onOpenRole={onOpenSubagentSession ? (role) => void openRole(role) : undefined} />
++        <GodFlowDiagram key={JSON.stringify([key, flow.flowId, flow.revision])} flow={flow} resident={Boolean(current.resident)} reducedMotion={!flowAnimationEnabled} onOpenRole={onOpenSubagentSession ? openRole : undefined} />
 +      </>}
 +  </div>;
 +}
