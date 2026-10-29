@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "6d18529a0a1ac29fd855f6ecfd7d7d2db70d81ae",
-  "tree": "74e714e4a17feeb610f3c835c387f81f8868db6d",
+  "sourceHead": "0d6adab1469f23ef086847437e9f27c6b6d661c5",
+  "tree": "2011d45d8ce452a1c3833edba446e0c788d0235a",
   "excludedChangedPaths": [
     "packages/zcode-cua/test/computer-op.windows.mjs"
   ],
@@ -26,7 +26,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "a2d183e2207ff16e711a8fb57a09383ad70f7ac6815fdb22389c6dfcc923dde6",
+      "sha256": "140b36d6639e69e0801839f6f13133c457c7edf7668b1d54b5f4e3c60b4aff7e",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -348,6 +348,7 @@
         "apps/zcode-cli/packages/core/src/tool/handlers/task-output.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/websearch-results.ts",
         "apps/zcode-cli/packages/core/src/tool/handlers/websearch.ts",
+        "apps/zcode-cli/packages/core/src/tool/input-validation-model-content.ts",
         "apps/zcode-cli/packages/core/src/tool/types.ts",
         "apps/zcode-cli/packages/core/tests/agent-listing.test.ts",
         "apps/zcode-cli/packages/core/tests/background-task-control.test.ts",
@@ -604,7 +605,7 @@
     {
       "file": "0009-packages-shared.patch",
       "directory": "packages/shared",
-      "sha256": "6d2563e5d1c89d1c622ca2f0bb2a1bd772043ad4d2d03a308d7f2030f3153115",
+      "sha256": "3f8645dca0c1efe577031960c4cdc015dde29e8c52be1ac62e5f6730ad72645b",
       "paths": [
         "packages/shared/src/app-runtime-preferences.ts",
         "packages/shared/src/channels.ts",

@@ -114,7 +114,7 @@ index f57e08e6b27046b7252257c9aee839f224cfc55d..eb67d3a92cc75f67811a5e4c642d24ba
    "bash_output",
 diff --git a/packages/shared/src/god-mode.ts b/packages/shared/src/god-mode.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..87676307226d3cf904e818f1222aeb157cf70169
+index 0000000000000000000000000000000000000000..04ee3326cecf0cd6d7bf9798e53b1d1de111e87f
 --- /dev/null
 +++ b/packages/shared/src/god-mode.ts
 @@ -0,0 +1,117 @@
@@ -173,7 +173,7 @@ index 0000000000000000000000000000000000000000..87676307226d3cf904e818f1222aeb15
 +const COMMON_PROMPT = `你是 ZCode「三省六部」中的专职部门 Agent。用户是最终决策者，协调者负责调度；官职称谓仅用于分工，不赋予额外权限。
 +只处理本次交办事项，遵守用户要求、项目规则和现有审批。部门审核通过不等于用户授权，不能绕过审批、鉴权、沙箱或限流；不得擅自提交、推送、部署或修改真实账号。
 +使用已有工具取得证据；区分已完成、未验证和阻塞，不伪造执行结果。按任务需要工作，不为模仿官制额外制造文书、测试、审核轮次或无关改动。
-+本模式由 GodFlow 状态机强制调度。你只处理分配的一个阶段，调用工具时原样携带任务中的 flowId、revision、assignmentId；角色身份由运行时绑定，不能自称其他部门、跳级、重复提交或修改旧版本。不能使用 Agent、Task、SendMessage、RespondToCoordinator 或通用工作流自行分派和跨级汇报。
++本模式由 GodFlow 状态机强制调度。你只处理分配的一个阶段，仅在 GodFlow submit/review/dispatch/report/finish 中原样携带当前任务的 flowId、revision、assignmentId，不向 Read 等其他工具附加这些字段。查询状态只传 {"action":"status"}，不得附加身份字段、reason 或复制状态返回对象。reason 只用于协调者 retry/cancel；部门报告阻塞使用 report 的 outcome="blocked" 和 content。角色身份由运行时绑定，不能自称其他部门、跳级、重复提交或修改旧版本。不能使用 Agent、Task、SendMessage、RespondToCoordinator 或通用工作流自行分派和跨级汇报。
 +按分配的 kind 使用 GodFlow：太子 intake 与中书 plan 用 submit；门下 review 用 review 明确 approve/reject；尚书 dispatch 用 dispatch 原样派发冻结清单；六部及早朝 execute 用 report；尚书 summarize 与太子 final 用 finish。任何阶段发现实质阻塞用 report outcome=blocked，由协调者重试或取消；重试必须重新规划和审议。
 +只有门下已批准清单中的执行部门可进行变更，其他阶段仅使用只读工具。业务结果必须通过 GodFlow 结构化提交，最终助手文本和技术完成通知不算回报。提交后当前实例失去执行资格，立即结束，不再继续工具操作。
 +输出简洁、可执行的结论：完成内容、必要证据或文件位置、验证情况、遗留问题；有阻塞立即说明。`;
@@ -232,7 +232,7 @@ index 0000000000000000000000000000000000000000..87676307226d3cf904e818f1222aeb15
 +
 +export const GOD_MODE_COORDINATOR_PROMPT = `当前对话已开启「三省六部」严格模式。用户是最终决策者，你是流程协调者，不拥有额外权限。必须使用 GodFlow，不能直接调用 Agent、Task、SendMessage、RespondToCoordinator、TaskOutput、TaskStop 或通用工作流绕过流程，也不能自行执行变更。
 +部门名录：${GOD_DEPARTMENTS.map((entry) => `${entry.agentType}（${entry.name}：${entry.description}）`).join("；")}。
-+用 GodFlow action=start、task=用户完整需求启动唯一活动流程；status 查询当前阶段。系统固定执行太子梳理→中书方案和任务清单→门下 approve/reject→尚书派发批准清单→执行部门 report→尚书汇总→太子最终 finish。不是你逐个调用部门，也不能代门下批准、替部门报告或跳过阶段。六部按批准清单按需选用，早朝官如入选也由尚书派发和收件。
++启动唯一活动流程只传 {"action":"start","task":"用户完整需求"}；查询当前阶段只传 {"action":"status"}。start/status 不接受 flowId、revision、assignmentId、reason 等额外字段，不得直接把 status 返回对象用作调用参数。系统固定执行太子梳理→中书方案和任务清单→门下 approve/reject→尚书派发批准清单→执行部门 report→尚书汇总→太子最终 finish。不是你逐个调用部门，也不能代门下批准、替部门报告或跳过阶段。六部按批准清单按需选用，早朝官如入选也由尚书派发和收件。
 +只有太子最终完成结果才是完整业务交付。技术完成通知不代表流程通过；blocked 时用 GodFlow retry 或 cancel，携带 status 返回的 flowId、revision 和明确 reason。retry 撤销旧实例权限、停止旧执行，并以新版本重新规划审议，不复用旧批准。活动或阻塞流程必须先取消，才能关闭 God 模式。
 +每个部门采用独立配置的模型与提示词；没有指定模型时沿用会话模型。部门审议不是用户授权，原工具权限、审批、项目规则和用户对测试/提交/部署的限制不变。自定义提示词不能改变代码门控，不要擅自修改配置。`;
 diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts

@@ -18875,13 +18875,13 @@ index c5238ff50991cbfe8b63bdb4535be0110613ed92..28cee76c1aaa2a66ced234b64c03762d
     * 基座段（CLI prefix、安全行、Harness、memory）+ 工作流子代理契约 + persona 叠加，
 diff --git a/apps/zcode-cli/packages/core/src/god-flow/controller.ts b/apps/zcode-cli/packages/core/src/god-flow/controller.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9571169b14f6305f4e4d95553d8837d6f79a60a5
+index 0000000000000000000000000000000000000000..5ca51471ca7ef8b64bfc0ff5f27ee7be2cba0d7d
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/god-flow/controller.ts
 @@ -0,0 +1,510 @@
 +import { randomUUID } from "node:crypto";
 +import {
-+  GodFlowInputSchema, godFlowStateSchema,
++  parseGodFlowInput, godFlowStateSchema,
 +  type GodFlowAssignment, type GodFlowCaller, type GodFlowInput, type GodFlowRole, type GodFlowState,
 +} from "./schema.js";
 +
@@ -19071,7 +19071,7 @@ index 0000000000000000000000000000000000000000..9571169b14f6305f4e4d95553d8837d6
 +  }
 +
 +  async handle(raw: GodFlowInput, caller: GodFlowCaller, signal?: AbortSignal): Promise<unknown> {
-+    const input = GodFlowInputSchema.parse(raw);
++    const input = parseGodFlowInput(raw);
 +    signal?.throwIfAborted();
 +    if (input.action === "status") return this.exclusive(async () => this.overview(this.state ?? null, caller));
 +    let affectedFlowId: string | undefined;
@@ -19391,7 +19391,7 @@ index 0000000000000000000000000000000000000000..9571169b14f6305f4e4d95553d8837d6
 +}
 diff --git a/apps/zcode-cli/packages/core/src/god-flow/runtime.ts b/apps/zcode-cli/packages/core/src/god-flow/runtime.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc145011d874bc
+index 0000000000000000000000000000000000000000..4cf046863b3c9d4588628ef5e78d746038617910
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/god-flow/runtime.ts
 @@ -0,0 +1,310 @@
@@ -19403,7 +19403,7 @@ index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc1450
 +import type { AgentRuntimeDeps } from "../runtime/types.js";
 +import { sendMessageToolEntry } from "../tool/handlers/send-message.js";
 +import { GodFlowController } from "./controller.js";
-+import { GodFlowInputJsonSchema, GodFlowInputSchema, type GodFlowAssignment, type GodFlowCaller, type GodFlowRole, type GodFlowState } from "./schema.js";
++import { GodFlowInputJsonSchema, GodFlowInputSchema, parseGodFlowInput, type GodFlowAssignment, type GodFlowCaller, type GodFlowRole, type GodFlowState } from "./schema.js";
 +import { isToolNameDisallowed } from "../tool/tool-visibility.js";
 +import { isTerminalRuntimeTask } from "../runtime-task/registry.js";
 +
@@ -19588,9 +19588,9 @@ index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc1450
 +    const prompt = [
 +      "You are assigned one controlled God flow step. Use GodFlow, not SendMessage or Agent, to submit the structured result.",
 +      "Previous turns are context only, not authorization. The current assignment, flow, revision and permissions supersede all previous instructions and approvals; do not continue an earlier approval or task unless explicitly included in this assignment.",
-+      `Identity (include these exact fields in your GodFlow action): ${JSON.stringify({ flowId: assignment.flowId, revision: assignment.revision, assignmentId: assignment.id })}\nkind: ${assignment.kind}`,
++      `Identity (include these exact fields only in GodFlow submit/review/dispatch/report/finish, never in status or other tools): ${JSON.stringify({ flowId: assignment.flowId, revision: assignment.revision, assignmentId: assignment.id })}\nkind: ${assignment.kind}`,
 +      `Task:\n${assignment.task}`,
-+      "Consult the GodFlow tool schema for the action and required fields. Do not treat an approval as user permission.",
++      'For status use exactly {"action":"status"}. Never copy status output into tool input. Only coordinator retry/cancel accept reason; report blockers with outcome="blocked" and content. Consult the GodFlow schema for other fields. Do not treat an approval as user permission.',
 +    ].join("\n\n");
 +    const startup = new AbortController();
 +    const abort = () => startup.abort(signal?.reason);
@@ -19652,7 +19652,7 @@ index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc1450
 +      ...sendMessageToolEntry.metadata,
 +      name: "GodFlow",
 +      searchHint: "start, review, dispatch and report structured God flow assignments",
-+      description: "Structured God flow: start/status/retry/cancel for the coordinator; submit/review/dispatch/report/finish for the assigned department. Use exact flowId, revision and assignmentId from your assignment. Approval is not user authorization.",
++      description: 'Structured God flow. status takes only {"action":"status"}; coordinator start takes only {"action":"start","task":"..."}. Coordinator retry/cancel require flowId, revision and reason, without assignmentId. Department submit/review/dispatch/report/finish require the exact flowId, revision and assignmentId from the current assignment plus their action-specific fields. Report blockers using outcome="blocked" and content, not reason. Do not copy status output into arguments. Approval is not user authorization.',
 +      shouldDefer: false,
 +      alwaysLoad: true,
 +      allowedInPlanMode: true,
@@ -19683,7 +19683,7 @@ index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc1450
 +    resolveInput: undefined,
 +    resolvePermissionCapability: undefined,
 +    handler: async (input, context) => {
-+      const parsed = GodFlowInputSchema.parse(input);
++      const parsed = parseGodFlowInput(input);
 +      if (caller.agentId && (parsed.action === "report" || parsed.action === "finish") &&
 +        Object.values(runtime.runtimeTaskRegistry.all()).some((task) =>
 +          task.isBackgrounded === true && task.status === "running")) {
@@ -19707,12 +19707,12 @@ index 0000000000000000000000000000000000000000..103d547004f6bd8d5af48135bacc1450
 +}
 diff --git a/apps/zcode-cli/packages/core/src/god-flow/schema.ts b/apps/zcode-cli/packages/core/src/god-flow/schema.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..fad1e16bf08ccc1195556a93319e9d4182d4a65b
+index 0000000000000000000000000000000000000000..cd5d264ad73a58be64c97711e08f45e8989a3679
 --- /dev/null
 +++ b/apps/zcode-cli/packages/core/src/god-flow/schema.ts
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,89 @@
 +import { z } from "zod";
-+import { normalizeToolJsonSchema } from "@zcode/contracts";
++import { CoreErrorType, createCoreError, normalizeToolJsonSchema } from "@zcode/contracts";
 +
 +export const godFlowRoleSchema = z.enum([
 +  "taizi", "zhongshu", "menxia", "shangshu", "hubu", "libu",
@@ -19745,18 +19745,25 @@ index 0000000000000000000000000000000000000000..fad1e16bf08ccc1195556a93319e9d41
 +  z.object({ action: z.literal("cancel"), flowId: id, revision, reason: content }).strict(),
 +]);
 +export type GodFlowInput = z.infer<typeof GodFlowInputSchema>;
-+export const GodFlowInputJsonSchema = normalizeToolJsonSchema(z.toJSONSchema(z.object({
-+  action: z.enum(["status", "start", "submit", "review", "dispatch", "report", "finish", "retry", "cancel"]),
-+  flowId: id.optional(),
-+  revision: revision.optional(),
-+  assignmentId: id.optional(),
-+  task: content.optional(),
-+  content: content.optional(),
-+  tasks: tasks.optional(),
-+  decision: z.enum(["approve", "reject"]).optional(),
-+  outcome: z.enum(["success", "blocked"]).optional(),
-+  reason: content.optional(),
-+}).strict(), { io: "input" }));
++const inputBranches = GodFlowInputSchema.options.map((schema) => z.toJSONSchema(schema, { io: "input" }));
++export const GodFlowInputJsonSchema = normalizeToolJsonSchema({
++  type: "object",
++  properties: {
++    ...Object.assign({}, ...inputBranches.map((schema) => schema.properties)),
++    action: { type: "string", enum: GodFlowInputSchema.options.map((schema) => schema.shape.action.value) },
++  },
++  required: ["action"],
++  additionalProperties: false,
++  oneOf: inputBranches,
++});
++
++export function parseGodFlowInput(input: unknown): GodFlowInput {
++  const parsed = GodFlowInputSchema.safeParse(input);
++  if (parsed.success) return parsed.data;
++  throw createCoreError(CoreErrorType.ToolExecutionFailed,
++    `GodFlow input is invalid. Use only the fields for the selected action. status: {"action":"status"}; start: {"action":"start","task":"..."}; only retry/cancel accept reason.\n${z.prettifyError(parsed.error)}`,
++    { recoverable: true });
++}
 +
 +export const godFlowAssignmentSchema = z.object({
 +  id,
@@ -29931,6 +29938,29 @@ index 1d5bc89503454a7ca28bedca53858e1adb8e4a7f..ac0d8b7408297e8466c142665c7e4e43
  function normalizeStreamError(error: unknown): Error {
    if (error instanceof Error) {
      return error;
+diff --git a/apps/zcode-cli/packages/core/src/tool/input-validation-model-content.ts b/apps/zcode-cli/packages/core/src/tool/input-validation-model-content.ts
+index 84fd9f627430f9834077ac666e2f412974f08017..3d34b95cf1b44691a71b2a4967c174f2fd66c6a8 100644
+--- a/apps/zcode-cli/packages/core/src/tool/input-validation-model-content.ts
++++ b/apps/zcode-cli/packages/core/src/tool/input-validation-model-content.ts
+@@ -4,6 +4,7 @@ import {
+   createInvalidFormatIssue,
+   createTooBigIssue,
+   createTooSmallIssue,
++  createUnrecognizedKeysIssue,
+   type ToolInputValidationIssue,
+   type ToolInputValidationPath,
+ } from "./tool-input-validation-issues.js";
+@@ -237,6 +238,10 @@ function canonicalizeRuntimeOnlyIssue(
+   if (!path || typeof issue.code !== "string") return undefined;
+ 
+   switch (issue.code) {
++    case "unrecognized_keys":
++      return Array.isArray(issue.keys) && issue.keys.every((key): key is string => typeof key === "string")
++        ? createUnrecognizedKeysIssue(issue.keys, path)
++        : undefined;
+     case "custom":
+       return createCustomIssue(readRuntimeIssueMessage(issue), path);
+     case "invalid_string":
 diff --git a/apps/zcode-cli/packages/core/src/tool/types.ts b/apps/zcode-cli/packages/core/src/tool/types.ts
 index 47b7932d95e10dc7a2cafd1ada494fec3f47a0ed..3be799de32fa4aad1bd77d1f3ab6d1c6bb92e9d5 100644
 --- a/apps/zcode-cli/packages/core/src/tool/types.ts
