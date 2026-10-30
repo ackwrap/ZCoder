@@ -1529,7 +1529,7 @@ index 3ea350ae36c2011e79caefc8442ce8beb37ad4d3..f4e543cafbda484467950de03de8acdd
    backgroundBashOutput: "v4/conversation/backgroundBashOutput",
    offPeakControl: "v4/conversation/offPeakControl",
 diff --git a/packages/shared/src/zcode-protocol/index.ts b/packages/shared/src/zcode-protocol/index.ts
-index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0f6967ea1 100644
+index e606fa59fa5992bc11d4b92d63dc20fb291910c4..6387963dce9a5364195e8413b6beebd7d3afc8c5 100644
 --- a/packages/shared/src/zcode-protocol/index.ts
 +++ b/packages/shared/src/zcode-protocol/index.ts
 @@ -41,6 +41,8 @@ import { modelExecutionSchema } from "../model-execution.js";
@@ -1555,7 +1555,37 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0
  });
  export const zcodeProtocolErrorCodes = {
    sessionUnavailable: -32004,
-@@ -2086,9 +2095,18 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
+@@ -1092,6 +1101,29 @@ export const zcodeSessionImportHistorySchema = z.discriminatedUnion("source", [
+       messages: z.array(zcodeSessionImportMessageSchema).min(1),
+     })
+     .strict(),
++  z
++    .object({
++      source: z.literal("zcodeSession"),
++      title: z.string().optional(),
++      createdAt: timestampMsSchema.optional(),
++      updatedAt: timestampMsSchema.optional(),
++      messages: z
++        .array(
++          zcodeSessionImportMessageSchema.extend({
++            content: z.string().refine((content) => content.trim().length > 0, {
++              message: "message content must not be blank",
++            }),
++          }),
++        )
++        .min(1)
++        .max(10_000)
++        .refine(
++          (messages) =>
++            messages.reduce((total, message) => total + message.content.length, 0) <= 16 * 1024 * 1024,
++          { message: "imported message content exceeds 16 Mi characters" },
++        ),
++    })
++    .strict(),
+   z
+     .object({
+       source: z.literal("sharedContext"),
+@@ -2086,9 +2118,18 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
      nativeSearchEnhancementsEnabled: z.boolean(),
      toolSearchMode: appToolSearchModeSchema.default("off"),
      subagentRuntimeConfigEnabled: z.boolean().optional(),
@@ -1574,7 +1604,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0
      // 兼容旧 Host：缺少字段时在协议解析边界使用当前默认策略。
      modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
        DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
-@@ -2678,6 +2696,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
+@@ -2678,6 +2719,39 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
    typeof zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema
  >;
  
@@ -1614,7 +1644,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0
  export const zcodePermissionRequestParamsSchema = z
    .object({
      requestId: nonEmptyString,
-@@ -2790,6 +2841,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
+@@ -2790,6 +2864,7 @@ export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
      modelSelection: modelSelectionSchema,
      providerId: nonEmptyString,
      accountAccess: zcodeProviderAccountAccessSchema.optional(),
@@ -1622,7 +1652,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0
      expectedAccountScope: z
        .string()
        .regex(/^[a-f0-9]{64}$/)
-@@ -2826,6 +2878,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
+@@ -2826,6 +2901,7 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
          .object({
            apiKey: nonEmptyString.optional(),
            apiKeyId: z.string().trim().min(1).optional(),
@@ -1630,7 +1660,7 @@ index e606fa59fa5992bc11d4b92d63dc20fb291910c4..579fe4898821a38b2f341047a80e46a0
            accountScope: z
              .string()
              .regex(/^[a-f0-9]{64}$/)
-@@ -4156,6 +4209,8 @@ export const zcodeProtocolMethods = {
+@@ -4156,6 +4232,8 @@ export const zcodeProtocolMethods = {
    workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",
    // 动态工作流灰度门禁：同 Off-Peak 的同步模式。
    workspaceUpdateDynamicWorkflowPolicy: "workspace/updateDynamicWorkflowPolicy",

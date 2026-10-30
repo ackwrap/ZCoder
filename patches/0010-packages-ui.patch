@@ -799,6 +799,169 @@ index 4b8d21bd3ba0a44398583d9a8039617e37216573..e2580cf56c5edefe50aca0a4d24ae889
          return;
        }
        requestAnimationFrame(() => {
+diff --git a/packages/ui/src/TaskActionMenuContent.tsx b/packages/ui/src/TaskActionMenuContent.tsx
+index 3d78f1a8be5f6fdf9189abaf8478748d29b1960a..23358d3dc9afd72fff23e2082a6bac366bd30280 100644
+--- a/packages/ui/src/TaskActionMenuContent.tsx
++++ b/packages/ui/src/TaskActionMenuContent.tsx
+@@ -10,6 +10,53 @@ interface TaskActionMenuSeparatorProps {
+   key?: string;
+ }
+ 
++export function SessionFileMenuItems({
++  intl,
++  Item,
++  disabled = false,
++  disabledReason,
++  busy = false,
++  onExportSession,
++  onImportSession,
++}: {
++  intl: { formatMessage: (desc: { id: string }) => string };
++  Item: React.ComponentType<TaskActionMenuItemProps>;
++  disabled?: boolean;
++  disabledReason?: string;
++  busy?: boolean;
++  onExportSession: () => void;
++  onImportSession: () => void;
++}) {
++  const unavailable = disabled || busy;
++  const unavailableTitle = disabled
++    ? disabledReason
++    : busy
++      ? intl.formatMessage({ id: "sessionFile.busy" })
++      : undefined;
++  return (
++    <>
++      <Item
++        disabled={unavailable}
++        title={unavailableTitle ?? intl.formatMessage({ id: "sessionFile.exportTitle" })}
++        onSelect={() => {
++          if (!unavailable) onExportSession();
++        }}
++      >
++        {intl.formatMessage({ id: "sessionFile.export" })}
++      </Item>
++      <Item
++        disabled={unavailable}
++        title={unavailableTitle ?? intl.formatMessage({ id: "sessionFile.importTitle" })}
++        onSelect={() => {
++          if (!unavailable) onImportSession();
++        }}
++      >
++        {intl.formatMessage({ id: "sessionFile.import" })}
++      </Item>
++    </>
++  );
++}
++
+ export function TaskActionMenuContent({
+   intl,
+   isPinned,
+@@ -38,6 +85,9 @@ export function TaskActionMenuContent({
+   onCopySessionId,
+   onViewModelTrajectory,
+   onOpenProviderConfig,
++  onExportSession,
++  onImportSession,
++  sessionFileBusy = false,
+ }: {
+   intl: {
+     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
+@@ -72,6 +122,9 @@ export function TaskActionMenuContent({
+   onCopySessionId?: () => void;
+   onViewModelTrajectory?: () => void;
+   onOpenProviderConfig: () => void;
++  onExportSession?: () => void;
++  onImportSession?: () => void;
++  sessionFileBusy?: boolean;
+ }) {
+   const taskTargetActionsDisabled = disableTaskActions || disableTaskTargetActions;
+ 
+@@ -122,6 +175,20 @@ export function TaskActionMenuContent({
+         {intl.formatMessage({ id: "taskList.markAsUnread" })}
+       </Item>
+       <Separator />
++      {onExportSession && onImportSession ? (
++        <>
++          <SessionFileMenuItems
++            intl={intl}
++            Item={Item}
++            disabled={taskTargetActionsDisabled}
++            disabledReason={disabledReason}
++            busy={sessionFileBusy}
++            onExportSession={onExportSession}
++            onImportSession={onImportSession}
++          />
++          <Separator />
++        </>
++      ) : null}
+       {!hideMobileUnsupportedActions ? (
+         <Item
+           disabled={disableTaskActions}
+diff --git a/packages/ui/src/TaskListItem.tsx b/packages/ui/src/TaskListItem.tsx
+index 69be23b75e30cc4b09dab72da4fd2bdbb0feb526..539fc318aea2af5903642a2b1e203e62829e3b99 100644
+--- a/packages/ui/src/TaskListItem.tsx
++++ b/packages/ui/src/TaskListItem.tsx
+@@ -868,11 +868,15 @@ export function TaskListItemContextMenuContent({
+     handleCopyText,
+     handleOpenTaskPathInFileManager,
+     handleOpenProviderConfig,
++    handleExportSession,
++    handleImportSession,
++    sessionFileBusy,
+   } = useTaskListItemContextActions({
+     workspacePath,
+     remoteSessionId,
+     workspaceIdentity: task.workspaceIdentity,
+     taskId: task.taskId,
++    title: task.title,
+     provider: task.provider,
+     intl,
+     // row 级菜单已收敛为列表级单例，只有菜单真正打开时才挂载此组件。
+@@ -933,6 +937,9 @@ export function TaskListItemContextMenuContent({
+       activeSessionId={task.taskId}
+       taskNativeSessionLogFile={taskNativeSessionLogFile}
+       providerConfigFile={providerConfigFile}
++      onExportSession={() => void handleExportSession()}
++      onImportSession={handleImportSession}
++      sessionFileBusy={sessionFileBusy}
+       disableTaskActions={workspaceActionsDisabled}
+       disabledReason={workspaceActionsDisabledReason}
+       onTogglePinTask={() => {
+diff --git a/packages/ui/src/TaskListItemContextMenu.tsx b/packages/ui/src/TaskListItemContextMenu.tsx
+index 797ad9834a656d4ff1dcf8bbde6c248389d64bde..9ccdb1b37817b8e3f002cb379ac91b62631bf1d3 100644
+--- a/packages/ui/src/TaskListItemContextMenu.tsx
++++ b/packages/ui/src/TaskListItemContextMenu.tsx
+@@ -27,6 +27,9 @@ export function TaskListItemContextMenu({
+   onCopySessionId,
+   onViewModelTrajectory,
+   onOpenProviderConfig,
++  onExportSession,
++  onImportSession,
++  sessionFileBusy,
+   disableTaskActions = false,
+   disabledReason,
+ }: {
+@@ -57,6 +60,9 @@ export function TaskListItemContextMenu({
+   onCopySessionId?: () => void;
+   onViewModelTrajectory?: () => void;
+   onOpenProviderConfig: () => void;
++  onExportSession: () => void;
++  onImportSession: () => void;
++  sessionFileBusy: boolean;
+   disableTaskActions?: boolean;
+   disabledReason?: string;
+ }) {
+@@ -86,6 +92,9 @@ export function TaskListItemContextMenu({
+         onCopySessionId={onCopySessionId}
+         onViewModelTrajectory={onViewModelTrajectory}
+         onOpenProviderConfig={onOpenProviderConfig}
++        onExportSession={onExportSession}
++        onImportSession={onImportSession}
++        sessionFileBusy={sessionFileBusy}
+         disableTaskActions={disableTaskActions}
+         disabledReason={disabledReason}
+       />
 diff --git a/packages/ui/src/ToolCallBlocks.tsx b/packages/ui/src/ToolCallBlocks.tsx
 index dcde82cc62378adfe042c22017859ff826394fcf..5861f4e5549a1b84a4f2f608169f01fc8128598f 100644
 --- a/packages/ui/src/ToolCallBlocks.tsx
@@ -2084,6 +2247,37 @@ index 1b5ee26cad2ea5199147ca916a49ceb848c554e6..9dde0ac434681c7c59ead51f305bd8b4
            toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
            simplifyForNarrowRemote={simplifyForNarrowRemote}
            hideHelpMenu={false}
+diff --git a/packages/ui/src/WorkspaceHeaderSections.tsx b/packages/ui/src/WorkspaceHeaderSections.tsx
+index a0a93bcb1a3d1bd0b71641762725017e7d9202b7..822ddf28e57fd21544889c67c0b4d33e4ae70499 100644
+--- a/packages/ui/src/WorkspaceHeaderSections.tsx
++++ b/packages/ui/src/WorkspaceHeaderSections.tsx
+@@ -190,11 +190,15 @@ export function WorkspaceHeaderTitleSection({
+     handleCopyText,
+     handleOpenTaskPathInFileManager,
+     handleOpenProviderConfig,
++    handleExportSession,
++    handleImportSession,
++    sessionFileBusy,
+   } = useTaskListItemContextActions({
+     workspacePath: workspaceAbsPath,
+     remoteSessionId,
+     workspaceIdentity,
+-    taskId: activeTaskId ?? "",
++    taskId: resolvedTaskActionTaskId ?? "",
++    title: activeTaskMeta?.title ?? activeTaskTitle ?? undefined,
+     // 任务日志查询与 Header 当前展示态使用同一个 provider。
+     provider: menuTaskProvider,
+     intl,
+@@ -599,6 +603,9 @@ export function WorkspaceHeaderTitleSection({
+                 activeSessionId={activeSessionId}
+                 taskNativeSessionLogFile={taskNativeSessionLogFile}
+                 providerConfigFile={providerConfigFile}
++                onExportSession={() => void handleExportSession()}
++                onImportSession={handleImportSession}
++                sessionFileBusy={sessionFileBusy}
+                 disableTaskTargetActions={disableTaskTargetActions || taskMenuMembershipLoading}
+                 disableTaskActions={Boolean(readOnlyReason)}
+                 disabledReason={readOnlyReason}
 diff --git a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx b/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
 index 433b3b9897f11404ce4cfe5212ea7b18b0ade373..183f635343cae40bad45ae6251f6295f37ca167b 100644
 --- a/packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx
@@ -5841,6 +6035,148 @@ index b91251439a6e2fb3ec25c6ef668a62a461b8e58f..91af5610ff781299544e87b5f578c404
      handleOpenWorkflowActorSession,
      handleOpenWorkflowWorkspace,
      handleOpenWorkflowArtifact,
+diff --git a/packages/ui/src/hooks/useSessionFileActions.ts b/packages/ui/src/hooks/useSessionFileActions.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..011dc525df46fb5f6b7412ace4853f4369013064
+--- /dev/null
++++ b/packages/ui/src/hooks/useSessionFileActions.ts
+@@ -0,0 +1,136 @@
++import { useCallback, useSyncExternalStore } from "react";
++import { toast } from "@/components/ui/toast.js";
++import { usePlatform } from "@/hooks/usePlatform.js";
++import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
++import { useZCodeIntl } from "@/i18n/IntlProvider.js";
++import { ensureAgentV4ConnectionHandshake } from "@/v4/agentV4ConnectionHandshake.js";
++import {
++  buildSessionFile,
++  parseSessionFile,
++  SESSION_FILE_MAX_BYTES,
++  SessionFileError,
++  sessionFileName,
++} from "@/lib/sessionFile.js";
++
++// 菜单会在选择操作后卸载，文件对话框和互斥状态必须独立于菜单实例。
++const busyWorkspaces = new Set<string>();
++const listeners = new Set<() => void>();
++function subscribe(listener: () => void) {
++  listeners.add(listener);
++  return () => { listeners.delete(listener); };
++}
++function setBusy(key: string, busy: boolean) {
++  if (busy) busyWorkspaces.add(key);
++  else busyWorkspaces.delete(key);
++  for (const listener of listeners) listener();
++}
++
++export function useSessionFileActions({
++  workspacePath,
++  workspaceIdentity,
++  remoteSessionId,
++  taskId,
++  title,
++}: {
++  workspacePath: string;
++  workspaceIdentity?: string;
++  remoteSessionId?: string;
++  taskId: string;
++  title?: string;
++}) {
++  const services = useWorkspaceServices(workspacePath, remoteSessionId, workspaceIdentity);
++  const platform = usePlatform();
++  const { intl } = useZCodeIntl();
++  const key = JSON.stringify([workspacePath, workspaceIdentity ?? "", remoteSessionId ?? ""]);
++  const sessionFileBusy = useSyncExternalStore(subscribe, () => busyWorkspaces.has(key), () => false);
++  const showFailure = useCallback((error: unknown, fallback: string) => {
++    toast(intl.formatMessage({ id: error instanceof SessionFileError ? `sessionFile.${error.reason}` : fallback }));
++  }, [intl]);
++
++  const handleExportSession = useCallback(async () => {
++    if (busyWorkspaces.has(key)) {
++      toast(intl.formatMessage({ id: "sessionFile.busy" }));
++      return;
++    }
++    setBusy(key, true);
++    try {
++      await ensureAgentV4ConnectionHandshake(services.zcodeAgentService);
++      const text = await buildSessionFile((page) => services.zcodeAgentService.conversationRowsRangeV4({
++        workspacePath,
++        workspaceIdentity,
++        remoteSessionId,
++        sessionId: taskId,
++        ...page,
++      }), title);
++      const suggestedName = sessionFileName(title);
++      if (platform.saveFile) {
++        const result = await platform.saveFile({ data: new TextEncoder().encode(text).buffer, suggestedName });
++        if (result.canceled) return;
++        if (!result.success) throw new Error("save_failed");
++      } else {
++        const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
++        const link = document.createElement("a");
++        link.href = url;
++        link.download = suggestedName;
++        document.body.appendChild(link);
++        try { link.click(); } finally {
++          link.remove();
++          setTimeout(() => URL.revokeObjectURL(url), 30_000);
++        }
++      }
++      toast(intl.formatMessage({ id: "sessionFile.exportSuccess" }));
++    } catch (error) {
++      showFailure(error, "sessionFile.exportFailed");
++    } finally {
++      setBusy(key, false);
++    }
++  }, [intl, key, platform, remoteSessionId, services, showFailure, taskId, title, workspaceIdentity, workspacePath]);
++
++  const handleImportSession = useCallback(() => {
++    if (busyWorkspaces.has(key)) {
++      toast(intl.formatMessage({ id: "sessionFile.busy" }));
++      return;
++    }
++    setBusy(key, true);
++    const input = document.createElement("input");
++    input.type = "file";
++    input.accept = ".zcode-session.json,.json,application/json";
++    input.hidden = true;
++    const cleanup = () => {
++      input.remove();
++      setBusy(key, false);
++    };
++    input.addEventListener("cancel", cleanup, { once: true });
++    input.addEventListener("change", () => {
++      const file = input.files?.[0];
++      if (!file) { cleanup(); return; }
++      void (async () => {
++        try {
++          if (file.size > SESSION_FILE_MAX_BYTES) throw new SessionFileError("tooLarge");
++          const importedHistory = parseSessionFile(await file.text());
++          await services.zcodeSessionService.createSession({
++            workspacePath,
++            workspaceIdentity,
++            remoteSessionId,
++            persistence: "immediate",
++            importedHistory,
++          });
++          toast(intl.formatMessage({ id: "sessionFile.importSuccess" }));
++        } catch (error) {
++          showFailure(error, "sessionFile.importFailed");
++        } finally {
++          cleanup();
++        }
++      })();
++    }, { once: true });
++    try {
++      document.body.appendChild(input);
++      input.click();
++    } catch (error) {
++      cleanup();
++      showFailure(error, "sessionFile.importFailed");
++    }
++  }, [intl, key, remoteSessionId, services, showFailure, workspaceIdentity, workspacePath]);
++
++  return { handleExportSession, handleImportSession, sessionFileBusy };
++}
 diff --git a/packages/ui/src/hooks/useSessionSubagents.ts b/packages/ui/src/hooks/useSessionSubagents.ts
 index 2cfe3a251a64481e0fe38ea337e2a3d44b183039..b3162f42d00c76aeed7fe9253e311338b175c26a 100644
 --- a/packages/ui/src/hooks/useSessionSubagents.ts
@@ -6795,7 +7131,7 @@ index 0000000000000000000000000000000000000000..63ce025b10b067048c733731e1a86a45
 +  "sidePane.god.zaochao": "Zaochao",
 +};
 diff --git a/packages/ui/src/i18n/locales/en-US.ts b/packages/ui/src/i18n/locales/en-US.ts
-index c703f29dacbf53946f84e535a5752422fd8d585f..a0d20813955ac74033fa089079040489e6804336 100644
+index c703f29dacbf53946f84e535a5752422fd8d585f..dcd763b96b1a73317ccadf8611539ae932481a48 100644
 --- a/packages/ui/src/i18n/locales/en-US.ts
 +++ b/packages/ui/src/i18n/locales/en-US.ts
 @@ -1,6 +1,16 @@
@@ -6833,7 +7169,27 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..a0d20813955ac74033fa089079040489
    "subagentDirectory.status.running": "Running",
    "subagentDirectory.status.waiting": "Waiting",
    "subagentDirectory.status.blocked": "Blocked",
-@@ -4558,8 +4572,6 @@ const enUS: Record<string, string> = {
+@@ -2907,6 +2921,19 @@ const enUS: Record<string, string> = {
+   "taskList.markAsUnreadFailed": "Could not mark task as unread",
+   "taskList.feedback": "Report issue",
+   "taskList.viewModelTrajectory": "View model trajectory",
++  "sessionFile.export": "Export conversation…",
++  "sessionFile.import": "Import conversation…",
++  "sessionFile.exportTitle": "Export this conversation's user and assistant text as JSON, excluding tool activity, attachments, and other content.",
++  "sessionFile.importTitle": "Import user and assistant text from JSON exported by this feature into a new conversation in this project, without overwriting existing conversations. Tool activity, attachments, and other content are excluded.",
++  "sessionFile.exportSuccess": "Conversation exported",
++  "sessionFile.importSuccess": "A new conversation was imported into this project",
++  "sessionFile.exportFailed": "Could not export conversation",
++  "sessionFile.importFailed": "Could not import conversation",
++  "sessionFile.invalidFile": "Invalid conversation file",
++  "sessionFile.tooLarge": "Limit exceeded: 16 MiB per file, 10,000 text messages, or 100,000 history records scanned during export (including tool records)",
++  "sessionFile.emptySession": "There is no user or assistant text to export",
++  "sessionFile.busy": "A conversation file operation is in progress",
++  "sessionFile.changed": "Conversation changed during export. Stop generation and try again.",
+   "taskList.feedbackOpened": "Feedback opened with the current task context attached",
+   "taskList.untitled": "New task",
+   "taskList.justNow": "now",
+@@ -4558,8 +4585,6 @@ const enUS: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "Not configured",
    "sidebar.usage.summaryTitle": "Last 30 days",
    "sidebar.usage.plan.title": "Usage remaining",
@@ -6842,7 +7198,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..a0d20813955ac74033fa089079040489
    "sidebar.usage.plan.codingPlanTitle": "Coding Plan",
    "sidebar.usage.plan.audienceIndividual": "Individual",
    "sidebar.usage.plan.audienceTeam": "Team",
-@@ -6937,6 +6949,7 @@ const enUS: Record<string, string> = {
+@@ -6937,6 +6962,7 @@ const enUS: Record<string, string> = {
    "chat.error.action.relogin": "Sign in again",
    "chat.error.action.refreshQuota": "Refresh quota",
    "chat.error.action.switchModel": "Switch model",
@@ -6851,7 +7207,7 @@ index c703f29dacbf53946f84e535a5752422fd8d585f..a0d20813955ac74033fa089079040489
    "chat.error.copyTraceId": "Copy TraceID",
    "chat.error.copyFull": "Copy",
 diff --git a/packages/ui/src/i18n/locales/zh-CN.ts b/packages/ui/src/i18n/locales/zh-CN.ts
-index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9baead47a84c977a8853e22b851a01adecd89c6c 100644
+index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..2992f4032bb25085af94dd0fc66ff80079d3cc95 100644
 --- a/packages/ui/src/i18n/locales/zh-CN.ts
 +++ b/packages/ui/src/i18n/locales/zh-CN.ts
 @@ -1,6 +1,16 @@
@@ -6889,7 +7245,27 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9baead47a84c977a8853e22b851a01ad
    "subagentDirectory.status.running": "运行中",
    "subagentDirectory.status.waiting": "等待中",
    "subagentDirectory.status.blocked": "已阻塞",
-@@ -4281,8 +4295,6 @@ const zhCN: Record<string, string> = {
+@@ -2716,6 +2730,19 @@ const zhCN: Record<string, string> = {
+   "taskList.markAsUnreadFailed": "标记未读失败",
+   "taskList.feedback": "反馈问题",
+   "taskList.viewModelTrajectory": "查看调用轨迹",
++  "sessionFile.export": "导出会话…",
++  "sessionFile.import": "导入会话…",
++  "sessionFile.exportTitle": "将当前会话的用户和助手对话正文导出为 JSON，不含工具执行、附件等内容。",
++  "sessionFile.importTitle": "将本功能导出的 JSON 中的用户和助手对话正文导入到当前项目的新会话，不覆盖已有会话，不含工具执行、附件等内容。",
++  "sessionFile.exportSuccess": "会话导出成功",
++  "sessionFile.importSuccess": "已在当前项目新建导入的会话",
++  "sessionFile.exportFailed": "导出会话失败",
++  "sessionFile.importFailed": "导入会话失败",
++  "sessionFile.invalidFile": "会话文件格式无效",
++  "sessionFile.tooLarge": "超出上限：文件 16 MiB、正文 10000 条，或导出分页扫描的历史记录 100000 条（包括工具记录）",
++  "sessionFile.emptySession": "会话没有可导出的用户或助手正文",
++  "sessionFile.busy": "会话文件操作正在进行",
++  "sessionFile.changed": "会话导出期间发生变化，请停止生成后重试。",
+   "taskList.feedbackOpened": "已打开反馈，并自动带上当前任务信息",
+   "taskList.untitled": "新任务",
+   "taskList.justNow": "刚刚",
+@@ -4281,8 +4308,6 @@ const zhCN: Record<string, string> = {
    "settings.usage.entitlementStatusNotConfigured": "未配置",
    "sidebar.usage.summaryTitle": "最近 30 天",
    "sidebar.usage.plan.title": "剩余额度",
@@ -6898,7 +7274,7 @@ index 5be5b8a3797cae22acd0103b02a1339b19ee10ff..9baead47a84c977a8853e22b851a01ad
    "sidebar.usage.plan.codingPlanTitle": "编程套餐",
    "sidebar.usage.plan.audienceIndividual": "个人",
    "sidebar.usage.plan.audienceTeam": "团队",
-@@ -6601,6 +6613,7 @@ const zhCN: Record<string, string> = {
+@@ -6601,6 +6626,7 @@ const zhCN: Record<string, string> = {
    "chat.error.action.relogin": "重新登录",
    "chat.error.action.refreshQuota": "刷新额度",
    "chat.error.action.switchModel": "切换模型",
@@ -7052,6 +7428,110 @@ index cd9673fba0915597ef780a080bf6cdde7484925e..d749ae49bb4005061923b7df34a9698c
    key: string,
    create: () => Promise<string>,
  ): Promise<string> {
+diff --git a/packages/ui/src/lib/sessionFile.ts b/packages/ui/src/lib/sessionFile.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..338764803a70ce01dab3049e93fbff04ffcf4ae6
+--- /dev/null
++++ b/packages/ui/src/lib/sessionFile.ts
+@@ -0,0 +1,98 @@
++import { z } from "zod";
++import { zcodeSessionImportHistorySchema, type ZCodeSessionImportMessage } from "@zcode/shared";
++import { PROTOCOL_V4_LIMITS, type V4ConversationRowsRangeResult } from "@zcode/shared/zcode-protocol-v4";
++import { collectTranscriptEntries } from "@/v4/slash-commands/transcript.js";
++
++export const SESSION_FILE_MAX_BYTES = 16 * 1024 * 1024;
++const MAX_MESSAGES = 10_000;
++const MAX_ROWS = 100_000;
++
++const sessionFileSchema = z.object({
++  format: z.literal("zcode-session"),
++  version: z.literal(1),
++  exportedAt: z.number().int().nonnegative(),
++  history: zcodeSessionImportHistorySchema,
++}).strict();
++
++export class SessionFileError extends Error {
++  constructor(readonly reason: "invalidFile" | "tooLarge" | "emptySession" | "changed") {
++    super(reason);
++  }
++}
++
++export function parseSessionFile(text: string) {
++  if (new TextEncoder().encode(text).byteLength > SESSION_FILE_MAX_BYTES) {
++    throw new SessionFileError("tooLarge");
++  }
++  let value: unknown;
++  try {
++    value = JSON.parse(text.replace(/^\uFEFF/u, ""));
++  } catch {
++    throw new SessionFileError("invalidFile");
++  }
++  const parsed = sessionFileSchema.safeParse(value);
++  if (!parsed.success || parsed.data.history.source !== "zcodeSession") {
++    throw new SessionFileError("invalidFile");
++  }
++  return parsed.data.history;
++}
++
++export async function buildSessionFile(
++  readPage: (params: { beforeRowId?: number; limit: number }) => Promise<V4ConversationRowsRangeResult>,
++  title?: string,
++): Promise<string> {
++  const pages: ZCodeSessionImportMessage[][] = [];
++  let beforeRowId: number | undefined;
++  let watermark: Pick<V4ConversationRowsRangeResult, "atLogEpoch" | "atRevision" | "atSeq"> | undefined;
++  let rowCount = 0;
++  let messageCount = 0;
++  let bytes = 0;
++  const encoder = new TextEncoder();
++  while (true) {
++    const page = await readPage({ beforeRowId, limit: PROTOCOL_V4_LIMITS.rowsRangeMaxLimit });
++    if (watermark && (watermark.atLogEpoch !== page.atLogEpoch ||
++      watermark.atRevision !== page.atRevision || watermark.atSeq !== page.atSeq)) {
++      throw new SessionFileError("changed");
++    }
++    watermark = { atLogEpoch: page.atLogEpoch, atRevision: page.atRevision, atSeq: page.atSeq };
++    let previousRowId = -Infinity;
++    for (const row of page.rows) {
++      if (row.rowId <= previousRowId || (beforeRowId !== undefined && row.rowId >= beforeRowId)) {
++        throw new SessionFileError("changed");
++      }
++      previousRowId = row.rowId;
++    }
++    rowCount += page.rows.length;
++    const messages = page.rows.flatMap((row) => collectTranscriptEntries([row]).map((entry) => ({
++      role: entry.role,
++      content: entry.text,
++      timestamp: row.createdAt,
++    })));
++    messageCount += messages.length;
++    bytes += encoder.encode(JSON.stringify(messages)).byteLength;
++    if (rowCount > MAX_ROWS || messageCount > MAX_MESSAGES || bytes > SESSION_FILE_MAX_BYTES) {
++      throw new SessionFileError("tooLarge");
++    }
++    pages.push(messages);
++    if (!page.hasMore) break;
++    const firstRowId = page.rows[0]?.rowId;
++    if (firstRowId === undefined || firstRowId === beforeRowId) throw new SessionFileError("changed");
++    beforeRowId = firstRowId;
++  }
++  const messages = pages.reverse().flat();
++  if (messages.length === 0) throw new SessionFileError("emptySession");
++  const text = JSON.stringify({
++    format: "zcode-session",
++    version: 1,
++    exportedAt: Date.now(),
++    history: { source: "zcodeSession", ...(title?.trim() ? { title: title.trim() } : {}), messages },
++  }, null, 2);
++  parseSessionFile(text);
++  return text;
++}
++
++export function sessionFileName(title?: string): string {
++  const name = (title?.trim() || "conversation").replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_")
++    .replace(/[. ]+$/u, "").slice(0, 80);
++  return `zcode-${name || "conversation"}.zcode-session.json`;
++}
 diff --git a/packages/ui/src/lib/settingsNavigation.ts b/packages/ui/src/lib/settingsNavigation.ts
 index 637dcfa5f47cd90bff2897653bfae916169d4e0d..2612fb006e012ab433acea17353b8db5ec4fa736 100644
 --- a/packages/ui/src/lib/settingsNavigation.ts
@@ -7680,6 +8160,83 @@ index 5705f781f00d0923d586c330e00a01bb5c4f41ad..f9e97a258ef13e43a48d39f959fbee7f
        onScroll={onScroll}
        scrollContainerRef={scrollContainerRef}
      />
+diff --git a/packages/ui/src/project-sidebar/grouped/task-context-menu-content.tsx b/packages/ui/src/project-sidebar/grouped/task-context-menu-content.tsx
+index 941f183c29c52bc8b03d5e9ba78319331f410b3c..614f04e5434fec5b06b13728bf70c2bd34bf1717 100644
+--- a/packages/ui/src/project-sidebar/grouped/task-context-menu-content.tsx
++++ b/packages/ui/src/project-sidebar/grouped/task-context-menu-content.tsx
+@@ -1,4 +1,5 @@
+ import { SidebarNativeTooltip } from "@/ControlHintTooltip.js";
++import { SessionFileMenuItems } from "@/TaskActionMenuContent.js";
+ import type { ProjectTask as ZCodeTaskMeta } from "@/project-sidebar/contract.js";
+ 
+ import {
+@@ -30,6 +31,9 @@ export function GroupedTaskContextMenuContent({
+   onCopyText,
+   onOpenProviderConfig,
+   onOpenTaskFeedback,
++  onExportSession,
++  onImportSession,
++  sessionFileBusy,
+   disabledReason,
+ }: {
+   task: ZCodeTaskMeta;
+@@ -51,6 +55,9 @@ export function GroupedTaskContextMenuContent({
+   onCopyText: (label: string, text: string | null) => void;
+   onOpenProviderConfig: () => void;
+   onOpenTaskFeedback: () => void;
++  onExportSession: () => void;
++  onImportSession: () => void;
++  sessionFileBusy: boolean;
+   disabledReason?: string;
+ }) {
+   return (
+@@ -154,6 +161,16 @@ export function GroupedTaskContextMenuContent({
+         </ContextMenuItem>
+       </SidebarNativeTooltip>
+       <ContextMenuSeparator />
++      <SessionFileMenuItems
++        intl={intl}
++        Item={ContextMenuItem}
++        disabled={Boolean(disabledReason)}
++        disabledReason={disabledReason}
++        busy={sessionFileBusy}
++        onExportSession={onExportSession}
++        onImportSession={onImportSession}
++      />
++      <ContextMenuSeparator />
+       <SidebarNativeTooltip>
+         <ContextMenuItem
+           disabled={Boolean(disabledReason)}
+diff --git a/packages/ui/src/project-sidebar/grouped/task-row.tsx b/packages/ui/src/project-sidebar/grouped/task-row.tsx
+index 7eec4d38196dfa855821c0b48470695cc33b6ebb..8a877290d328ebd5b810654bada260f7505bb4ca 100644
+--- a/packages/ui/src/project-sidebar/grouped/task-row.tsx
++++ b/packages/ui/src/project-sidebar/grouped/task-row.tsx
+@@ -253,11 +253,15 @@ function GroupedTaskRowComponent({
+     handleCopyText,
+     handleOpenTaskPathInFileManager,
+     handleOpenProviderConfig,
++    handleExportSession,
++    handleImportSession,
++    sessionFileBusy,
+   } = useTaskListItemContextActions({
+     workspacePath: task.workspacePath,
+     remoteSessionId,
+     workspaceIdentity: task.workspaceIdentity,
+     taskId: task.taskId,
++    title: task.title,
+     provider: task.provider,
+     intl,
+     loadTaskPaths: contextMenuOpen,
+@@ -520,6 +524,9 @@ function GroupedTaskRowComponent({
+           onCopyText={(label, text) => void handleCopyText(label, text)}
+           onOpenProviderConfig={() => void handleOpenProviderConfig()}
+           onOpenTaskFeedback={() => void handleOpenTaskFeedback()}
++          onExportSession={() => void handleExportSession()}
++          onImportSession={handleImportSession}
++          sessionFileBusy={sessionFileBusy}
+           disabledReason={workspaceActionsDisabledReason}
+         />
+       ) : null}
 diff --git a/packages/ui/src/project-sidebar/index.tsx b/packages/ui/src/project-sidebar/index.tsx
 index ac83de395db20471bf978cc7753fc779d91bb91f..091e8e56596e7c43cd278c0a3d12f5ba94e677dd 100644
 --- a/packages/ui/src/project-sidebar/index.tsx
@@ -14746,6 +15303,66 @@ index 0000000000000000000000000000000000000000..b516fef26772a7cba2858a5889fbbe0f
 +  id: "tool-live-expansion-ui",
 +  layer: "ui",
 +} as const;
+diff --git a/packages/ui/src/useTaskListItemContextActions.ts b/packages/ui/src/useTaskListItemContextActions.ts
+index 76123c12a0f40b1aba8750a2e192bf4f73a119bb..0a469f0a2a383e8c1c4d34105cd07cd4766fad6b 100644
+--- a/packages/ui/src/useTaskListItemContextActions.ts
++++ b/packages/ui/src/useTaskListItemContextActions.ts
+@@ -1,6 +1,7 @@
+ import type { ZCodeProvider } from "@zcode/shared";
+ import { useCallback } from "react";
+ import { usePlatform } from "@/hooks/usePlatform.js";
++import { useSessionFileActions } from "@/hooks/useSessionFileActions.js";
+ import { useTaskNativeSessionLogFile } from "@/hooks/useTaskNativeSessionLogFile.js";
+ import { useTaskSessionFilePath } from "@/hooks/useTaskSessionFilePath.js";
+ import { useWorkspaceProviderConfigFile } from "@/hooks/useWorkspaceProviderConfigFile.js";
+@@ -23,6 +24,9 @@ interface TaskListItemContextActionsResult {
+   handleCopyText: (label: string, value: string | null) => Promise<void>;
+   handleOpenTaskPathInFileManager: () => Promise<void>;
+   handleOpenProviderConfig: () => Promise<void>;
++  handleExportSession: () => Promise<void>;
++  handleImportSession: () => void;
++  sessionFileBusy: boolean;
+ }
+ 
+ export function resolveProviderConfigOpenTargetPath(
+@@ -63,6 +67,7 @@ export function useTaskListItemContextActions({
+   remoteSessionId,
+   workspaceIdentity,
+   taskId,
++  title,
+   provider,
+   intl,
+   loadTaskPaths = true,
+@@ -72,6 +77,7 @@ export function useTaskListItemContextActions({
+   remoteSessionId?: string;
+   workspaceIdentity?: string;
+   taskId: string;
++  title?: string;
+   provider?: ZCodeProvider;
+   intl: {
+     formatMessage: (
+@@ -83,6 +89,13 @@ export function useTaskListItemContextActions({
+   loadProviderConfig?: boolean;
+ }): TaskListItemContextActionsResult {
+   const platform = usePlatform();
++  const sessionFileActions = useSessionFileActions({
++    workspacePath,
++    workspaceIdentity,
++    remoteSessionId,
++    taskId,
++    title,
++  });
+   const workspaceOpenTarget = useWorkspaceOpenInEditorTarget({
+     workspacePath,
+     workspaceIdentity,
+@@ -269,6 +282,7 @@ export function useTaskListItemContextActions({
+     handleCopyText,
+     handleOpenTaskPathInFileManager,
+     handleOpenProviderConfig,
++    ...sessionFileActions,
+   };
+ }
+ 
 diff --git a/packages/ui/src/v4/CompactResultMarker.tsx b/packages/ui/src/v4/CompactResultMarker.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..cc4d5b6a4cd55cbe3bdad395e480a2c3628d3a28

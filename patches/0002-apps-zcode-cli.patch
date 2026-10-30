@@ -12269,7 +12269,7 @@ index 45d3a016b3ec6b2330f8ccd1f8864a6135992cfb..c5abcce5c4d1319f5112a0f3130f8e9d
              ...(input.expectedAccountScope
                ? { expectedAccountScope: input.expectedAccountScope }
 diff --git a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
-index 8ad2b295513baf95b4d7b7b5c16499599f37828e..db90edaf89e134faf9b938a4327bdb201c44a270 100644
+index 8ad2b295513baf95b4d7b7b5c16499599f37828e..ba269745c6e54043728f72976ec61e4a8ae8cba5 100644
 --- a/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
 +++ b/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts
 @@ -1,10 +1,12 @@
@@ -12302,6 +12302,21 @@ index 8ad2b295513baf95b4d7b7b5c16499599f37828e..db90edaf89e134faf9b938a4327bdb20
    resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
  }
  
+@@ -1041,12 +1046,12 @@ async function persistImportedSessionHistory(params: {
+   const now = Date.now();
+   const createdAt =
+     importedHistory.createdAt ??
+-    (importedHistory.source === "claudeCode"
++    (importedHistory.source !== "sharedContext"
+       ? importedHistory.messages[0]?.timestamp
+       : undefined) ??
+     now;
+   const updatedAt =
+-    importedHistory.source === "claudeCode"
++    importedHistory.source !== "sharedContext"
+       ? (importedHistory.updatedAt ?? importedHistory.messages.at(-1)?.timestamp ?? createdAt)
+       : createdAt;
+   // 历史导入不执行模型；未绑定时保留消息内容，不能要求当前选择或伪造消息来源。
 @@ -1800,6 +1805,20 @@ export async function listSessionSubagents(
      ? await liveParent.eventStore.getEvents(parentSession.id).catch(() => [])
      : [];

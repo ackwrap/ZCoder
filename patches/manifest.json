@@ -5,8 +5,8 @@
     "ref": "refs/heads/main",
     "commit": "3c5b227649371507ddc4eb46ac5133afe6db1cab"
   },
-  "sourceHead": "0d6adab1469f23ef086847437e9f27c6b6d661c5",
-  "tree": "2011d45d8ce452a1c3833edba446e0c788d0235a",
+  "sourceHead": "49bd2ccf647b619bb77dc72c8685eb503784af34",
+  "tree": "4ca6c7d61f24364e70ec65be503685ec275ebb3e",
   "excludedChangedPaths": [
     "packages/zcode-cua/test/computer-op.windows.mjs"
   ],
@@ -26,7 +26,7 @@
     {
       "file": "0002-apps-zcode-cli.patch",
       "directory": "apps/zcode-cli",
-      "sha256": "140b36d6639e69e0801839f6f13133c457c7edf7668b1d54b5f4e3c60b4aff7e",
+      "sha256": "b58642d156433ef13ac20db41fd202ea64d44d7968094cc221b8065cefd2480f",
       "paths": [
         "apps/zcode-cli/docs/design/v2/compact/long-tool-turn-tail.md",
         "apps/zcode-cli/docs/design/v2/llm/codex-provider.md",
@@ -605,7 +605,7 @@
     {
       "file": "0009-packages-shared.patch",
       "directory": "packages/shared",
-      "sha256": "3f8645dca0c1efe577031960c4cdc015dde29e8c52be1ac62e5f6730ad72645b",
+      "sha256": "d085a6d37d342fdf7e36b6b4f05c21b8853b951be9f6ada1b0baa97caf34b40a",
       "paths": [
         "packages/shared/src/app-runtime-preferences.ts",
         "packages/shared/src/channels.ts",
@@ -654,7 +654,7 @@
     {
       "file": "0010-packages-ui.patch",
       "directory": "packages/ui",
-      "sha256": "bb9e9437d4c16a5b29ed205d85834867a9a1c35b21af4f941f9e0ed2c56272e6",
+      "sha256": "8420b6dfe783ccb0484f81e90ebc7d29779afefede42e72106a0686328d00f68",
       "paths": [
         "packages/ui/src/App.tsx",
         "packages/ui/src/McpStatusDialog.tsx",
@@ -662,6 +662,9 @@
         "packages/ui/src/Root.tsx",
         "packages/ui/src/SettingsPage.tsx",
         "packages/ui/src/SlashCommandPlugin.tsx",
+        "packages/ui/src/TaskActionMenuContent.tsx",
+        "packages/ui/src/TaskListItem.tsx",
+        "packages/ui/src/TaskListItemContextMenu.tsx",
         "packages/ui/src/ToolCallBlocks.tsx",
         "packages/ui/src/ToolCallBlocks/ToolLayout.tsx",
         "packages/ui/src/ToolCallBlocks/ToolPresentation.tsx",
@@ -683,6 +686,7 @@
         "packages/ui/src/ToolCallBlocks/renderers/task-output.tsx",
         "packages/ui/src/ToolCallBlocks/toolResultDisplay.ts",
         "packages/ui/src/WorkspaceHeader.tsx",
+        "packages/ui/src/WorkspaceHeaderSections.tsx",
         "packages/ui/src/WorkspaceHeaderSections/WorkspaceHeaderActionSection.tsx",
         "packages/ui/src/WorkspaceHeaderSections/shared.ts",
         "packages/ui/src/WorkspaceHeaderSections/subagent-directory/CONTRACT.md",
@@ -726,6 +730,7 @@
         "packages/ui/src/components/ui/code-viewer.tsx",
         "packages/ui/src/hooks/provider-model-discovery/index.ts",
         "packages/ui/src/hooks/useAppPanels.ts",
+        "packages/ui/src/hooks/useSessionFileActions.ts",
         "packages/ui/src/hooks/useSessionSubagents.ts",
         "packages/ui/src/hooks/useSettingService.ts",
         "packages/ui/src/hooks/useToolPresentationHostCapabilities.ts",
@@ -746,10 +751,13 @@
         "packages/ui/src/lib/mcpStatusCommand.ts",
         "packages/ui/src/lib/promptInputTriggers.ts",
         "packages/ui/src/lib/selectionSideChatRuntime.ts",
+        "packages/ui/src/lib/sessionFile.ts",
         "packages/ui/src/lib/settingsNavigation.ts",
         "packages/ui/src/lib/workspaceSidePane.ts",
         "packages/ui/src/previewPaneCodeContent.tsx",
         "packages/ui/src/previewPaneContent.tsx",
+        "packages/ui/src/project-sidebar/grouped/task-context-menu-content.tsx",
+        "packages/ui/src/project-sidebar/grouped/task-row.tsx",
         "packages/ui/src/project-sidebar/index.tsx",
         "packages/ui/src/provider-model-discovery/CONTRACT.md",
         "packages/ui/src/provider-model-discovery/ProviderModelDiscoveryPanel.tsx",
@@ -837,6 +845,7 @@
         "packages/ui/src/tool-live-expansion/contract.test.ts",
         "packages/ui/src/tool-live-expansion/contract.ts",
         "packages/ui/src/tool-live-expansion/module.ts",
+        "packages/ui/src/useTaskListItemContextActions.ts",
         "packages/ui/src/v4/CompactResultMarker.tsx",
         "packages/ui/src/v4/ContextSourceUpdateNotice.tsx",
         "packages/ui/src/v4/ConversationComposer.tsx",
